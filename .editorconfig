@@ -1,0 +1,21 @@
+# 统一编辑器行为的根配置。
+# 格式化工具（oxfmt）和 Go 工具链各有自己的规则，这里只做基础对齐。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Go 官方格式使用制表符缩进，由 gofmt 维护。
+[*.go]
+indent_style = tab
+
+# 前端与文档使用 2 空格缩进，与 frontend/.oxfmtrc.json 保持一致。
+[{*.ts,*.vue,*.js,*.json,*.jsonc,*.css,*.md}]
+indent_style = space
+indent_size = 2
+
+[Makefile]
+indent_style = tab

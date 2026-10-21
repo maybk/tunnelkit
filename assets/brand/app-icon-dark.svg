@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>TunnelKit 纵深圆环隧道：深空钴蓝深色底</title>
+  <desc>TunnelKit 应用图标深色版本，1024x1024 满幅圆角无四周留白，以三层 3D 透视钴蓝隧道圆环与居中贯穿的极光翠绿信号流构成纵深加密通道。</desc>
+
+  <defs>
+    <!-- 深空曜石蓝背景 -->
+    <linearGradient id="background" x1="128" y1="64" x2="896" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172844"/>
+      <stop offset="0.52" stop-color="#0C1526"/>
+      <stop offset="1" stop-color="#060B14"/>
+    </linearGradient>
+
+    <!-- 隧道中心环境辉光 -->
+    <radialGradient id="tunnel-glow" cx="520" cy="504" r="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#10B981" stop-opacity=".32"/>
+      <stop offset="0.5" stop-color="#2563EB" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#060B14" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 近景第一层大环：前拱冰川亮银蓝 -> 后拱深海钴蓝 -->
+    <linearGradient id="ring-outer" x1="56" y1="-40" x2="-290" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="0.3" stop-color="#60A5FA"/>
+      <stop offset="0.62" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#152C6B"/>
+    </linearGradient>
+
+    <!-- 中景第二层环：前拱亮天蓝 -> 后拱深钴蓝 -->
+    <linearGradient id="ring-mid" x1="152" y1="-35" x2="-136" y2="35" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E0F2FE"/>
+      <stop offset="0.34" stop-color="#3B82F6"/>
+      <stop offset="0.66" stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#112255"/>
+    </linearGradient>
+
+    <!-- 远景第三层环：前拱电光青蓝 -> 后拱暗夜靛蓝 -->
+    <linearGradient id="ring-inner" x1="236" y1="-30" x2="20" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#93C5FD"/>
+      <stop offset="0.38" stop-color="#2563EB"/>
+      <stop offset="0.7" stop-color="#1E3A8A"/>
+      <stop offset="1" stop-color="#0D1B42"/>
+    </linearGradient>
+
+    <!-- 贯穿三层圆环的极光翠绿加密数据流 -->
+    <linearGradient id="emerald-stream" x1="-312" y1="0" x2="288" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#064E3B"/>
+      <stop offset="0.2" stop-color="#059669"/>
+      <stop offset="0.56" stop-color="#10B981"/>
+      <stop offset="0.82" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#ECFDF5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 1024x1024 满幅圆角背景（四周 0 留白） -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#background)"/>
+  <circle cx="520" cy="504" r="440" fill="url(#tunnel-glow)"/>
+
+  <!-- 3D 纵深圆环隧道 -->
+  <g transform="translate(524 500) rotate(-42) scale(1.16)">
+    <path fill-rule="evenodd" clip-rule="evenodd"
+          d="M 128 -202 A 108 202 0 1 0 128 202 A 108 202 0 1 0 128 -202 Z
+             M 120 -140 A 66 140 0 1 1 120 140 A 66 140 0 1 1 120 -140 Z"
+          fill="url(#ring-inner)"/>
+
+    <path fill-rule="evenodd" clip-rule="evenodd"
+          d="M 8 -254 A 136 254 0 1 0 8 254 A 136 254 0 1 0 8 -254 Z
+             M 0 -184 A 86 184 0 1 1 0 184 A 86 184 0 1 1 0 -184 Z"
+          fill="url(#ring-mid)"/>
+
+    <path fill-rule="evenodd" clip-rule="evenodd"
+          d="M -118 -312 A 166 312 0 1 0 -118 312 A 166 312 0 1 0 -118 -312 Z
+             M -126 -232 A 108 232 0 1 1 -126 232 A 108 232 0 1 1 -126 -232 Z"
+          fill="url(#ring-outer)"/>
+
+    <path d="M -256 -56
+             L 248 -40
+             A 40 40 0 1 1 248 40
+             L -256 56
+             A 56 56 0 0 1 -256 -56 Z"
+          fill="url(#emerald-stream)"/>
+
+    <path d="M 128 -202 A 108 202 0 0 1 128 202 L 120 140 A 66 140 0 0 0 120 -140 Z"
+          fill="url(#ring-inner)"/>
+    <path d="M 8 -254 A 136 254 0 0 1 8 254 L 0 184 A 86 184 0 0 0 0 -184 Z"
+          fill="url(#ring-mid)"/>
+    <path d="M -118 -312 A 166 312 0 0 1 -118 312 L -126 232 A 108 232 0 0 0 -126 -232 Z"
+          fill="url(#ring-outer)"/>
+  </g>
+</svg>

@@ -1,0 +1,9 @@
+.DS_Store
+.task
+bin
+node_modules
+frontend/dist
+frontend/node_modules
+frontend/.eslintcache
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe

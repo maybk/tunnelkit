@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>TunnelKit 纵深圆环隧道：macOS 菜单栏模板图标</title>
+  <desc>直接由 app-icon-light.svg 同比例转换的菜单栏模板图标，整体微缩为 81.25%（对应 64×64 中的 52×52），完整保留 app-icon-light.svg 的白边与内部元素比例及柔和层次。</desc>
+
+  <defs>
+    <!-- 近景第一层大环灰度明度渐变（映射自 app-icon-light.svg #1D4ED8 -> #93C5FD） -->
+    <linearGradient id="ring-outer-mask" x1="56" y1="-40" x2="-290" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1A1A1A"/>
+      <stop offset="0.35" stop-color="#292929"/>
+      <stop offset="0.7" stop-color="#6E6E6E"/>
+      <stop offset="1" stop-color="#A8A8A8"/>
+    </linearGradient>
+
+    <!-- 中景第二层环灰度明度渐变（映射自 #2563EB -> #A5C8FF） -->
+    <linearGradient id="ring-mid-mask" x1="152" y1="-35" x2="-136" y2="35" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#292929"/>
+      <stop offset="0.38" stop-color="#424242"/>
+      <stop offset="0.72" stop-color="#6E6E6E"/>
+      <stop offset="1" stop-color="#B8B8B8"/>
+    </linearGradient>
+
+    <!-- 远景第三层环灰度明度渐变（映射自 #3B82F6 -> #BFDBFE） -->
+    <linearGradient id="ring-inner-mask" x1="236" y1="-30" x2="20" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#424242"/>
+      <stop offset="0.42" stop-color="#6E6E6E"/>
+      <stop offset="0.75" stop-color="#A8A8A8"/>
+      <stop offset="1" stop-color="#CCCCCC"/>
+    </linearGradient>
+
+    <!-- 中心穿环数据流灰度明度渐变（映射自 #6EE7B7 -> #059669） -->
+    <linearGradient id="stream-mask" x1="-312" y1="0" x2="288" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8A8A8A"/>
+      <stop offset="0.3" stop-color="#5C5C5C"/>
+      <stop offset="0.68" stop-color="#383838"/>
+      <stop offset="1" stop-color="#242424"/>
+    </linearGradient>
+
+    <!-- 100% 复用 app-icon-light.svg 的内部几何与白边比例 -->
+    <mask id="app-icon-light-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect x="0" y="0" width="1024" height="1024" rx="228" fill="#FFFFFF"/>
+      <g transform="translate(524 500) rotate(-42) scale(1.16)">
+        <path fill-rule="evenodd" clip-rule="evenodd"
+              d="M 128 -202 A 108 202 0 1 0 128 202 A 108 202 0 1 0 128 -202 Z
+                 M 120 -140 A 66 140 0 1 1 120 140 A 66 140 0 1 1 120 -140 Z"
+              fill="url(#ring-inner-mask)"/>
+        <path fill-rule="evenodd" clip-rule="evenodd"
+              d="M 8 -254 A 136 254 0 1 0 8 254 A 136 254 0 1 0 8 -254 Z
+                 M 0 -184 A 86 184 0 1 1 0 184 A 86 184 0 1 1 0 -184 Z"
+              fill="url(#ring-mid-mask)"/>
+        <path fill-rule="evenodd" clip-rule="evenodd"
+              d="M -118 -312 A 166 312 0 1 0 -118 312 A 166 312 0 1 0 -118 -312 Z
+                 M -126 -232 A 108 232 0 1 1 -126 232 A 108 232 0 1 1 -126 -232 Z"
+              fill="url(#ring-outer-mask)"/>
+        <path d="M -256 -56
+                 L 248 -40
+                 A 40 40 0 1 1 248 40
+                 L -256 56
+                 A 56 56 0 0 1 -256 -56 Z"
+              fill="url(#stream-mask)"/>
+        <path d="M 128 -202 A 108 202 0 0 1 128 202 L 120 140 A 66 140 0 0 0 120 -140 Z"
+              fill="url(#ring-inner-mask)"/>
+        <path d="M 8 -254 A 136 254 0 0 1 8 254 L 0 184 A 86 184 0 0 0 0 -184 Z"
+              fill="url(#ring-mid-mask)"/>
+        <path d="M -118 -312 A 166 312 0 0 1 -118 312 L -126 232 A 108 232 0 0 0 -126 -232 Z"
+              fill="url(#ring-outer-mask)"/>
+      </g>
+    </mask>
+  </defs>
+
+  <!-- 整体居中缩放至 81.25%（对应 64×64 中的 52×52，比上一版 56×56 略收一圈） -->
+  <g transform="translate(96 96) scale(0.8125)">
+    <rect x="0" y="0" width="1024" height="1024" rx="228" fill="#000000" mask="url(#app-icon-light-mask)"/>
+  </g>
+</svg>

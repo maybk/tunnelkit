@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>TunnelKit 纵深圆环隧道：冰川极昼浅色底</title>
+  <desc>TunnelKit 应用图标浅色主版本，1024x1024 满幅圆角无四周留白，采用白底空气透视衬托三层 3D 钴蓝隧道圆环与极光翠绿穿环数据流。</desc>
+
+  <defs>
+    <!-- 纯净瓷白 -> 极浅冷灰蓝底板 -->
+    <linearGradient id="background" x1="128" y1="64" x2="896" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.62" stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#EEF4FF"/>
+    </linearGradient>
+
+    <!-- 浅色中心环境柔光 -->
+    <radialGradient id="tunnel-glow" cx="520" cy="504" r="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#10B981" stop-opacity=".12"/>
+      <stop offset="0.52" stop-color="#3B82F6" stop-opacity=".1"/>
+      <stop offset="1" stop-color="#EEF4FF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 近景第一层大环（白底空气透视：前拱高饱和皇家钴蓝 -> 后拱柔和冰川蓝） -->
+    <linearGradient id="ring-outer" x1="56" y1="-40" x2="-290" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1D4ED8"/>
+      <stop offset="0.35" stop-color="#2563EB"/>
+      <stop offset="0.7" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#93C5FD"/>
+    </linearGradient>
+
+    <!-- 中景第二层环（前拱亮钴蓝 -> 后拱清透天蓝） -->
+    <linearGradient id="ring-mid" x1="152" y1="-35" x2="-136" y2="35" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="0.38" stop-color="#3B82F6"/>
+      <stop offset="0.72" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#A5C8FF"/>
+    </linearGradient>
+
+    <!-- 远景第三层环（前拱电光蓝 -> 后拱雾感浅蓝） -->
+    <linearGradient id="ring-inner" x1="236" y1="-30" x2="20" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3B82F6"/>
+      <stop offset="0.42" stop-color="#60A5FA"/>
+      <stop offset="0.75" stop-color="#93C5FD"/>
+      <stop offset="1" stop-color="#BFDBFE"/>
+    </linearGradient>
+
+    <!-- 贯穿三层圆环的极光翠绿数据流（尾柔头浓：左下清透薄荷绿 -> 右上清澈翡翠绿核心） -->
+    <linearGradient id="emerald-stream" x1="-312" y1="0" x2="288" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6EE7B7"/>
+      <stop offset="0.3" stop-color="#34D399"/>
+      <stop offset="0.68" stop-color="#10B981"/>
+      <stop offset="1" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 1024x1024 满幅圆角背景（四周 0 留白，彻底消除边缘空隙） -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#background)"/>
+  <rect x="2" y="2" width="1020" height="1020" rx="226" fill="none" stroke="#0F172A" stroke-opacity=".05" stroke-width="4"/>
+  <circle cx="520" cy="504" r="440" fill="url(#tunnel-glow)"/>
+
+  <!-- 3D 纵深圆环隧道 -->
+  <g transform="translate(524 500) rotate(-42) scale(1.16)">
+    <!-- 1. 三层椭圆环底层（后拱位于极光翠绿光束后方，按远 -> 中 -> 近顺序叠放） -->
+    <path fill-rule="evenodd" clip-rule="evenodd"
+          d="M 128 -202 A 108 202 0 1 0 128 202 A 108 202 0 1 0 128 -202 Z
+             M 120 -140 A 66 140 0 1 1 120 140 A 66 140 0 1 1 120 -140 Z"
+          fill="url(#ring-inner)"/>
+
+    <path fill-rule="evenodd" clip-rule="evenodd"
+          d="M 8 -254 A 136 254 0 1 0 8 254 A 136 254 0 1 0 8 -254 Z
+             M 0 -184 A 86 184 0 1 1 0 184 A 86 184 0 1 1 0 -184 Z"
+          fill="url(#ring-mid)"/>
+
+    <path fill-rule="evenodd" clip-rule="evenodd"
+          d="M -118 -312 A 166 312 0 1 0 -118 312 A 166 312 0 1 0 -118 -312 Z
+             M -126 -232 A 108 232 0 1 1 -126 232 A 108 232 0 1 1 -126 -232 Z"
+          fill="url(#ring-outer)"/>
+
+    <!-- 2. 居中贯穿三道圆环的【极光翠绿透视数据流 + 连通核心】 -->
+    <path d="M -256 -56
+             L 248 -40
+             A 40 40 0 1 1 248 40
+             L -256 56
+             A 56 56 0 0 1 -256 -56 Z"
+          fill="url(#emerald-stream)"/>
+
+    <!-- 3. 三层圆环的【前拱高饱和钴蓝壁】 -->
+    <path d="M 128 -202 A 108 202 0 0 1 128 202 L 120 140 A 66 140 0 0 0 120 -140 Z"
+          fill="url(#ring-inner)"/>
+    <path d="M 8 -254 A 136 254 0 0 1 8 254 L 0 184 A 86 184 0 0 0 0 -184 Z"
+          fill="url(#ring-mid)"/>
+    <path d="M -118 -312 A 166 312 0 0 1 -118 312 L -126 232 A 108 232 0 0 0 -126 -232 Z"
+          fill="url(#ring-outer)"/>
+  </g>
+</svg>

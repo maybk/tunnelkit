@@ -1,0 +1,259 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn-vue/tailwind.css';
+
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+:root {
+  color-scheme: light dark;
+  --radius: 0.625rem;
+
+  /* Desktop Chrome 集中几何契约（基于标准 1rem = 16px：高度 52px 对齐 macOS Unified Toolbar 交通灯垂直中心 y=26~27px，左侧安全区 92px 避让 x=20~85px 交通灯） */
+  --desktop-chrome-height: 3.25rem;
+  --desktop-chrome-macos-leading-inset: 5.75rem;
+  --desktop-chrome-min-drag-width: 6rem;
+
+  /* 浅色模式：采用 macOS 原生冷灰画布 + 纯白浮起卡片 */
+  --background: oklch(0.968 0.005 252);
+  --foreground: oklch(0.185 0.02 256);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.185 0.02 256);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.185 0.02 256);
+
+  --primary: oklch(0.485 0.16 256);
+  --primary-foreground: oklch(1 0 0);
+
+  --secondary: oklch(0.935 0.008 252);
+  --secondary-foreground: oklch(0.24 0.022 256);
+
+  --muted: oklch(0.94 0.007 252);
+  --muted-foreground: oklch(0.49 0.022 256);
+
+  --accent: oklch(0.92 0.012 252);
+  --accent-foreground: oklch(0.2 0.022 256);
+
+  --destructive: oklch(0.55 0.195 25);
+  --destructive-foreground: oklch(1 0 0);
+
+  --border: oklch(0.895 0.008 252);
+  --input: oklch(0.875 0.01 252);
+  --ring: oklch(0.485 0.16 256);
+
+  --sidebar: oklch(0.942 0.007 252);
+  --sidebar-foreground: oklch(0.22 0.02 256);
+  --sidebar-accent: oklch(1 0 0);
+  --sidebar-border: oklch(0.885 0.008 252);
+
+  --status-ok: oklch(0.62 0.175 152);
+  --status-busy: oklch(0.7 0.16 72);
+  --status-danger: oklch(0.55 0.195 25);
+  --status-idle: oklch(0.6 0.018 256);
+
+  /* 透明多层阴影替代生硬实线边框 */
+  --shadow-card:
+    0px 0px 0px 1px oklch(0 0 0 / 0.055), 0px 1px 2px -1px oklch(0 0 0 / 0.05),
+    0px 3px 8px -2px oklch(0 0 0 / 0.04);
+  --shadow-card-hover:
+    0px 0px 0px 1px oklch(0 0 0 / 0.085), 0px 2px 4px -1px oklch(0 0 0 / 0.06),
+    0px 6px 14px -3px oklch(0 0 0 / 0.05);
+  --shadow-control: 0px 1px 2px 0px oklch(0 0 0 / 0.04);
+
+  --app-font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Inter', 'PingFang SC',
+    system-ui, sans-serif;
+  --app-font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, Monaco, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.175 0.014 258);
+    --foreground: oklch(0.945 0.008 250);
+
+    --card: oklch(0.218 0.016 258);
+    --card-foreground: oklch(0.945 0.008 250);
+
+    --popover: oklch(0.235 0.018 258);
+    --popover-foreground: oklch(0.945 0.008 250);
+
+    --primary: oklch(0.61 0.165 255);
+    --primary-foreground: oklch(1 0 0);
+
+    --secondary: oklch(0.265 0.018 258);
+    --secondary-foreground: oklch(0.93 0.01 250);
+
+    --muted: oklch(0.245 0.015 258);
+    --muted-foreground: oklch(0.67 0.02 252);
+
+    --accent: oklch(0.275 0.02 258);
+    --accent-foreground: oklch(0.95 0.008 250);
+
+    --destructive: oklch(0.64 0.19 25);
+    --destructive-foreground: oklch(1 0 0);
+
+    --border: oklch(1 0 0 / 0.085);
+    --input: oklch(1 0 0 / 0.12);
+    --ring: oklch(0.61 0.165 255);
+
+    --sidebar: oklch(0.148 0.013 258);
+    --sidebar-foreground: oklch(0.92 0.008 250);
+    --sidebar-accent: oklch(0.228 0.017 258);
+    --sidebar-border: oklch(1 0 0 / 0.075);
+
+    --status-ok: oklch(0.7 0.165 152);
+    --status-busy: oklch(0.77 0.15 74);
+    --status-danger: oklch(0.65 0.2 26);
+    --status-idle: oklch(0.55 0.018 255);
+
+    --shadow-card: 0px 0px 0px 1px oklch(1 0 0 / 0.08), 0px 4px 12px -2px oklch(0 0 0 / 0.32);
+    --shadow-card-hover: 0px 0px 0px 1px oklch(1 0 0 / 0.13), 0px 6px 16px -2px oklch(0 0 0 / 0.42);
+    --shadow-control: 0px 1px 2px 0px oklch(0 0 0 / 0.25);
+  }
+}
+
+@theme inline {
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-status-ok: var(--status-ok);
+  --color-status-busy: var(--status-busy);
+  --color-status-danger: var(--status-danger);
+  --color-status-idle: var(--status-idle);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 2px);
+
+  --text-caption: 12px;
+  --text-body: 13.5px;
+  --text-title: 15px;
+  --text-heading: 18px;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html,
+  body,
+  #app {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* 保持 html 默认 16px 根字号，确保所有 Tailwind rem 单位与 Desktop Chrome 像素契约 1:1 精确映射 */
+  html {
+    background: var(--background);
+    font-family: var(--app-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    font-size: var(--text-body);
+    line-height: 1.5;
+    user-select: none;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* 移除数字输入框右侧突兀的原生上下微调箭头 */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+
+  button,
+  input,
+  textarea,
+  select,
+  a {
+    -webkit-user-drag: none;
+  }
+
+  input,
+  textarea,
+  code,
+  pre {
+    user-select: text;
+  }
+}
+
+@layer utilities {
+  .app-drag-region {
+    --wails-draggable: drag;
+    -webkit-app-region: drag;
+  }
+
+  .app-no-drag {
+    --wails-draggable: no-drag;
+    -webkit-app-region: no-drag;
+  }
+
+  .surface-card {
+    background-color: var(--card);
+    color: var(--card-foreground);
+    box-shadow: var(--shadow-card);
+  }
+
+  .surface-card-interactive {
+    background-color: var(--card);
+    color: var(--card-foreground);
+    box-shadow: var(--shadow-card);
+    transition-property: box-shadow, background-color, transform;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+
+  .surface-card-interactive:hover {
+    box-shadow: var(--shadow-card-hover);
+  }
+}

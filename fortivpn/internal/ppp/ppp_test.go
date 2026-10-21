@@ -110,6 +110,52 @@ func TestClientServerHandshakeAndEcho(t *testing.T) {
 	}
 }
 
+func TestServerSessionResendsLCPOnClientRetransmit(t *testing.T) {
+	var client *Session
+	var server *ServerSession
+	upCh := make(chan struct{}, 1)
+
+	cfg := DefaultFSMConfig()
+	cfg.RestartInterval = 15 * time.Millisecond
+
+	client = NewSession(Events{
+		Send: func(frame []byte) {
+			go server.Input(append([]byte(nil), frame...))
+		},
+		NetworkUp: func(IPConfig, int, string, string) {
+			select {
+			case upCh <- struct{}{}:
+			default:
+			}
+		},
+	}, cfg)
+
+	dropFirstServerFrame := true
+	server = NewServerSession(ServerConfig{
+		ClientIP: netip.MustParseAddr("10.212.0.10"),
+		ServerIP: netip.MustParseAddr("169.254.2.1"),
+		MRU:      1400,
+	}, ServerEvents{
+		Send: func(frame []byte) {
+			if dropFirstServerFrame {
+				dropFirstServerFrame = false
+				return
+			}
+			go client.Input(append([]byte(nil), frame...))
+		},
+	})
+
+	server.Start() // Initial server LCP Configure-Request is dropped.
+	client.Start()
+	defer client.Close()
+
+	select {
+	case <-upCh:
+	case <-time.After(time.Second):
+		t.Fatal("PPP session did not recover when initial server LCP Configure-Request was dropped")
+	}
+}
+
 func TestFSMTimeoutAndProtocolReject(t *testing.T) {
 	var sent [][]byte
 	var finishedErr error

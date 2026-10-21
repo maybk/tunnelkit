@@ -86,9 +86,8 @@ jobs:
           fi
 
           config_version="$(sed -n 's/^[[:space:]]*version:[[:space:]]*"\([^"]*\)".*/\1/p' build/config.yml | head -n 1)"
-          app_go_version="$(sed -n 's/^[[:space:]]*Version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' internal/app/app.go | head -n 1)"
-          if [[ ! "$config_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "$config_version" != "$app_go_version" ]; then
-            echo "Invalid or mismatched application version: config=${config_version:-<missing>}, app.go=${app_go_version:-<missing>}" >&2
+          if [[ ! "$config_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid application version in build/config.yml: ${config_version:-<missing>}" >&2
             exit 1
           fi
           app_version="$config_version"

@@ -72,6 +72,11 @@ if grep -Fq 'GITHUB_SHA' "$rolling_workflow"; then
   exit 1
 fi
 
+if grep -Fq 'app_go_version' "$rolling_workflow"; then
+  echo "Rolling workflow must read application version solely from build/config.yml"
+  exit 1
+fi
+
 if ! grep -Fq "github.event_name == 'workflow_dispatch'" "$rolling_workflow" ||
   ! grep -Fq "github.ref == 'refs/heads/main'" "$rolling_workflow"; then
   echo "manual Rolling runs must execute CI and only accept the current main branch"

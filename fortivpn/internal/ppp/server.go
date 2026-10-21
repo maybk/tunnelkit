@@ -136,12 +136,16 @@ func (s *ServerSession) handleLCPLocked(payload []byte) {
 			})
 			return
 		}
+		alreadyRemoteOpen := s.lcpRemoteOpen
 		s.sendLocked(ProtocolLCP, Packet{
 			Code: CodeConfigureAck,
 			ID:   pkt.ID,
 			Body: pkt.Body,
 		})
 		s.lcpRemoteOpen = true
+		if alreadyRemoteOpen && !s.lcpLocalOpen {
+			s.sendLCPConfigReqLocked()
+		}
 		s.maybeLCPUpLocked()
 	case CodeConfigureAck:
 		if pkt.ID == s.lcpReqID {

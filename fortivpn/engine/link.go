@@ -69,6 +69,7 @@ func newLink(sess *session, tconn *sslvpn.TunnelConn) *link {
 }
 
 func (l *link) start() {
+	l.pppSess.Start()
 	l.ioWg.Add(2)
 	go func() {
 		defer l.ioWg.Done()
@@ -82,7 +83,6 @@ func (l *link) start() {
 			l.reportIOErr(err)
 		}
 	}()
-	l.pppSess.Start()
 }
 
 func (l *link) waitNegotiated(ctx context.Context, timeout time.Duration) (negotiatedPPP, error) {

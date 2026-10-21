@@ -111,16 +111,23 @@ func TestClientServerHandshakeAndEcho(t *testing.T) {
 }
 
 func TestServerSessionResendsLCPOnClientRetransmit(t *testing.T) {
-	var client *Session
-	var server *ServerSession
+	toServerCh := make(chan []byte, 32)
+	toClientCh := make(chan []byte, 32)
+	doneCh := make(chan struct{})
+	defer close(doneCh)
+
 	upCh := make(chan struct{}, 1)
 
 	cfg := DefaultFSMConfig()
 	cfg.RestartInterval = 15 * time.Millisecond
 
-	client = NewSession(Events{
+	client := NewSession(Events{
 		Send: func(frame []byte) {
-			go server.Input(append([]byte(nil), frame...))
+			cp := append([]byte(nil), frame...)
+			select {
+			case toServerCh <- cp:
+			case <-doneCh:
+			}
 		},
 		NetworkUp: func(IPConfig, int, string, string) {
 			select {
@@ -131,7 +138,7 @@ func TestServerSessionResendsLCPOnClientRetransmit(t *testing.T) {
 	}, cfg)
 
 	dropFirstServerFrame := true
-	server = NewServerSession(ServerConfig{
+	server := NewServerSession(ServerConfig{
 		ClientIP: netip.MustParseAddr("10.212.0.10"),
 		ServerIP: netip.MustParseAddr("169.254.2.1"),
 		MRU:      1400,
@@ -141,9 +148,34 @@ func TestServerSessionResendsLCPOnClientRetransmit(t *testing.T) {
 				dropFirstServerFrame = false
 				return
 			}
-			go client.Input(append([]byte(nil), frame...))
+			cp := append([]byte(nil), frame...)
+			select {
+			case toClientCh <- cp:
+			case <-doneCh:
+			}
 		},
 	})
+
+	go func() {
+		for {
+			select {
+			case f := <-toServerCh:
+				server.Input(f)
+			case <-doneCh:
+				return
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case f := <-toClientCh:
+				client.Input(f)
+			case <-doneCh:
+				return
+			}
+		}
+	}()
 
 	server.Start() // Initial server LCP Configure-Request is dropped.
 	client.Start()

@@ -231,12 +231,16 @@ func (s *ServerSession) handleIPCPLocked(payload []byte) {
 			})
 			return
 		}
+		alreadyRemoteOpen := s.ipcpRemoteOpen
 		s.sendLocked(ProtocolIPCP, Packet{
 			Code: CodeConfigureAck,
 			ID:   pkt.ID,
 			Body: pkt.Body,
 		})
 		s.ipcpRemoteOpen = true
+		if alreadyRemoteOpen && !s.ipcpLocalOpen {
+			s.sendIPCPConfigReqLocked()
+		}
 		s.maybeIPCPUpLocked()
 	case CodeConfigureAck:
 		if pkt.ID == s.ipcpReqID {

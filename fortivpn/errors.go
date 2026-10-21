@@ -43,6 +43,9 @@ func (e *Error) Error() string {
 		return fmt.Sprintf("fortivpn [%s:%s]: %s", e.Code, e.Field, e.Detail)
 	}
 	if e.Detail != "" {
+		if e.Cause != nil && e.Detail != e.Cause.Error() {
+			return fmt.Sprintf("fortivpn [%s]: %s: %v", e.Code, e.Detail, e.Cause)
+		}
 		return fmt.Sprintf("fortivpn [%s]: %s", e.Code, e.Detail)
 	}
 	if e.Cause != nil {

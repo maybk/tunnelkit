@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,13 +37,27 @@ func (l *link) enqueueControl(frame []byte) {
 	}
 }
 
-// enqueueData pushes an encapsulated IPv4 PPP frame onto dataCh, dropping the
-// packet if the outbound queue is full (matching OS network interface semantics).
+// shouldDropOutboundIPv4 filters non-routable local IPv4 noise (multicast,
+// broadcast, link-local, loopback, and unspecified destinations).
+func shouldDropOutboundIPv4(pkt []byte) bool {
+	if len(pkt) < 20 {
+		return true
+	}
+	dst := netip.AddrFrom4([4]byte{pkt[16], pkt[17], pkt[18], pkt[19]})
+	if !dst.IsValid() || dst.IsUnspecified() || dst.IsLoopback() || dst.IsMulticast() || dst.IsLinkLocalUnicast() {
+		return true
+	}
+	return dst == netip.AddrFrom4([4]byte{255, 255, 255, 255})
+}
+
+// enqueueData pushes an encapsulated IPv4 PPP frame onto dataCh, dropping
+// non-IPv4/noise packets or on congestion.
 func (l *link) enqueueData(ipPkt []byte) {
-	if len(ipPkt) == 0 {
+	trimmed, ok := ppp.TrimToIPv4(ipPkt)
+	if !ok || shouldDropOutboundIPv4(trimmed) {
 		return
 	}
-	frame := ppp.EncapsulateIP(ipPkt)
+	frame := ppp.EncapsulateIP(trimmed)
 	select {
 	case l.dataCh <- frame:
 	case <-l.doneCh:

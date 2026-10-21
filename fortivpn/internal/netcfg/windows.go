@@ -69,22 +69,173 @@ func Recover(ctx context.Context, journalPath string) error {
 	return errors.Join(errs...)
 }
 
+type windowsAdapterOps interface {
+	disableIPv6(luid winipcfg.LUID)
+	flushTunnelRoutes(luid winipcfg.LUID) error
+	configureIPv4Interface(luid winipcfg.LUID, mtu int) error
+	setIPv4Address(luid winipcfg.LUID, local netip.Addr) error
+	addTunnelRoutes(luid winipcfg.LUID, routes []netip.Prefix) error
+	addHostRoute(gwLUID winipcfg.LUID, prefix netip.Prefix, nextHop netip.Addr) (bool, error)
+	deleteHostRoute(gwLUID winipcfg.LUID, prefix netip.Prefix, nextHop netip.Addr) error
+	applyDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, journal *Journal) error
+	removeDNS(ctx context.Context, luid winipcfg.LUID) error
+	flushAdapter(luid winipcfg.LUID)
+}
+
+type realWindowsAdapterOps struct{}
+
+func (realWindowsAdapterOps) disableIPv6(luid winipcfg.LUID) {
+	_ = luid.FlushRoutes(windows.AF_INET6)
+	_ = luid.FlushIPAddresses(windows.AF_INET6)
+	_ = luid.FlushDNS(windows.AF_INET6)
+}
+
+func (realWindowsAdapterOps) flushTunnelRoutes(luid winipcfg.LUID) error {
+	return luid.FlushRoutes(windows.AF_INET)
+}
+
+func (realWindowsAdapterOps) configureIPv4Interface(luid winipcfg.LUID, mtu int) error {
+	ipIf, err := luid.IPInterface(windows.AF_INET)
+	if err != nil {
+		return fmt.Errorf("get IPInterface: %w", err)
+	}
+	if mtu > 0 {
+		ipIf.NLMTU = uint32(mtu)
+	}
+	ipIf.UseAutomaticMetric = false
+	ipIf.Metric = 1
+	if err := ipIf.Set(); err != nil {
+		return fmt.Errorf("set IPInterface MTU/Metric: %w", err)
+	}
+	return nil
+}
+
+func (realWindowsAdapterOps) setIPv4Address(luid winipcfg.LUID, local netip.Addr) error {
+	prefixes := []netip.Prefix{netip.PrefixFrom(local, 32)}
+	err := luid.SetIPAddressesForFamily(windows.AF_INET, prefixes)
+	if errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) {
+		cleanupAddressesOnDisconnectedInterfaces(windows.AF_INET, prefixes)
+		err = luid.SetIPAddressesForFamily(windows.AF_INET, prefixes)
+	}
+	if err != nil {
+		return fmt.Errorf("set interface IP %s: %w", local, err)
+	}
+	return nil
+}
+
+func (realWindowsAdapterOps) addTunnelRoutes(luid winipcfg.LUID, routes []netip.Prefix) error {
+	for _, pfx := range routes {
+		if !pfx.Addr().Is4() {
+			continue
+		}
+		err := luid.AddRoute(pfx, netip.IPv4Unspecified(), 1)
+		if err != nil && !errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+			return fmt.Errorf("add tunnel route %s: %w", pfx, err)
+		}
+	}
+	return nil
+}
+
+func (realWindowsAdapterOps) addHostRoute(gwLUID winipcfg.LUID, prefix netip.Prefix, nextHop netip.Addr) (bool, error) {
+	if !nextHop.IsValid() {
+		nextHop = netip.IPv4Unspecified()
+	}
+	if err := gwLUID.AddRoute(prefix, nextHop, 1); err != nil {
+		if errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+			return false, nil
+		}
+		return false, fmt.Errorf("add host route %s: %w", prefix, err)
+	}
+	return true, nil
+}
+
+func (realWindowsAdapterOps) deleteHostRoute(gwLUID winipcfg.LUID, prefix netip.Prefix, nextHop netip.Addr) error {
+	if !nextHop.IsValid() {
+		nextHop = netip.IPv4Unspecified()
+	}
+	if err := gwLUID.DeleteRoute(prefix, nextHop); err != nil && !errors.Is(err, windows.ERROR_NOT_FOUND) {
+		return err
+	}
+	return nil
+}
+
+func (realWindowsAdapterOps) applyDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, journal *Journal) error {
+	return applyWindowsDNS(ctx, luid, plan, journal)
+}
+
+func (realWindowsAdapterOps) removeDNS(ctx context.Context, luid winipcfg.LUID) error {
+	return removeWindowsDNS(ctx, luid)
+}
+
+func (realWindowsAdapterOps) flushAdapter(luid winipcfg.LUID) {
+	if luid != 0 {
+		_ = luid.FlushRoutes(windows.AF_INET)
+		_ = luid.FlushDNS(windows.AF_INET)
+		_ = luid.FlushIPAddresses(windows.AF_INET)
+		_ = luid.FlushRoutes(windows.AF_INET6)
+		_ = luid.FlushDNS(windows.AF_INET6)
+		_ = luid.FlushIPAddresses(windows.AF_INET6)
+	}
+}
+
+func cleanupAddressesOnDisconnectedInterfaces(family winipcfg.AddressFamily, addresses []netip.Prefix) {
+	if len(addresses) == 0 {
+		return
+	}
+	addrHash := make(map[netip.Addr]bool, len(addresses))
+	for i := range addresses {
+		addrHash[addresses[i].Addr()] = true
+	}
+	interfaces, err := winipcfg.GetAdaptersAddresses(family, winipcfg.GAAFlagDefault)
+	if err != nil {
+		return
+	}
+	for _, iface := range interfaces {
+		if iface.OperStatus == winipcfg.IfOperStatusUp {
+			continue
+		}
+		for address := iface.FirstUnicastAddress; address != nil; address = address.Next {
+			if ip, ok := netip.AddrFromSlice(address.Address.IP()); ok && addrHash[ip] {
+				prefix := netip.PrefixFrom(ip, int(address.OnLinkPrefixLength))
+				_ = iface.LUID.DeleteIPAddress(prefix)
+			}
+		}
+	}
+}
+
 type windowsApplied struct {
 	mu      sync.Mutex
 	luid    winipcfg.LUID
+	ops     windowsAdapterOps
 	journal *Journal
 	desired Desired
 	snap    Snapshot
 }
 
+func (a *windowsApplied) adapterOps() windowsAdapterOps {
+	if a.ops != nil {
+		return a.ops
+	}
+	return realWindowsAdapterOps{}
+}
+
 func (a *windowsApplied) executeSteps(ctx context.Context, steps []Step) error {
-	var routeData []*winipcfg.RouteData
+	var (
+		hasIface     bool
+		localAddr    netip.Addr
+		mtu          int
+		tunnelRoutes []netip.Prefix
+		hasDNS       bool
+		dnsPlan      DNSPlan
+	)
+	ops := a.adapterOps()
+
 	for _, s := range steps {
 		switch s.Kind {
 		case StepConfigureInterface:
-			if err := a.configureInterface(s.Local, s.MTU); err != nil {
-				return err
-			}
+			hasIface = true
+			localAddr = s.Local
+			mtu = s.MTU
 
 		case StepHostRoute:
 			gwLUID := winipcfg.LUID(a.snap.GatewayLUID)
@@ -100,61 +251,56 @@ func (a *windowsApplied) executeSteps(ctx context.Context, steps []Step) error {
 				if err := a.journal.Record(entry); err != nil {
 					return err
 				}
-				nextHop := s.NextHop
-				if !nextHop.IsValid() {
-					nextHop = netip.IPv4Unspecified()
-				}
-				if err := gwLUID.AddRoute(s.Prefix, nextHop, 1); err != nil {
+				created, err := ops.addHostRoute(gwLUID, s.Prefix, s.NextHop)
+				if err != nil {
 					_ = a.journal.Remove(entry)
-					if !errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-						return fmt.Errorf("add host route %s: %w", s.Prefix, err)
-					}
+					return err
+				}
+				if !created {
+					_ = a.journal.Remove(entry)
 				}
 			}
 
 		case StepTunnelRoute:
-			routeData = append(routeData, &winipcfg.RouteData{
-				Destination: s.Prefix,
-				NextHop:     netip.IPv4Unspecified(),
-				Metric:      1,
-			})
+			tunnelRoutes = append(tunnelRoutes, s.Prefix)
 
 		case StepDNS:
-			if len(routeData) > 0 {
-				if err := a.luid.SetRoutesForFamily(windows.AF_INET, routeData); err != nil {
-					return fmt.Errorf("set tunnel routes: %w", err)
-				}
-				routeData = nil
-			}
-			if err := applyWindowsDNS(ctx, a.luid, s.DNS, a.journal); err != nil {
-				return err
-			}
+			hasDNS = true
+			dnsPlan = s.DNS
 		}
 	}
 
-	if len(routeData) > 0 {
-		if err := a.luid.SetRoutesForFamily(windows.AF_INET, routeData); err != nil {
-			return fmt.Errorf("set tunnel routes: %w", err)
+	if hasIface {
+		if err := a.configureAdapterAndRoutes(localAddr, mtu, tunnelRoutes); err != nil {
+			return err
 		}
+	}
+
+	if hasDNS {
+		if err := ops.applyDNS(ctx, a.luid, dnsPlan, a.journal); err != nil {
+			return err
+		}
+	} else {
+		_ = ops.removeDNS(ctx, a.luid)
 	}
 	return nil
 }
 
-func (a *windowsApplied) configureInterface(local netip.Addr, mtu int) error {
-	if err := a.luid.SetIPAddressesForFamily(windows.AF_INET, []netip.Prefix{netip.PrefixFrom(local, 32)}); err != nil {
-		return fmt.Errorf("set interface IP %s: %w", local, err)
+// configureAdapterAndRoutes flushes stale routes before assigning the IPv4 /32
+// address and adds tunnel routes via AddRoute so the kernel's local /32 route is preserved.
+func (a *windowsApplied) configureAdapterAndRoutes(local netip.Addr, mtu int, routes []netip.Prefix) error {
+	ops := a.adapterOps()
+	ops.disableIPv6(a.luid)
+	_ = ops.flushTunnelRoutes(a.luid)
+
+	if err := ops.setIPv4Address(a.luid, local); err != nil {
+		return err
 	}
-	ipIf, err := a.luid.IPInterface(windows.AF_INET)
-	if err != nil {
-		return fmt.Errorf("get IPInterface: %w", err)
+	if err := ops.configureIPv4Interface(a.luid, mtu); err != nil {
+		return err
 	}
-	if mtu > 0 {
-		ipIf.NLMTU = uint32(mtu)
-	}
-	ipIf.UseAutomaticMetric = false
-	ipIf.Metric = 1
-	if err := ipIf.Set(); err != nil {
-		return fmt.Errorf("set IPInterface MTU/Metric: %w", err)
+	if err := ops.addTunnelRoutes(a.luid, routes); err != nil {
+		return err
 	}
 	return nil
 }
@@ -167,30 +313,17 @@ func (a *windowsApplied) Update(ctx context.Context, d Desired) error {
 	if mtu <= 0 {
 		mtu = 1400
 	}
-	if d.Local != a.desired.Local || mtu != a.desired.MTU {
-		if err := a.configureInterface(d.Local, mtu); err != nil {
-			return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update interface failed", err)
-		}
+	if err := a.configureAdapterAndRoutes(d.Local, mtu, d.Routes); err != nil {
+		return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update interface and routes failed", err)
 	}
 
-	routeData := make([]*winipcfg.RouteData, 0, len(d.Routes))
-	for _, r := range d.Routes {
-		routeData = append(routeData, &winipcfg.RouteData{
-			Destination: r,
-			NextHop:     netip.IPv4Unspecified(),
-			Metric:      1,
-		})
-	}
-	if err := a.luid.SetRoutesForFamily(windows.AF_INET, routeData); err != nil {
-		return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update routes failed", err)
-	}
-
+	ops := a.adapterOps()
 	if d.DNS.Mode != fortivpn.DNSOff && len(d.DNS.Servers) > 0 && !SplitDNSNeedsDomains(d.DNS) {
-		if err := applyWindowsDNS(ctx, a.luid, d.DNS, a.journal); err != nil {
+		if err := ops.applyDNS(ctx, a.luid, d.DNS, a.journal); err != nil {
 			return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update dns failed", err)
 		}
 	} else {
-		_ = removeWindowsDNS(ctx, a.luid)
+		_ = ops.removeDNS(ctx, a.luid)
 	}
 
 	a.desired = d
@@ -202,12 +335,8 @@ func (a *windowsApplied) Close(ctx context.Context) error {
 	defer a.mu.Unlock()
 
 	var errs []error
-	if a.luid != 0 {
-		_ = a.luid.FlushRoutes(windows.AF_INET)
-		_ = a.luid.FlushDNS(windows.AF_INET)
-		_ = a.luid.FlushIPAddresses(windows.AF_INET)
-	}
-	if err := rollbackWindowsJournal(ctx, a.journal); err != nil {
+	a.adapterOps().flushAdapter(a.luid)
+	if err := rollbackWindowsJournalWithOps(ctx, a.journal, a.adapterOps()); err != nil {
 		errs = append(errs, err)
 	}
 	if err := a.journal.Clear(); err != nil {
@@ -217,6 +346,10 @@ func (a *windowsApplied) Close(ctx context.Context) error {
 }
 
 func rollbackWindowsJournal(ctx context.Context, journal *Journal) error {
+	return rollbackWindowsJournalWithOps(ctx, journal, realWindowsAdapterOps{})
+}
+
+func rollbackWindowsJournalWithOps(ctx context.Context, journal *Journal, ops windowsAdapterOps) error {
 	var errs []error
 	for _, entry := range journal.Entries() {
 		switch entry.Kind {
@@ -236,7 +369,7 @@ func rollbackWindowsJournal(ctx context.Context, journal *Journal) error {
 						}
 					}
 					luid := winipcfg.LUID(entry.LUID)
-					if err := luid.DeleteRoute(netip.PrefixFrom(gwAddr, 32), nextHop); err != nil && !errors.Is(err, windows.ERROR_NOT_FOUND) {
+					if err := ops.deleteHostRoute(luid, netip.PrefixFrom(gwAddr, 32), nextHop); err != nil {
 						errs = append(errs, err)
 					}
 				}

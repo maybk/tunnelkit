@@ -321,7 +321,7 @@ func (s *session) ensureDevice(mru int) error {
 }
 
 func (s *session) deviceReaderLoop(dev Device) {
-	buf := make([]byte, 2048)
+	buf := make([]byte, 65535)
 	for {
 		n, err := dev.ReadPacket(buf)
 		if err != nil {

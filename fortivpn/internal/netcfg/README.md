@@ -7,7 +7,7 @@
 - [netcfg.go](netcfg.go) / [plan.go](plan.go)：路由与 DNS 变更规划，自动计算 VPN 网关 `/32` 主机保护路由（防止默认路由覆盖导致隧道自环）。
 - [journal.go](journal.go)：变更前先将回滚条目持久化至 `journal.json`；正常断开或下次启动调用 `Recover` 时逆序幂等回滚。
 - [darwin.go](darwin.go) / [dns_darwin.go](dns_darwin.go)：macOS 通过 `route` 管理路由，通过 `/etc/resolver/<domain>` 与 `scutil` 配置分流或全局 DNS。
-- [windows.go](windows.go) / [dns_windows.go](dns_windows.go)：Windows 通过 `route.exe` / `netsh` 配置接口地址、路由与 DNS，支持 NRPT 域名分流策略。
+- [windows.go](windows.go) / [dns_windows.go](dns_windows.go)：Windows 通过 `winipcfg` 配置接口地址、路由与 DNS，支持 NRPT 域名分流策略。
 - [linux.go](linux.go) / [dns_linux.go](dns_linux.go)：Linux 通过 `ip addr` / `ip route` 与 `resolvectl`（或 `resolvconf`）管理路由和 DNS。
 
 ## 验证

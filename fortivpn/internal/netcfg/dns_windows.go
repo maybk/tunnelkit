@@ -24,7 +24,11 @@ const nrptPolicyBaseKey = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters
 const nrptRulePrefix = "TunnelKit-"
 
 func applyWindowsDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, journal *Journal) error {
+	_ = luid.FlushDNS(windows.AF_INET6)
 	if plan.Mode == fortivpn.DNSOff || len(plan.Servers) == 0 || SplitDNSNeedsDomains(plan) {
+		_ = luid.FlushDNS(windows.AF_INET)
+		_ = clearWindowsNRPT()
+		flushWindowsDNSCache(ctx)
 		return nil
 	}
 
@@ -42,6 +46,8 @@ func applyWindowsDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, jour
 		if err := writeWindowsNRPT(plan); err != nil {
 			return err
 		}
+	} else {
+		_ = clearWindowsNRPT()
 	}
 
 	flushWindowsDNSCache(ctx)
@@ -54,6 +60,7 @@ func removeWindowsDNS(ctx context.Context, luid winipcfg.LUID) error {
 		if err := luid.FlushDNS(windows.AF_INET); err != nil {
 			errs = append(errs, err)
 		}
+		_ = luid.FlushDNS(windows.AF_INET6)
 	}
 	if err := clearWindowsNRPT(); err != nil {
 		errs = append(errs, err)

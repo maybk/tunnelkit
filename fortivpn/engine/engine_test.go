@@ -195,6 +195,21 @@ func TestEngineRunDataPlaneAndTeardown(t *testing.T) {
 		t.Fatal("timed out waiting for PhaseConnected")
 	}
 
+	// Inject non-IPv4 (IPv6) and local-noise IPv4 packets (multicast/broadcast/link-local)
+	// and verify they are filtered out before entering the PPP tunnel.
+	ipv6Pkt := make([]byte, 40)
+	ipv6Pkt[0] = 0x60 // IPv6 version=6
+	for _, noisePkt := range [][]byte{
+		ipv6Pkt,
+		buildICMPv4EchoRequest(netip.MustParseAddr("10.212.0.10"), netip.MustParseAddr("239.255.255.250"), 90),
+		buildICMPv4EchoRequest(netip.MustParseAddr("10.212.0.10"), netip.MustParseAddr("255.255.255.255"), 91),
+		buildICMPv4EchoRequest(netip.MustParseAddr("10.212.0.10"), netip.MustParseAddr("169.254.1.1"), 92),
+	} {
+		if err := memDev.SendFromHost(noisePkt); err != nil {
+			t.Fatalf("SendFromHost(noise): %v", err)
+		}
+	}
+
 	// Send IPv4 ICMP Echo Request and verify reflected Echo Reply
 	src := netip.MustParseAddr("10.212.0.10")
 	dst := netip.MustParseAddr("10.10.1.1")
@@ -228,8 +243,8 @@ func TestEngineRunDataPlaneAndTeardown(t *testing.T) {
 			// Wait one more tick if stats fired before packet reflection completed
 			st = <-h.statsCh
 		}
-		if st.RxPackets < 1 || st.TxPackets < 1 {
-			t.Errorf("Stats packets = rx:%d tx:%d, want >= 1", st.RxPackets, st.TxPackets)
+		if st.RxPackets != 1 || st.TxPackets != 1 {
+			t.Errorf("Stats packets = rx:%d tx:%d, want rx:1 tx:1 (noise packets must be dropped)", st.RxPackets, st.TxPackets)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for Stats event")

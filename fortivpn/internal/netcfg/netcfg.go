@@ -1,6 +1,6 @@
 // Package netcfg plans, applies, updates, and rolls back host network
 // configuration (interface IP/MTU, split/full routes, gateway host route, and
-// split/full DNS) across macOS and Windows.
+// split/full DNS) across macOS, Windows, and Linux.
 package netcfg
 
 import (

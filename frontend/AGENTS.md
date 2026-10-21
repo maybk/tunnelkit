@@ -7,7 +7,7 @@
 - `src/stores/`：基于 `@vueuse/core` `createGlobalState` 的全局状态（`useDesktopWindow`、`useSystem`、`useProfiles`、`useVpn`、`useNotice`）。
 - `src/views/`：页面级视图（`ProfileView`、`CreateProfileView`、`AboutDialog`）。
 - `src/components/`：按领域划分为 `sidebar/`、`connection/`、`profile/`、`common/` 和 `ui/`（shadcn-vue 基础控件）。
-- `src/lib/`：`status.ts`（`profileStatus()` 状态映射唯一来源）、`configText.ts`（配置文本双向解析与序列化）、`format.ts` 与 `utils.ts`（`cn()` 类名合并）。
+- `src/lib/`：`status.ts`（`profileStatus()` 状态映射唯一来源）、`format.ts`（时长、流量与错误格式化）与 `utils.ts`（`cn()` 类名合并）。
 - `src/assets/main.css`：浅色/深色主题变量、字号 token 与桌面标题栏几何常量（`--chrome-height: 52px`）。
 
 ## 状态与交互规则

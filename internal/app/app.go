@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"io/fs"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -28,6 +29,15 @@ func init() {
 
 // Run 装配领域服务、Wails 应用、主窗口与菜单栏，并阻塞运行直到应用退出。
 func Run(assets embed.FS) error {
+	icons, err := loadIcons(assets)
+	if err != nil {
+		return err
+	}
+	frontendFS, err := fs.Sub(assets, "frontend/dist")
+	if err != nil {
+		frontendFS = assets
+	}
+
 	rootDir, err := storage.DefaultRoot()
 	if err != nil {
 		return fmt.Errorf("初始化数据目录失败: %w", err)
@@ -42,14 +52,14 @@ func Run(assets embed.FS) error {
 	wailsApp := application.New(application.Options{
 		Name:        ApplicationName,
 		Description: "Fortinet SSL-VPN 桌面客户端",
-		Icon:        appIconPNG,
+		Icon:        icons.appIcon,
 		Services: []application.Service{
 			application.NewService(api.NewProfileAPI(profileStore, vpnService, tray.refresh)),
 			application.NewService(api.NewVPNAPI(vpnService)),
 			application.NewService(api.NewSystemAPI(Version)),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler: application.AssetFileServerFS(frontendFS),
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.tunnelkit.app",
@@ -67,7 +77,7 @@ func Run(assets embed.FS) error {
 	})
 
 	mainWindow = createMainWindow(wailsApp)
-	tray.init(wailsApp, mainWindow, vpnService, profileStore)
+	tray.init(wailsApp, mainWindow, vpnService, profileStore, icons)
 
 	var (
 		lastStatus      vpn.Status

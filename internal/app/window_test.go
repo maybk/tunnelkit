@@ -3,20 +3,28 @@ package app
 import (
 	"bytes"
 	"image/png"
+	"os"
 	"testing"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/icons"
+
+	"tunnelkit/fortivpn"
+	"tunnelkit/internal/vpn"
 )
 
-func TestTrayTemplateIconIsCustomEmbeddedPNG(t *testing.T) {
-	if len(trayTemplateIcon) == 0 {
+func TestLoadIconsAndPlatformSelection(t *testing.T) {
+	loaded, err := loadIcons(os.DirFS("../.."))
+	if err != nil {
+		t.Fatalf("loadIcons failed: %v", err)
+	}
+	if len(loaded.trayTemplateIcon) == 0 {
 		t.Fatal("trayTemplateIcon must not be empty")
 	}
-	if bytes.Equal(trayTemplateIcon, icons.SystrayMacTemplate) {
+	if bytes.Equal(loaded.trayTemplateIcon, icons.SystrayMacTemplate) {
 		t.Fatal("trayTemplateIcon must not use the default Wails 'W' template icon")
 	}
-	img, err := png.Decode(bytes.NewReader(trayTemplateIcon))
+	img, err := png.Decode(bytes.NewReader(loaded.trayTemplateIcon))
 	if err != nil {
 		t.Fatalf("trayTemplateIcon must be a valid PNG: %v", err)
 	}
@@ -36,15 +44,13 @@ func TestTrayTemplateIconIsCustomEmbeddedPNG(t *testing.T) {
 		t.Fatalf("trayTemplateIcon visiblePixels = %d, want >= 1000", visiblePixels)
 	}
 
-	appImg, err := png.Decode(bytes.NewReader(appIconPNG))
+	appImg, err := png.Decode(bytes.NewReader(loaded.appIcon))
 	if err != nil {
-		t.Fatalf("appIconPNG must be a valid PNG: %v", err)
+		t.Fatalf("appIcon must be a valid PNG: %v", err)
 	}
 	if appImg.Bounds().Dx() != 256 || appImg.Bounds().Dy() != 256 {
-		t.Fatalf("appIconPNG size = %dx%d, want 256x256", appImg.Bounds().Dx(), appImg.Bounds().Dy())
+		t.Fatalf("appIcon size = %dx%d, want 256x256", appImg.Bounds().Dx(), appImg.Bounds().Dy())
 	}
-	// Apple HIG 规范：1024x1024 画布内主体安全区为 824x824（256x256 下约 206x206，四周保留约 25px 透明边距），
-	// 防止运行期 setApplicationIconImage 将图标铺满整个 Dock 格子。
 	minX, minY, maxX, maxY := 256, 256, 0, 0
 	for y := 0; y < 256; y++ {
 		for x := 0; x < 256; x++ {
@@ -67,15 +73,15 @@ func TestTrayTemplateIconIsCustomEmbeddedPNG(t *testing.T) {
 	bodyWidth := maxX - minX + 1
 	bodyHeight := maxY - minY + 1
 	if bodyWidth < 200 || bodyWidth > 212 || bodyHeight < 200 || bodyHeight > 212 {
-		t.Fatalf("appIconPNG solid body = %dx%d (bbox %d,%d..%d,%d), want ~206x206 (Apple HIG 824/1024 safe zone)",
+		t.Fatalf("appIcon solid body = %dx%d (bbox %d,%d..%d,%d), want ~206x206 (Apple HIG 824/1024 safe zone)",
 			bodyWidth, bodyHeight, minX, minY, maxX, maxY)
 	}
 
-	if icon, isTemplate := trayIconForPlatform("darwin"); !isTemplate || !bytes.Equal(icon, trayTemplateIcon) {
+	if icon, isTemplate := loaded.trayIconForPlatform("darwin"); !isTemplate || !bytes.Equal(icon, loaded.trayTemplateIcon) {
 		t.Fatal("darwin must use trayTemplateIcon in template mode")
 	}
 
-	trayColorImg, err := png.Decode(bytes.NewReader(trayColorIcon))
+	trayColorImg, err := png.Decode(bytes.NewReader(loaded.trayColorIcon))
 	if err != nil {
 		t.Fatalf("trayColorIcon must be a valid PNG: %v", err)
 	}
@@ -83,9 +89,51 @@ func TestTrayTemplateIconIsCustomEmbeddedPNG(t *testing.T) {
 		t.Fatalf("trayColorIcon size = %dx%d, want 64x64", trayColorImg.Bounds().Dx(), trayColorImg.Bounds().Dy())
 	}
 	for _, goos := range []string{"windows", "linux"} {
-		if icon, isTemplate := trayIconForPlatform(goos); isTemplate || !bytes.Equal(icon, trayColorIcon) {
+		if icon, isTemplate := loaded.trayIconForPlatform(goos); isTemplate || !bytes.Equal(icon, loaded.trayColorIcon) {
 			t.Fatalf("%s must use 64x64 full-color trayColorIcon in non-template mode", goos)
 		}
+	}
+}
+
+func TestTrayStatusLabelFormatsAllConnectionStates(t *testing.T) {
+	cases := []struct {
+		name  string
+		state vpn.State
+		want  string
+	}{
+		{
+			name:  "disconnected",
+			state: vpn.State{Status: vpn.StatusDisconnected},
+			want:  "未连接",
+		},
+		{
+			name:  "connecting",
+			state: vpn.State{Status: vpn.StatusConnecting, ProfileName: "Corp"},
+			want:  "正在连接 · Corp",
+		},
+		{
+			name:  "reconnecting",
+			state: vpn.State{Status: vpn.StatusConnecting, Phase: fortivpn.PhaseReconnecting, ProfileName: "Corp"},
+			want:  "↻ 重新连接中 · Corp",
+		},
+		{
+			name:  "connected",
+			state: vpn.State{Status: vpn.StatusConnected, ProfileName: "Corp"},
+			want:  "● 已连接 · Corp",
+		},
+		{
+			name:  "disconnecting",
+			state: vpn.State{Status: vpn.StatusDisconnecting, ProfileName: "Corp"},
+			want:  "正在断开 · Corp",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := trayStatusLabel(tc.state); got != tc.want {
+				t.Fatalf("trayStatusLabel(%+v) = %q, want %q", tc.state, got, tc.want)
+			}
+		})
 	}
 }
 

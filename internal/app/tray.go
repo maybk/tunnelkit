@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	_ "embed"
+	"fmt"
+	"io/fs"
 	"log/slog"
 	"runtime"
 
@@ -13,20 +14,37 @@ import (
 	"tunnelkit/internal/vpn"
 )
 
-//go:embed app_icon.png
-var appIconPNG []byte
+type iconSet struct {
+	appIcon          []byte
+	trayTemplateIcon []byte
+	trayColorIcon    []byte
+}
 
-//go:embed tray_icon.png
-var trayTemplateIcon []byte
-
-//go:embed tray_icon_color.png
-var trayColorIcon []byte
-
-func trayIconForPlatform(goos string) (icon []byte, isTemplate bool) {
-	if goos == "darwin" {
-		return trayTemplateIcon, true
+func loadIcons(assets fs.FS) (iconSet, error) {
+	appIcon, err := fs.ReadFile(assets, "assets/icons/app-icon.png")
+	if err != nil {
+		return iconSet{}, fmt.Errorf("读取应用图标失败: %w", err)
 	}
-	return trayColorIcon, false
+	trayTemplate, err := fs.ReadFile(assets, "assets/icons/tray-icon.png")
+	if err != nil {
+		return iconSet{}, fmt.Errorf("读取菜单栏模板图标失败: %w", err)
+	}
+	trayColor, err := fs.ReadFile(assets, "assets/icons/tray-icon-color.png")
+	if err != nil {
+		return iconSet{}, fmt.Errorf("读取托盘彩色图标失败: %w", err)
+	}
+	return iconSet{
+		appIcon:          appIcon,
+		trayTemplateIcon: trayTemplate,
+		trayColorIcon:    trayColor,
+	}, nil
+}
+
+func (s iconSet) trayIconForPlatform(goos string) (icon []byte, isTemplate bool) {
+	if goos == "darwin" {
+		return s.trayTemplateIcon, true
+	}
+	return s.trayColorIcon, false
 }
 
 // trayController 维护菜单栏图标与菜单；refresh 可在 init 之前安全调用（此时为空操作）。
@@ -45,9 +63,10 @@ func (t *trayController) init(
 	mainWindow application.Window,
 	vpnService *vpn.Service,
 	profileStore *profile.Store,
+	icons iconSet,
 ) {
 	tray := wailsApp.SystemTray.New()
-	if icon, isTemplate := trayIconForPlatform(runtime.GOOS); isTemplate {
+	if icon, isTemplate := icons.trayIconForPlatform(runtime.GOOS); isTemplate {
 		tray.SetTemplateIcon(icon)
 	} else {
 		tray.SetIcon(icon)

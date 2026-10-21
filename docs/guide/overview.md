@@ -44,7 +44,9 @@ tunnelkit/
 │   ├── profile/               # 配置模型、校验器、持久化与密码库
 │   ├── storage/               # 数据目录路径与原子写入
 │   └── vpn/                   # 桌面连接状态机与会话恢复
-├── assets/brand/              # 品牌与菜单栏图标 SVG 母版
+├── assets/
+│   ├── brand/                 # 品牌与菜单栏图标 SVG 母版
+│   └── icons/                 # 桌面端与系统托盘内嵌 PNG 图标
 ├── frontend/                  # Vue 3 前端工程
 ├── build/                     # Wails 构建配置、平台图标与打包脚本
 ├── scripts/                   # 版本提取、Windows 驱动准备与 CI/Release 契约测试

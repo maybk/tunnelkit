@@ -1,0 +1,256 @@
+name: Build Release Assets
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Full commit SHA to build
+        required: true
+        type: string
+      version:
+        description: Version read from the source commit
+        required: true
+        type: string
+      retention_days:
+        description: Artifact retention period
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Build macOS DMGs (universal, arm64, amd64)
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails v3 CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails_version="$(awk '/github\.com\/wailsapp\/wails\/v3 / {print $2}' go.mod)"
+          test -n "$wails_version"
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci --registry=https://registry.npmjs.org
+
+      - name: Build and verify macOS bundles and DMGs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          wails3 task darwin:package:arm64
+          wails3 task darwin:package:amd64
+          wails3 task darwin:package:universal
+
+          verify_arch() {
+            local bundle_path="$1"
+            shift
+            for bin_name in tunnelkit tunnelkit-helper; do
+              local bin_path="$bundle_path/Contents/MacOS/$bin_name"
+              test -x "$bin_path"
+              local actual_archs
+              actual_archs="$(lipo -archs "$bin_path")"
+              for expected_arch in "$@"; do
+                if [[ " $actual_archs " != *" $expected_arch "* ]]; then
+                  echo "$bin_path is missing $expected_arch (actual: $actual_archs)" >&2
+                  exit 1
+                fi
+              done
+            done
+          }
+
+          pack_dmg() {
+            local bundle_path="$1"
+            local dmg_path="$2"
+            local tmp_dir
+            tmp_dir="$(mktemp -d)"
+            ditto "$bundle_path" "$tmp_dir/TunnelKit.app"
+            hdiutil create -volname "TunnelKit" -srcfolder "$tmp_dir" -ov -format UDZO "$dmg_path"
+            rm -rf "$tmp_dir"
+            test -s "$dmg_path"
+            hdiutil verify "$dmg_path"
+          }
+
+          verify_arch "bin/tunnelkit-darwin-arm64.app" arm64
+          verify_arch "bin/tunnelkit-darwin-amd64.app" x86_64
+          verify_arch "bin/tunnelkit.app" arm64 x86_64
+
+          pack_dmg "bin/tunnelkit-darwin-arm64.app" "dist/tunnelkit-$APP_VERSION-macos-arm64.dmg"
+          pack_dmg "bin/tunnelkit-darwin-amd64.app" "dist/tunnelkit-$APP_VERSION-macos-amd64.dmg"
+          pack_dmg "bin/tunnelkit.app" "dist/tunnelkit-$APP_VERSION-macos-universal.dmg"
+
+      - name: Upload macOS release assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos
+          path: dist/tunnelkit-*-macos-*.dmg
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+  windows:
+    name: Build Windows portable ZIPs (amd64, arm64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails v3 CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails_version="$(awk '/github\.com\/wailsapp\/wails\/v3 / {print $2}' go.mod)"
+          test -n "$wails_version"
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci --registry=https://registry.npmjs.org
+
+      - name: Prepare verified Wintun DLLs
+        shell: pwsh
+        run: ./scripts/prepare_windows_wintun.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE/bin"
+
+      - name: Build Windows amd64 and arm64 executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          wails3 task windows:build:amd64
+          wails3 task windows:build:arm64
+
+      - name: Create portable archives
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+
+          foreach ($arch in @("amd64", "arm64")) {
+            $stageDir = Join-Path $env:RUNNER_TEMP "tunnelkit-windows-$arch"
+            if (Test-Path -LiteralPath $stageDir) {
+              Remove-Item -LiteralPath $stageDir -Recurse -Force
+            }
+            New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+
+            Copy-Item -LiteralPath "bin/tunnelkit-windows-$arch.exe" -Destination (Join-Path $stageDir "tunnelkit.exe")
+            Copy-Item -LiteralPath "bin/tunnelkit-helper-windows-$arch.exe" -Destination (Join-Path $stageDir "tunnelkit-helper.exe")
+            Copy-Item -LiteralPath "bin/wintun-$arch.dll" -Destination (Join-Path $stageDir "wintun.dll")
+
+            $archive = "dist/tunnelkit-$env:APP_VERSION-windows-$arch.zip"
+            Compress-Archive -Path "$stageDir/*" -DestinationPath $archive -Force
+            if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+              throw "Windows archive was not created: $archive"
+            }
+          }
+
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows
+          path: dist/tunnelkit-*-windows-*.zip
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+  linux:
+    name: Build Linux amd64 tarball
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Install Linux GTK4 and WebKitGTK 6.0 headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            libx11-dev
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails v3 CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails_version="$(awk '/github\.com\/wailsapp\/wails\/v3 / {print $2}' go.mod)"
+          test -n "$wails_version"
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
+
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci --registry=https://registry.npmjs.org
+
+      - name: Build and archive Linux amd64 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          wails3 task linux:build
+          test -x bin/tunnelkit
+          test -x bin/tunnelkit-helper
+          tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz" tunnelkit tunnelkit-helper
+          test -s "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz"
+
+      - name: Upload Linux release asset
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux
+          path: dist/tunnelkit-*-linux-amd64.tar.gz
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}

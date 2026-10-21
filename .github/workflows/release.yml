@@ -1,0 +1,248 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      source_sha: ${{ steps.version.outputs.source_sha }}
+    steps:
+      - name: Check out source and tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag, version, and ancestry
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vMAJOR.MINOR.PATCH: $tag" >&2
+            exit 1
+          fi
+
+          config_version="$(sed -n 's/^[[:space:]]*version:[[:space:]]*"\([^"]*\)".*/\1/p' build/config.yml | head -n 1)"
+          app_go_version="$(sed -n 's/^[[:space:]]*Version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' internal/app/app.go | head -n 1)"
+          if [ -z "$config_version" ] || [ "$config_version" != "$app_go_version" ]; then
+            echo "Version mismatch between build/config.yml (${config_version:-<missing>}) and internal/app/app.go (${app_go_version:-<missing>})" >&2
+            exit 1
+          fi
+          version="$config_version"
+          if [ "$tag" != "v$version" ]; then
+            echo "Tag $tag does not match application version $version" >&2
+            exit 1
+          fi
+
+          tag_commit="$(git rev-parse "${tag}^{commit}")"
+          head_commit="$(git rev-parse HEAD)"
+          if [ "$tag_commit" != "$head_commit" ]; then
+            echo "Checked-out commit does not match $tag" >&2
+            exit 1
+          fi
+
+          git fetch origin main:refs/remotes/origin/main --no-tags
+          if ! git merge-base --is-ancestor "$tag_commit" refs/remotes/origin/main; then
+            echo "Release tag must point to a commit contained in main" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$tag_commit" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release notes
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$RELEASE_VERSION"
+          pending_version="$(bash scripts/extract_pending_version.sh CHANGELOG.md)"
+          test -n "$pending_version"
+          if ! grep -Eq "^## \[$version\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md; then
+            echo "Release version $version must have a dated CHANGELOG section" >&2
+            exit 1
+          fi
+          bash scripts/extract_release_notes.sh "$version" CHANGELOG.md >/dev/null
+
+  ci:
+    name: Run release CI gate
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build verified release assets
+    needs:
+      - validate
+      - ci
+    uses: ./.github/workflows/release-assets.yml
+    with:
+      source_sha: ${{ needs.validate.outputs.source_sha }}
+      version: ${{ needs.validate.outputs.version }}
+      retention_days: 7
+
+  publish:
+    name: Publish verified GitHub Release
+    needs:
+      - validate
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      APP_VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download verified assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: release-files
+          merge-multiple: true
+
+      - name: Validate assets and create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(
+            "tunnelkit-$APP_VERSION-macos-universal.dmg"
+            "tunnelkit-$APP_VERSION-macos-arm64.dmg"
+            "tunnelkit-$APP_VERSION-macos-amd64.dmg"
+            "tunnelkit-$APP_VERSION-windows-amd64.zip"
+            "tunnelkit-$APP_VERSION-windows-arm64.zip"
+            "tunnelkit-$APP_VERSION-linux-amd64.tar.gz"
+          )
+          for asset in "${expected[@]}"; do
+            test -s "release-files/$asset"
+          done
+          actual_count="$(find release-files -maxdepth 1 -type f | wc -l | tr -d '[:space:]')"
+          [ "$actual_count" -eq "${#expected[@]}" ]
+          (
+            cd release-files
+            sha256sum "${expected[@]}" > SHA256SUMS.txt
+          )
+
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_notes_file="$RUNNER_TEMP/release-notes.md"
+          bash scripts/extract_release_notes.sh "$APP_VERSION" CHANGELOG.md > "$release_notes_file"
+          test -s "$release_notes_file"
+
+      - name: Create draft, upload, verify, and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          release_notes_file="$RUNNER_TEMP/release-notes.md"
+          test -s "$release_notes_file"
+
+          if draft_state="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$draft_state" != "true" ]; then
+              echo "Release $tag already exists and is not a draft" >&2
+              exit 1
+            fi
+            gh release edit "$tag" --notes-file "$release_notes_file"
+          else
+            gh release create "$tag" \
+              --verify-tag \
+              --draft \
+              --notes-file "$release_notes_file" \
+              --title "TunnelKit $APP_VERSION"
+          fi
+
+          gh release upload "$tag" release-files/* --clobber
+
+          asset_count="$(gh release view "$tag" --json assets --jq '.assets | length')"
+          if [ "$asset_count" -ne 7 ]; then
+            echo "Draft release contains $asset_count assets; expected 7" >&2
+            exit 1
+          fi
+
+          gh release edit "$tag" --draft=false --latest
+
+  cleanup-rolling:
+    name: Remove superseded Rolling release
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: rolling-release-mutation
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Check out release source and tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Remove Rolling release and tag when superseded
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_commit="$(git rev-parse HEAD)"
+          release_exists=false
+          if gh release view rolling >/dev/null 2>&1; then
+            release_exists=true
+          fi
+
+          remote_rolling="$(git ls-remote --tags origin refs/tags/rolling | awk 'NR == 1 { print $1 }')"
+          if [ -z "$remote_rolling" ]; then
+            if [ "$release_exists" = true ]; then
+              gh release delete rolling --yes
+              echo "已删除无 tag 的 Rolling Release"
+            else
+              echo "Rolling 不存在，无需清理"
+            fi
+            exit 0
+          fi
+
+          git fetch origin +refs/tags/rolling:refs/tags/rolling
+          rolling_commit="$(git rev-parse 'refs/tags/rolling^{commit}')"
+          if ! git merge-base --is-ancestor "$rolling_commit" "$release_commit"; then
+            echo "Rolling 指向正式版本之后的提交，保留"
+            exit 0
+          fi
+
+          if [ "$release_exists" = true ]; then
+            gh release delete rolling --yes
+          fi
+          git push \
+            --force-with-lease="refs/tags/rolling:$remote_rolling" \
+            origin \
+            :refs/tags/rolling
+
+          if gh release view rolling >/dev/null 2>&1; then
+            echo "Rolling Release 删除后仍然存在" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin refs/tags/rolling >/dev/null 2>&1; then
+            echo "rolling tag 删除后仍然存在" >&2
+            exit 1
+          fi

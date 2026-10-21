@@ -7,7 +7,7 @@ import (
 	"tunnelkit/internal/app"
 )
 
-//go:embed all:frontend/dist all:assets/icons
+//go:embed all:frontend/dist all:assets/icons build/config.yml
 var assets embed.FS
 
 func main() {

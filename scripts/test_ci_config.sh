@@ -19,15 +19,19 @@ if [ "$locked_npm_sources" != "https://registry.npmjs.org" ]; then
 fi
 
 config_version="$(sed -n 's/^[[:space:]]*version:[[:space:]]*"\([^"]*\)".*/\1/p' "$repo_root/build/config.yml" | head -n 1)"
-app_go_version="$(sed -n 's/^[[:space:]]*Version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$repo_root/internal/app/app.go" | head -n 1)"
-nsis_version="$(sed -n 's/^[[:space:]]*!define INFO_PRODUCTVERSION "\([^"]*\)".*/\1/p' "$repo_root/build/windows/nsis/wails_tools.nsh" | head -n 1)"
-nfpm_version="$(sed -n 's/^version:[[:space:]]*"\([^"]*\)".*/\1/p' "$repo_root/build/linux/nfpm/nfpm.yaml" | head -n 1)"
+if [[ ! "$config_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "build/config.yml must define a valid semantic version (MAJOR.MINOR.PATCH); got: ${config_version:-<missing>}"
+  exit 1
+fi
 
-if [ -z "$config_version" ] ||
-  [ "$config_version" != "$app_go_version" ] ||
-  [ "$config_version" != "$nsis_version" ] ||
-  [ "$config_version" != "$nfpm_version" ]; then
-  echo "application versions must stay synchronized across config.yml ($config_version), app.go ($app_go_version), wails_tools.nsh ($nsis_version), and nfpm.yaml ($nfpm_version)"
+if ! grep -Fq '//go:embed all:frontend/dist all:assets/icons build/config.yml' "$repo_root/main.go" ||
+  ! grep -Fq 'loadVersion(assets)' "$repo_root/internal/app/app.go"; then
+  echo "application runtime version must be read directly from embedded build/config.yml"
+  exit 1
+fi
+
+if ! grep -Fq 'wails3 task common:update:build-assets' "$release_assets_workflow"; then
+  echo "release asset builds must sync platform manifests from build/config.yml via wails3 task common:update:build-assets"
   exit 1
 fi
 

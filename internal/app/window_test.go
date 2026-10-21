@@ -14,6 +14,11 @@ import (
 )
 
 func TestLoadIconsAndPlatformSelection(t *testing.T) {
+	version, err := loadVersion(os.DirFS("../.."))
+	if err != nil || version == "" {
+		t.Fatalf("loadVersion failed: version=%q, err=%v", version, err)
+	}
+
 	loaded, err := loadIcons(os.DirFS("../.."))
 	if err != nil {
 		t.Fatalf("loadIcons failed: %v", err)

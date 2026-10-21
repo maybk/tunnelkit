@@ -4,8 +4,10 @@ package app
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
+	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -18,17 +20,48 @@ import (
 
 const (
 	ApplicationName = "TunnelKit"
-	// Version 需与 build/config.yml 中的 info.version 保持一致。
-	Version       = "0.1.0"
-	EventVPNState = "vpn:state"
+	EventVPNState   = "vpn:state"
 )
 
 func init() {
 	application.RegisterEvent[vpn.State](EventVPNState)
 }
 
+func loadVersion(assets fs.FS) (string, error) {
+	raw, err := fs.ReadFile(assets, "build/config.yml")
+	if err != nil {
+		return "", fmt.Errorf("读取应用版本配置失败: %w", err)
+	}
+	inInfo := false
+	for _, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
+			inInfo = strings.HasPrefix(trimmed, "info:")
+			continue
+		}
+		if inInfo && strings.HasPrefix(trimmed, "version:") {
+			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "version:"))
+			if idx := strings.Index(rest, "#"); idx >= 0 {
+				rest = strings.TrimSpace(rest[:idx])
+			}
+			version := strings.Trim(rest, `"'`)
+			if version != "" {
+				return version, nil
+			}
+		}
+	}
+	return "", errors.New("build/config.yml 缺少 info.version")
+}
+
 // Run 装配领域服务、Wails 应用、主窗口与菜单栏，并阻塞运行直到应用退出。
 func Run(assets embed.FS) error {
+	version, err := loadVersion(assets)
+	if err != nil {
+		return err
+	}
 	icons, err := loadIcons(assets)
 	if err != nil {
 		return err
@@ -56,7 +89,7 @@ func Run(assets embed.FS) error {
 		Services: []application.Service{
 			application.NewService(api.NewProfileAPI(profileStore, vpnService, tray.refresh)),
 			application.NewService(api.NewVPNAPI(vpnService)),
-			application.NewService(api.NewSystemAPI(Version)),
+			application.NewService(api.NewSystemAPI(version)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(frontendFS),

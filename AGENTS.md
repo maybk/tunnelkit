@@ -47,7 +47,7 @@ bash scripts/test_rolling_release_config.sh
 4. 辅助程序日志落地前必须经过 `internal/helper` 脱敏器遮蔽会话凭据、密码与令牌。
 5. 网络路由与 DNS 修改必须先持久化写入 `run/netcfg-journal.json` 再执行系统变更，确保进程异常退出后能幂等恢复宿主网络。
 6. `fortivpn` 包必须保持零外部业务耦合，禁止在 `fortivpn/**` 中导入 `tunnelkit/internal/**`。
-7. 应用版本号在 `build/config.yml`、`internal/app/app.go`、`build/windows/nsis/wails_tools.nsh` 与 `build/linux/nfpm/nfpm.yaml` 中同步维护。
+7. 应用版本号以 `build/config.yml` 中的 `info.version` 为唯一权威来源（运行期由 `main.go` 内嵌读取，打包期由 `wails3 task common:update:build-assets` 同步至平台清单）。
 8. 修复缺陷需先补充复现测试，完成后运行 `go test -race ./...` 与 `go vet ./...`；涉及 Wails 绑定、窗口或构建配置变更时须运行 `wails3 build`。
 
 ## 文档维护

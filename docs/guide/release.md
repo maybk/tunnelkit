@@ -11,17 +11,15 @@ TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自
 - [`prepare_windows_wintun.ps1`](../../scripts/prepare_windows_wintun.ps1)：下载并按固定 SHA-256 校验官方 Wintun 驱动包（`amd64` / `arm64`）
 - [`extract_pending_version.sh`](../../scripts/extract_pending_version.sh)：读取并校验 `CHANGELOG.md` 顶部唯一的待发布版本
 - [`extract_release_notes.sh`](../../scripts/extract_release_notes.sh)：从 `CHANGELOG.md` 提取指定版本的发布说明
-- [`build/config.yml`](../../build/config.yml) 与 [`internal/app/app.go`](../../internal/app/app.go)：应用版本号权威来源
+- [`build/config.yml`](../../build/config.yml)：应用版本号唯一权威来源（`info.version`）
 - [`CHANGELOG.md`](../../CHANGELOG.md)：正式版本与待发布版本更新记录
 
-## 版本号同步
+## 版本号管理
 
-应用版本号在以下位置同步维护，并由 `scripts/test_ci_config.sh` 自动校验：
+应用版本号统一在 `build/config.yml` 的 `info.version` 中维护：
 
-1. `build/config.yml` 中的 `info.version`
-2. `internal/app/app.go` 中的 `Version` 常量
-3. `build/windows/nsis/wails_tools.nsh` 中的 `INFO_PRODUCTVERSION`
-4. `build/linux/nfpm/nfpm.yaml` 中的 `version`
+- 桌面进程启动时直接从内嵌的 `build/config.yml` 读取版本号暴露给前端与「关于」弹窗。
+- 跨平台发布打包时自动运行 `wails3 task common:update:build-assets`，将 `build/config.yml` 中的版本号同步至 macOS `Info.plist`、Windows `info.json` / `wails_tools.nsh` / `manifest` 等平台清单。
 
 ## 本地打包构建
 
@@ -77,7 +75,7 @@ wails3 task linux:package
 
 - `ci.yml` 在 `main` push 和 Pull Request 上运行，也可由 Release 与手动 Rolling 复用；仅具备 `contents: read` 只读权限。
 - `rolling.yml` 只接受成功完成的 `main` push CI，并使用该次 CI 的精确提交 SHA；公开版本取自 `CHANGELOG.md` 顶部唯一的 `## [x.y.z] - 未发布`，标题为 `TunnelKit <version> Rolling`，资产使用 `tunnelkit-<version>-rolling-<12位SHA>-<platform>` 命名并附带 `SHA256SUMS.txt`。当待发布段落为空时自动跳过 Rolling。
-- `release.yml` 仅由 `vMAJOR.MINOR.PATCH` 标签触发，要求标签版本与 `build/config.yml`、`internal/app/app.go` 及带日期的 `CHANGELOG.md` 版本段落一致，且标签提交已包含在 `main` 分支中。
+- `release.yml` 仅由 `vMAJOR.MINOR.PATCH` 标签触发，要求标签版本与 `build/config.yml` 及带日期的 `CHANGELOG.md` 版本段落一致，且标签提交已包含在 `main` 分支中。
 - 自动发布产物固定为 6 个平台包加 1 个 `SHA256SUMS.txt`（共 7 个文件）：
   - `tunnelkit-<version>-macos-universal.dmg`
   - `tunnelkit-<version>-macos-arm64.dmg`
@@ -91,7 +89,7 @@ wails3 task linux:package
 
 ## 发布新版本
 
-1. 同步更新 `build/config.yml`、`internal/app/app.go`、`build/windows/nsis/wails_tools.nsh` 与 `build/linux/nfpm/nfpm.yaml` 中的版本号。
+1. 更新 `build/config.yml` 中的 `info.version`。
 2. 将 `CHANGELOG.md` 中目标版本的 `未发布` 改为正式日期（`YYYY-MM-DD`），并在其上方新增下一个语义版本的 `## [x.y.z] - 未发布` 段落。
 3. 运行全量本地检查并创建版本提交：
    ```bash

@@ -9,6 +9,7 @@ TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自
 - [`rolling.yml`](../../.github/workflows/rolling.yml)：`main` 分支通过普通 CI 后自动更新 `rolling` 预发布
 - [`release.yml`](../../.github/workflows/release.yml)：`v*` 版本标签触发的正式 GitHub Release 发布与过期 Rolling 清理
 - [`prepare_windows_wintun.ps1`](../../scripts/prepare_windows_wintun.ps1)：下载并按固定 SHA-256 校验官方 Wintun 驱动包（`amd64` / `arm64`）
+- [`package_macos_dmg.sh`](../../scripts/package_macos_dmg.sh) 与 [`build/darwin/dmg/settings.py`](../../build/darwin/dmg/settings.py)：使用 `dmgbuild` 直接写入 `.DS_Store`、`Applications` 拖拽快捷方式、Retina `@1x/@2x` 引导背景图与卷标图标
 - [`extract_pending_version.sh`](../../scripts/extract_pending_version.sh)：读取并校验 `CHANGELOG.md` 顶部唯一的待发布版本
 - [`extract_release_notes.sh`](../../scripts/extract_release_notes.sh)：从 `CHANGELOG.md` 提取指定版本的发布说明
 - [`build/config.yml`](../../build/config.yml)：应用版本号唯一权威来源（`info.version`）

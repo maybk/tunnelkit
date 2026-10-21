@@ -84,25 +84,13 @@ jobs:
             done
           }
 
-          pack_dmg() {
-            local bundle_path="$1"
-            local dmg_path="$2"
-            local tmp_dir
-            tmp_dir="$(mktemp -d)"
-            ditto "$bundle_path" "$tmp_dir/TunnelKit.app"
-            hdiutil create -volname "TunnelKit" -srcfolder "$tmp_dir" -ov -format UDZO "$dmg_path"
-            rm -rf "$tmp_dir"
-            test -s "$dmg_path"
-            hdiutil verify "$dmg_path"
-          }
-
           verify_arch "bin/tunnelkit-darwin-arm64.app" arm64
           verify_arch "bin/tunnelkit-darwin-amd64.app" x86_64
           verify_arch "bin/tunnelkit.app" arm64 x86_64
 
-          pack_dmg "bin/tunnelkit-darwin-arm64.app" "dist/tunnelkit-$APP_VERSION-macos-arm64.dmg"
-          pack_dmg "bin/tunnelkit-darwin-amd64.app" "dist/tunnelkit-$APP_VERSION-macos-amd64.dmg"
-          pack_dmg "bin/tunnelkit.app" "dist/tunnelkit-$APP_VERSION-macos-universal.dmg"
+          bash scripts/package_macos_dmg.sh "bin/tunnelkit-darwin-arm64.app" "dist/tunnelkit-$APP_VERSION-macos-arm64.dmg"
+          bash scripts/package_macos_dmg.sh "bin/tunnelkit-darwin-amd64.app" "dist/tunnelkit-$APP_VERSION-macos-amd64.dmg"
+          bash scripts/package_macos_dmg.sh "bin/tunnelkit.app" "dist/tunnelkit-$APP_VERSION-macos-universal.dmg"
 
       - name: Upload macOS release assets
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

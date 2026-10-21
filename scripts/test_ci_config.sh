@@ -35,6 +35,23 @@ if ! grep -Fq 'wails3 task common:update:build-assets' "$release_assets_workflow
   exit 1
 fi
 
+for dmg_asset in \
+  "$repo_root/scripts/package_macos_dmg.sh" \
+  "$repo_root/build/darwin/dmg/settings.py" \
+  "$repo_root/build/darwin/dmg/background.png" \
+  "$repo_root/build/darwin/dmg/background@2x.png"; do
+  if [ ! -f "$dmg_asset" ]; then
+    echo "missing macOS DMG packaging asset: ${dmg_asset#"$repo_root/"}"
+    exit 1
+  fi
+done
+
+if ! grep -Fq 'bash scripts/package_macos_dmg.sh' "$release_assets_workflow" ||
+  ! grep -Fq 'symlinks = {"Applications": "/Applications"}' "$repo_root/build/darwin/dmg/settings.py"; then
+  echo "macOS DMG builds must use scripts/package_macos_dmg.sh with an Applications drop target"
+  exit 1
+fi
+
 for workflow in "$ci_workflow" "$release_workflow" "$release_assets_workflow" "$rolling_workflow"; do
   if [ ! -f "$workflow" ]; then
     echo "missing workflow: ${workflow#"$repo_root/"}"

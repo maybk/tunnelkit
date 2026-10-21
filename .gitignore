@@ -1,6 +1,7 @@
 .DS_Store
 .task
 bin
+dist
 node_modules
 frontend/dist
 frontend/node_modules

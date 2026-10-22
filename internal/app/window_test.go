@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"image/png"
 	"os"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/icons"
@@ -181,5 +183,46 @@ func TestMainWindowOptionsDefinePlatformTitleBarStrategies(t *testing.T) {
 	}
 	if !windowsOptions.Windows.WebView2CompositionHosting {
 		t.Fatal("Windows WebView2 composition hosting must be enabled")
+	}
+}
+
+func TestTrayControllerDefersRefreshUntilReady(t *testing.T) {
+	var called atomic.Int32
+	done := make(chan struct{}, 4)
+
+	tray := &trayController{
+		rebuild: func() {
+			called.Add(1)
+			done <- struct{}{}
+		},
+	}
+
+	// 在 Wails 事件循环未就绪前调用 refresh，不得触发 rebuild（避免 nil impl panic）。
+	tray.refresh()
+	tray.refresh()
+	if got := called.Load(); got != 0 {
+		t.Fatalf("rebuild called %d times before markReady, want 0", got)
+	}
+
+	// 标记就绪后应自动合并执行一次挂起的刷新。
+	tray.markReady()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for deferred rebuild after markReady")
+	}
+	if got := called.Load(); got != 1 {
+		t.Fatalf("rebuild called %d times after markReady, want 1", got)
+	}
+
+	// 就绪后再次调用 refresh 应立即异步执行。
+	tray.refresh()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for immediate rebuild after ready")
+	}
+	if got := called.Load(); got != 2 {
+		t.Fatalf("rebuild called %d times after second refresh, want 2", got)
 	}
 }

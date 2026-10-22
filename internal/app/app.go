@@ -8,10 +8,11 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
-	"tunnelkit/fortivpn"
 	"tunnelkit/internal/api"
 	"tunnelkit/internal/profile"
 	"tunnelkit/internal/storage"
@@ -111,22 +112,31 @@ func Run(assets embed.FS) error {
 	mainWindow = createMainWindow(wailsApp)
 	tray.init(wailsApp, mainWindow, vpnService, profileStore, icons)
 
+	initialState := vpnService.State()
 	var (
-		lastStatus      vpn.Status
-		lastPhase       fortivpn.Phase
-		lastProfileName string
+		listenerMu      sync.Mutex
+		lastStatus      = initialState.Status
+		lastPhase       = initialState.Phase
+		lastProfileName = initialState.ProfileName
 	)
 	vpnService.SetListener(func(state vpn.State) {
-		if state.Status != lastStatus || state.Phase != lastPhase || state.ProfileName != lastProfileName {
+		listenerMu.Lock()
+		changed := state.Status != lastStatus || state.Phase != lastPhase || state.ProfileName != lastProfileName
+		if changed {
 			lastStatus = state.Status
 			lastPhase = state.Phase
 			lastProfileName = state.ProfileName
+		}
+		listenerMu.Unlock()
+		if changed {
 			tray.refresh()
 		}
 		wailsApp.Event.Emit(EventVPNState, state)
 	})
 
-	go vpnService.Recover(context.Background())
+	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		go vpnService.Recover(context.Background())
+	})
 
 	return wailsApp.Run()
 }

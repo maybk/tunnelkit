@@ -6,8 +6,10 @@ import (
 	"io/fs"
 	"log/slog"
 	"runtime"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/profile"
@@ -47,14 +49,36 @@ func (s iconSet) trayIconForPlatform(goos string) (icon []byte, isTemplate bool)
 	return s.trayColorIcon, false
 }
 
-// trayController 维护菜单栏图标与菜单；refresh 可在 init 之前安全调用（此时为空操作）。
+// trayController 维护菜单栏图标与菜单；在 Wails 主线程事件循环就绪前不会调用 InvokeAsync，
+// 启动阶段收到的 refresh 请求会被合并到 markReady 后执行。
 type trayController struct {
-	rebuildAsync func()
+	mu      sync.Mutex
+	ready   bool
+	pending bool
+	rebuild func()
 }
 
 func (t *trayController) refresh() {
-	if t.rebuildAsync != nil {
-		go t.rebuildAsync()
+	t.mu.Lock()
+	if !t.ready || t.rebuild == nil {
+		t.pending = true
+		t.mu.Unlock()
+		return
+	}
+	fn := t.rebuild
+	t.mu.Unlock()
+	go fn()
+}
+
+func (t *trayController) markReady() {
+	t.mu.Lock()
+	t.ready = true
+	shouldRun := t.pending && t.rebuild != nil
+	t.pending = false
+	fn := t.rebuild
+	t.mu.Unlock()
+	if shouldRun {
+		go fn()
 	}
 }
 
@@ -127,16 +151,22 @@ func (t *trayController) init(
 		return state, profiles
 	}
 
-	t.rebuildAsync = func() {
+	t.mu.Lock()
+	t.rebuild = func() {
 		state, profiles := loadSnapshot()
 		application.InvokeAsync(func() {
 			applyMenu(state, profiles)
 		})
 	}
+	t.mu.Unlock()
 
-	// 事件循环尚未启动，首次构建需同步执行。
+	// 事件循环尚未启动，首次构建需同步执行；待平台事件循环启动后再开放异步派发。
 	state, profiles := loadSnapshot()
 	applyMenu(state, profiles)
+
+	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		t.markReady()
+	})
 }
 
 func trayStatusLabel(state vpn.State) string {

@@ -11,7 +11,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/icons"
 
-	"tunnelkit/fortivpn"
+	"tunnelkit/internal/profile"
 	"tunnelkit/internal/vpn"
 )
 
@@ -102,43 +102,78 @@ func TestLoadIconsAndPlatformSelection(t *testing.T) {
 	}
 }
 
-func TestTrayStatusLabelFormatsAllConnectionStates(t *testing.T) {
+func TestTraySelectionAndConnectState(t *testing.T) {
+	profiles := []profile.Profile{
+		{ID: "p1", Name: "001"},
+		{ID: "p2", Name: "002"},
+	}
+
+	if got := resolveSelectedProfileID(vpn.State{Status: vpn.StatusDisconnected}, nil, ""); got != "" {
+		t.Fatalf("resolveSelectedProfileID with empty profiles = %q, want empty", got)
+	}
+	if got := resolveSelectedProfileID(vpn.State{Status: vpn.StatusDisconnected}, profiles, ""); got != "p1" {
+		t.Fatalf("resolveSelectedProfileID default = %q, want p1", got)
+	}
+	if got := resolveSelectedProfileID(vpn.State{Status: vpn.StatusDisconnected}, profiles, "p2"); got != "p2" {
+		t.Fatalf("resolveSelectedProfileID keep current = %q, want p2", got)
+	}
+	if got := resolveSelectedProfileID(vpn.State{Status: vpn.StatusConnected, ProfileID: "p2"}, profiles, "p1"); got != "p2" {
+		t.Fatalf("resolveSelectedProfileID active state override = %q, want p2", got)
+	}
+	if got := resolveSelectedProfileID(vpn.State{Status: vpn.StatusDisconnected}, profiles, "deleted"); got != "p1" {
+		t.Fatalf("resolveSelectedProfileID fallback when current deleted = %q, want p1", got)
+	}
+
 	cases := []struct {
-		name  string
-		state vpn.State
-		want  string
+		name        string
+		state       vpn.State
+		selectedID  string
+		wantChecked bool
+		wantEnabled bool
 	}{
 		{
-			name:  "disconnected",
-			state: vpn.State{Status: vpn.StatusDisconnected},
-			want:  "未连接",
+			name:        "disconnected without profiles",
+			state:       vpn.State{Status: vpn.StatusDisconnected},
+			selectedID:  "",
+			wantChecked: false,
+			wantEnabled: false,
 		},
 		{
-			name:  "connecting",
-			state: vpn.State{Status: vpn.StatusConnecting, ProfileName: "Corp"},
-			want:  "正在连接 · Corp",
+			name:        "disconnected with selected profile",
+			state:       vpn.State{Status: vpn.StatusDisconnected},
+			selectedID:  "p1",
+			wantChecked: false,
+			wantEnabled: true,
 		},
 		{
-			name:  "reconnecting",
-			state: vpn.State{Status: vpn.StatusConnecting, Phase: fortivpn.PhaseReconnecting, ProfileName: "Corp"},
-			want:  "↻ 重新连接中 · Corp",
+			name:        "connecting",
+			state:       vpn.State{Status: vpn.StatusConnecting, ProfileID: "p1"},
+			selectedID:  "p1",
+			wantChecked: true,
+			wantEnabled: true,
 		},
 		{
-			name:  "connected",
-			state: vpn.State{Status: vpn.StatusConnected, ProfileName: "Corp"},
-			want:  "● 已连接 · Corp",
+			name:        "connected",
+			state:       vpn.State{Status: vpn.StatusConnected, ProfileID: "p1"},
+			selectedID:  "p1",
+			wantChecked: true,
+			wantEnabled: true,
 		},
 		{
-			name:  "disconnecting",
-			state: vpn.State{Status: vpn.StatusDisconnecting, ProfileName: "Corp"},
-			want:  "正在断开 · Corp",
+			name:        "disconnecting",
+			state:       vpn.State{Status: vpn.StatusDisconnecting, ProfileID: "p1"},
+			selectedID:  "p1",
+			wantChecked: false,
+			wantEnabled: false,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := trayStatusLabel(tc.state); got != tc.want {
-				t.Fatalf("trayStatusLabel(%+v) = %q, want %q", tc.state, got, tc.want)
+			checked, enabled := trayConnectState(tc.state, tc.selectedID)
+			if checked != tc.wantChecked || enabled != tc.wantEnabled {
+				t.Fatalf("trayConnectState(%+v, %q) = (%v, %v), want (%v, %v)",
+					tc.state, tc.selectedID, checked, enabled, tc.wantChecked, tc.wantEnabled)
 			}
 		})
 	}

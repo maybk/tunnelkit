@@ -18,12 +18,31 @@ const (
 func createMainWindow(wailsApp *application.App) application.Window {
 	window := wailsApp.Window.NewWithOptions(MainWindowOptions(wailsApp.Env.IsDarkMode()))
 
-	// 关闭按钮只隐藏窗口，应用继续驻留菜单栏，之后可从菜单栏重新打开。
+	// 关闭按钮只隐藏窗口并释放 macOS Dock 占用，应用继续驻留菜单栏，之后可从菜单栏重新打开。
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		window.Hide()
+		hideMainWindow(window)
 		e.Cancel()
 	})
 	return window
+}
+
+func showMainWindow(window application.Window, appIcon []byte) {
+	if window == nil {
+		return
+	}
+	setDockVisible(true, appIcon)
+	window.Show().Focus()
+}
+
+func hideMainWindow(window application.Window) {
+	if window == nil {
+		return
+	}
+	if window.IsFullscreen() {
+		window.UnFullscreen()
+	}
+	window.Hide()
+	setDockVisible(false, nil)
 }
 
 // MainWindowOptions 返回当前运行平台的主窗口配置。

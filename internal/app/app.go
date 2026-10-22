@@ -97,11 +97,7 @@ func Run(assets embed.FS) error {
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.tunnelkit.app",
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
-				if mainWindow != nil {
-					application.InvokeAsync(func() {
-						mainWindow.Show().Focus()
-					})
-				}
+				showMainWindow(mainWindow, icons.appIcon)
 			},
 		},
 		Mac: application.MacOptions{
@@ -136,6 +132,9 @@ func Run(assets embed.FS) error {
 
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		go vpnService.Recover(context.Background())
+	})
+	wailsApp.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
+		showMainWindow(mainWindow, icons.appIcon)
 	})
 
 	return wailsApp.Run()

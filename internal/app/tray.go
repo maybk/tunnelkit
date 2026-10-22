@@ -11,7 +11,6 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
-	"tunnelkit/fortivpn"
 	"tunnelkit/internal/profile"
 	"tunnelkit/internal/vpn"
 )
@@ -52,10 +51,24 @@ func (s iconSet) trayIconForPlatform(goos string) (icon []byte, isTemplate bool)
 // trayController 维护菜单栏图标与菜单；在 Wails 主线程事件循环就绪前不会调用 InvokeAsync，
 // 启动阶段收到的 refresh 请求会被合并到 markReady 后执行。
 type trayController struct {
-	mu      sync.Mutex
-	ready   bool
-	pending bool
-	rebuild func()
+	mu                sync.Mutex
+	ready             bool
+	pending           bool
+	selectedProfileID string
+	rebuild           func()
+}
+
+func (t *trayController) setSelectedProfileID(id string) {
+	t.mu.Lock()
+	t.selectedProfileID = id
+	t.mu.Unlock()
+}
+
+func (t *trayController) syncSelectedProfileID(state vpn.State, profiles []profile.Profile) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.selectedProfileID = resolveSelectedProfileID(state, profiles, t.selectedProfileID)
+	return t.selectedProfileID
 }
 
 func (t *trayController) refresh() {
@@ -97,90 +110,125 @@ func (t *trayController) init(
 	}
 	tray.SetTooltip(ApplicationName)
 
-	showWindow := func() { mainWindow.Show().Focus() }
+	showWindow := func() { showMainWindow(mainWindow, icons.appIcon) }
+	if runtime.GOOS != "darwin" {
+		// Windows 与 Linux（StatusNotifierItem Activate）下左键点击托盘图标直接唤起主窗口，右键打开托盘菜单；
+		// macOS 保持 clickHandler 为空以使用系统原生的左/右键弹出菜单栏行为。
+		tray.OnClick(showWindow)
+	}
 	runAsync := func(name string, fn func(context.Context) error) {
 		go func() {
 			if err := fn(context.Background()); err != nil {
 				slog.Warn("菜单栏操作失败", "action", name, "error", err)
+				t.refresh()
 			}
 		}()
 	}
 
-	applyMenu := func(state vpn.State, profiles []profile.Profile) {
+	applyMenu := func(state vpn.State, profiles []profile.Profile, selectedID string) {
 		menu := wailsApp.NewMenu()
-		menu.Add(trayStatusLabel(state)).SetEnabled(false)
+		menu.Add("仪表板").OnClick(func(*application.Context) { showWindow() })
+		menu.AddSeparator()
 
-		switch state.Status {
-		case vpn.StatusConnected:
-			menu.Add("断开「" + state.ProfileName + "」").OnClick(func(*application.Context) {
-				runAsync("disconnect", vpnService.Disconnect)
-			})
-		case vpn.StatusConnecting:
-			menu.Add("取消连接").OnClick(func(*application.Context) { vpnService.Cancel() })
-		}
-
-		if len(profiles) > 0 {
-			menu.AddSeparator()
+		nodeMenu := menu.AddSubmenu("节点")
+		if len(profiles) == 0 {
+			nodeMenu.Add("暂无节点").SetEnabled(false)
+		} else {
 			for _, p := range profiles {
-				isCurrent := state.Status != vpn.StatusDisconnected && state.ProfileID == p.ID
-				label := "连接「" + p.Name + "」"
-				if state.Status != vpn.StatusDisconnected && !isCurrent {
-					label = "切换至「" + p.Name + "」"
-				}
-				item := menu.Add(label)
-				item.SetEnabled(state.Status != vpn.StatusDisconnecting && !isCurrent)
+				item := nodeMenu.AddRadio(p.Name, p.ID == selectedID)
+				item.SetEnabled(state.Status != vpn.StatusDisconnecting)
 				profileID := p.ID
 				item.OnClick(func(*application.Context) {
-					runAsync("connect", func(ctx context.Context) error { return vpnService.Connect(ctx, profileID) })
+					t.setSelectedProfileID(profileID)
+					if state.Status == vpn.StatusDisconnected || state.ProfileID != profileID {
+						runAsync("connect", func(ctx context.Context) error {
+							return vpnService.Connect(ctx, profileID)
+						})
+					}
 				})
 			}
 		}
 
+		connectedChecked, connectEnabled := trayConnectState(state, selectedID)
+		connectItem := menu.AddCheckbox("连接", connectedChecked)
+		connectItem.SetEnabled(connectEnabled)
+		connectItem.OnClick(func(*application.Context) {
+			switch state.Status {
+			case vpn.StatusConnected:
+				runAsync("disconnect", vpnService.Disconnect)
+			case vpn.StatusConnecting:
+				vpnService.Cancel()
+			case vpn.StatusDisconnected:
+				if selectedID != "" {
+					runAsync("connect", func(ctx context.Context) error {
+						return vpnService.Connect(ctx, selectedID)
+					})
+				}
+			}
+		})
+
 		menu.AddSeparator()
-		menu.Add("打开 TunnelKit").OnClick(func(*application.Context) { showWindow() })
-		menu.Add("退出").OnClick(func(*application.Context) { wailsApp.Quit() })
+		quitItem := menu.Add("退出")
+		quitItem.SetAccelerator("CmdOrCtrl+q")
+		quitItem.OnClick(func(*application.Context) { wailsApp.Quit() })
 		tray.SetMenu(menu)
 	}
 
-	loadSnapshot := func() (vpn.State, []profile.Profile) {
+	loadSnapshot := func() (vpn.State, []profile.Profile, string) {
 		state := vpnService.State()
 		profiles, err := profileStore.List()
 		if err != nil {
 			slog.Warn("菜单栏读取连接配置失败", "error", err)
 		}
-		return state, profiles
+		selectedID := t.syncSelectedProfileID(state, profiles)
+		return state, profiles, selectedID
 	}
 
 	t.mu.Lock()
 	t.rebuild = func() {
-		state, profiles := loadSnapshot()
+		state, profiles, selectedID := loadSnapshot()
 		application.InvokeAsync(func() {
-			applyMenu(state, profiles)
+			applyMenu(state, profiles, selectedID)
 		})
 	}
 	t.mu.Unlock()
 
 	// 事件循环尚未启动，首次构建需同步执行；待平台事件循环启动后再开放异步派发。
-	state, profiles := loadSnapshot()
-	applyMenu(state, profiles)
+	state, profiles, selectedID := loadSnapshot()
+	applyMenu(state, profiles, selectedID)
 
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		t.markReady()
 	})
 }
 
-func trayStatusLabel(state vpn.State) string {
-	switch state.Status {
-	case vpn.StatusConnected:
-		return "● 已连接 · " + state.ProfileName
-	case vpn.StatusConnecting:
-		if state.Phase == fortivpn.PhaseReconnecting {
-			return "↻ 重新连接中 · " + state.ProfileName
-		}
-		return "正在连接 · " + state.ProfileName
-	case vpn.StatusDisconnecting:
-		return "正在断开 · " + state.ProfileName
-	default:
-		return "未连接"
+func resolveSelectedProfileID(state vpn.State, profiles []profile.Profile, currentID string) string {
+	if hasProfile(profiles, state.ProfileID) {
+		return state.ProfileID
 	}
+	if hasProfile(profiles, currentID) {
+		return currentID
+	}
+	if len(profiles) > 0 {
+		return profiles[0].ID
+	}
+	return ""
+}
+
+func hasProfile(profiles []profile.Profile, id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, p := range profiles {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func trayConnectState(state vpn.State, selectedProfileID string) (checked bool, enabled bool) {
+	checked = state.Status == vpn.StatusConnected || state.Status == vpn.StatusConnecting
+	enabled = state.Status != vpn.StatusDisconnecting && (checked || selectedProfileID != "")
+	return checked, enabled
 }

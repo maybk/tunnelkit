@@ -76,13 +76,17 @@ func TestLinuxApplyUpdateAndRollbackWithResolvectl(t *testing.T) {
 		t.Errorf("expected journal file to be deleted after Close, err = %v", err)
 	}
 
-	var sawAddr, sawLinkUp, sawHostRouteAdd, sawResolvectlSplit, sawResolvectlFull, sawResolvectlRevert, sawHostRouteDel bool
+	var sawAddrFlush, sawAddr, sawLinkUp, sawTunnelReplace, sawHostRouteAdd, sawResolvectlSplit, sawResolvectlFull, sawResolvectlRevert, sawHostRouteDel bool
 	for _, c := range calls {
 		switch {
+		case c.name == "ip" && c.args == "-4 addr flush dev forti0":
+			sawAddrFlush = true
 		case c.name == "ip" && c.args == "-4 addr replace 10.200.0.2/32 peer 169.254.2.1 dev forti0":
 			sawAddr = true
 		case c.name == "ip" && c.args == "link set dev forti0 mtu 1400 up":
 			sawLinkUp = true
+		case c.name == "ip" && c.args == "-4 route replace 0.0.0.0/1 dev forti0":
+			sawTunnelReplace = true
 		case c.name == "ip" && c.args == "-4 route add 198.51.100.10/32 via 192.168.1.1 dev eth0":
 			sawHostRouteAdd = true
 		case c.name == "resolvectl" && c.args == "domain forti0 ~corp.example.com":
@@ -95,9 +99,9 @@ func TestLinuxApplyUpdateAndRollbackWithResolvectl(t *testing.T) {
 			sawHostRouteDel = true
 		}
 	}
-	if !sawAddr || !sawLinkUp || !sawHostRouteAdd || !sawResolvectlSplit || !sawResolvectlFull || !sawResolvectlRevert || !sawHostRouteDel {
-		t.Fatalf("missing expected Linux commands: addr=%v link=%v hostAdd=%v split=%v full=%v revert=%v hostDel=%v",
-			sawAddr, sawLinkUp, sawHostRouteAdd, sawResolvectlSplit, sawResolvectlFull, sawResolvectlRevert, sawHostRouteDel)
+	if !sawAddrFlush || !sawAddr || !sawLinkUp || !sawTunnelReplace || !sawHostRouteAdd || !sawResolvectlSplit || !sawResolvectlFull || !sawResolvectlRevert || !sawHostRouteDel {
+		t.Fatalf("missing expected Linux commands: flush=%v addr=%v link=%v replace=%v hostAdd=%v split=%v full=%v revert=%v hostDel=%v",
+			sawAddrFlush, sawAddr, sawLinkUp, sawTunnelReplace, sawHostRouteAdd, sawResolvectlSplit, sawResolvectlFull, sawResolvectlRevert, sawHostRouteDel)
 	}
 }
 

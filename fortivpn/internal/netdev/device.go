@@ -62,7 +62,20 @@ func wrapTUN(dev tun.Device, fallbackName string, mtu int) (Device, error) {
 }
 
 func (t *tunDevice) Name() string { return t.name }
-func (t *tunDevice) MTU() int     { return t.mtu }
+func (t *tunDevice) MTU() int {
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	return t.mtu
+}
+
+func (t *tunDevice) SetMTU(mtu int) {
+	if mtu <= 0 {
+		return
+	}
+	t.writeMu.Lock()
+	t.mtu = mtu
+	t.writeMu.Unlock()
+}
 
 func (t *tunDevice) ReadPacket(buf []byte) (int, error) {
 	t.readMu.Lock()

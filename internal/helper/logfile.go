@@ -38,11 +38,11 @@ func NewLogger(w io.Writer) *slog.Logger {
 	if w == nil {
 		w = io.Discard
 	}
-	return slog.New(&lineLogHandler{w: w})
+	return slog.New(&lineLogHandler{mu: &sync.Mutex{}, w: w})
 }
 
 type lineLogHandler struct {
-	mu    sync.Mutex
+	mu    *sync.Mutex
 	w     io.Writer
 	attrs []slog.Attr
 }
@@ -92,7 +92,7 @@ func (h *lineLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	cp := make([]slog.Attr, 0, len(h.attrs)+len(attrs))
 	cp = append(cp, h.attrs...)
 	cp = append(cp, attrs...)
-	return &lineLogHandler{w: h.w, attrs: cp}
+	return &lineLogHandler{mu: h.mu, w: h.w, attrs: cp}
 }
 
 func (h *lineLogHandler) WithGroup(_ string) slog.Handler {

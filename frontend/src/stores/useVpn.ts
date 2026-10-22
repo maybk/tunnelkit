@@ -29,25 +29,39 @@ export const useVpn = createGlobalState(() => {
 
   let clockTimer: ReturnType<typeof setInterval> | null = null
   let unsubscribe: (() => void) | null = null
+  let watching = false
+
+  const syncClockTimer = () => {
+    if (watching && state.value.status === 'connected') {
+      nowMs.value = Date.now()
+      clockTimer ??= setInterval(() => {
+        nowMs.value = Date.now()
+      }, 1000)
+    } else if (clockTimer) {
+      clearInterval(clockTimer)
+      clockTimer = null
+    }
+  }
 
   const loadState = async () => {
     state.value = await getVpnState()
+    syncClockTimer()
   }
 
   const startWatching = () => {
+    watching = true
     unsubscribe ??= Events.On(VPN_STATE_EVENT, (event) => {
       state.value = toVpnState(event.data as vpnModels.State)
+      syncClockTimer()
     })
-    clockTimer ??= setInterval(() => {
-      nowMs.value = Date.now()
-    }, 1000)
+    syncClockTimer()
   }
 
   const stopWatching = () => {
+    watching = false
     unsubscribe?.()
     unsubscribe = null
-    if (clockTimer) clearInterval(clockTimer)
-    clockTimer = null
+    syncClockTimer()
   }
 
   let activeOps = 0
@@ -103,21 +117,21 @@ export const useVpn = createGlobalState(() => {
     }
   }
 
-  const withLog = async (action: () => Promise<void>) => {
-    logLoading.value = true
+  const withLog = async (action: () => Promise<void>, silent = false) => {
+    if (!silent) logLoading.value = true
     try {
       await action()
     } catch (err) {
-      showError(err)
+      if (!silent) showError(err)
     } finally {
-      logLoading.value = false
+      if (!silent) logLoading.value = false
     }
   }
 
-  const loadLog = (profileId: string) =>
+  const loadLog = (profileId: string, silent = false) =>
     withLog(async () => {
       logView.value = await getVpnLog(profileId)
-    })
+    }, silent)
 
   const clearLog = (profileId: string) =>
     withLog(async () => {

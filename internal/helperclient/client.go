@@ -71,7 +71,7 @@ type Client struct {
 }
 
 // LocateHelper finds the tunnelkit-helper executable next to the running GUI
-// binary (or in ./bin during local development).
+// binary (or in standard system/development locations).
 func LocateHelper() (string, bool) {
 	exeName := "tunnelkit-helper"
 	if runtime.GOOS == "windows" {
@@ -80,8 +80,25 @@ func LocateHelper() (string, bool) {
 
 	var candidates []string
 	if selfExe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(selfExe)
-		candidates = append(candidates, filepath.Join(exeDir, exeName))
+		candidates = append(candidates, filepath.Join(filepath.Dir(selfExe), exeName))
+		if resolved, err := filepath.EvalSymlinks(selfExe); err == nil && resolved != selfExe {
+			candidates = append(candidates, filepath.Join(filepath.Dir(resolved), exeName))
+		}
+	}
+	if runtime.GOOS == "linux" {
+		if appDir := os.Getenv("APPDIR"); appDir != "" {
+			candidates = append(candidates,
+				filepath.Join(appDir, "usr", "bin", exeName),
+				filepath.Join(appDir, exeName),
+			)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		candidates = append(candidates,
+			filepath.Join("/usr/local/bin", exeName),
+			filepath.Join("/usr/bin", exeName),
+			filepath.Join("/opt/tunnelkit", exeName),
+		)
 	}
 	if wd, err := os.Getwd(); err == nil {
 		candidates = append(candidates,
@@ -89,17 +106,16 @@ func LocateHelper() (string, bool) {
 			filepath.Join(wd, exeName),
 		)
 	}
-	if runtime.GOOS != "windows" {
-		candidates = append(candidates,
-			filepath.Join("/usr/local/bin", exeName),
-			filepath.Join("/usr/bin", exeName),
-		)
-	}
 
 	for _, p := range candidates {
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p, true
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() {
+			continue
 		}
+		if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+			continue
+		}
+		return p, true
 	}
 	if len(candidates) > 0 {
 		return candidates[0], false
@@ -140,15 +156,9 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 		}
 	}
 
-	// Remove stale unix socket if unconnected before launching helper.
+	// Remove any leftover unix socket before launching a new single-session helper.
 	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-		if _, err := os.Lstat(endpoint); err == nil {
-			if c, dErr := ipc.Dial(ctx, endpoint); dErr == nil {
-				_ = c.Close()
-			} else {
-				_ = os.Remove(endpoint)
-			}
-		}
+		_ = os.Remove(endpoint)
 	}
 
 	if err := launchElevated(ctx, helperPath, endpoint, ownerID, tokenHash, req.LogPath, req.JournalPath); err != nil {
@@ -167,6 +177,9 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 	}
 
 	if err := client.Start(ctx, req.Config); err != nil {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
+		_ = client.Stop(stopCtx)
+		stopCancel()
 		_ = client.Close()
 		return nil, Ticket{}, err
 	}

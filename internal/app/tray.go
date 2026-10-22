@@ -49,12 +49,12 @@ func (s iconSet) trayIconForPlatform(goos string) (icon []byte, isTemplate bool)
 
 // trayController 维护菜单栏图标与菜单；refresh 可在 init 之前安全调用（此时为空操作）。
 type trayController struct {
-	rebuild func()
+	rebuildAsync func()
 }
 
 func (t *trayController) refresh() {
-	if t.rebuild != nil {
-		application.InvokeAsync(t.rebuild)
+	if t.rebuildAsync != nil {
+		go t.rebuildAsync()
 	}
 }
 
@@ -82,13 +82,7 @@ func (t *trayController) init(
 		}()
 	}
 
-	t.rebuild = func() {
-		state := vpnService.State()
-		profiles, err := profileStore.List()
-		if err != nil {
-			slog.Warn("菜单栏读取连接配置失败", "error", err)
-		}
-
+	applyMenu := func(state vpn.State, profiles []profile.Profile) {
 		menu := wailsApp.NewMenu()
 		menu.Add(trayStatusLabel(state)).SetEnabled(false)
 
@@ -124,8 +118,25 @@ func (t *trayController) init(
 		tray.SetMenu(menu)
 	}
 
+	loadSnapshot := func() (vpn.State, []profile.Profile) {
+		state := vpnService.State()
+		profiles, err := profileStore.List()
+		if err != nil {
+			slog.Warn("菜单栏读取连接配置失败", "error", err)
+		}
+		return state, profiles
+	}
+
+	t.rebuildAsync = func() {
+		state, profiles := loadSnapshot()
+		application.InvokeAsync(func() {
+			applyMenu(state, profiles)
+		})
+	}
+
 	// 事件循环尚未启动，首次构建需同步执行。
-	t.rebuild()
+	state, profiles := loadSnapshot()
+	applyMenu(state, profiles)
 }
 
 func trayStatusLabel(state vpn.State) string {

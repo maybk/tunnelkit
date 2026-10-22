@@ -78,7 +78,6 @@ func Run(assets embed.FS) error {
 
 	profileStore := profile.NewStore(rootDir)
 	vpnService := vpn.NewService(rootDir, profileStore, vpn.NewDefaultLauncher())
-	vpnService.Recover(context.Background())
 
 	var mainWindow application.Window
 	tray := &trayController{}
@@ -126,6 +125,8 @@ func Run(assets embed.FS) error {
 		}
 		wailsApp.Event.Emit(EventVPNState, state)
 	})
+
+	go vpnService.Recover(context.Background())
 
 	return wailsApp.Run()
 }

@@ -22,7 +22,14 @@ const (
 
 var packetBufPool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 2048)
+		b := make([]byte, 65536)
+		return &b
+	},
+}
+
+var dataFramePool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 2048)
 		return &b
 	},
 }
@@ -57,12 +64,28 @@ func (l *link) enqueueData(ipPkt []byte) {
 	if !ok || shouldDropOutboundIPv4(trimmed) {
 		return
 	}
-	frame := ppp.EncapsulateIP(trimmed)
+	need := 4 + len(trimmed)
+	bufPtr := dataFramePool.Get().(*[]byte)
+	buf := *bufPtr
+	if cap(buf) < need {
+		buf = make([]byte, need)
+	} else {
+		buf = buf[:need]
+	}
+	ppp.PutFrameHeader(buf, ppp.ProtocolIP)
+	copy(buf[4:], trimmed)
+	*bufPtr = buf
 	select {
-	case l.dataCh <- frame:
+	case l.dataCh <- bufPtr:
 	case <-l.doneCh:
+		if cap(buf) <= 4096 {
+			dataFramePool.Put(bufPtr)
+		}
 	default:
 		// Drop packet on congestion; never block the TUN reader.
+		if cap(buf) <= 4096 {
+			dataFramePool.Put(bufPtr)
+		}
 	}
 }
 
@@ -83,8 +106,12 @@ func (l *link) writerLoop() error {
 				if err := l.writeFrame(frame, false); err != nil {
 					return err
 				}
-			case frame := <-l.dataCh:
-				if err := l.writeFrame(frame, true); err != nil {
+			case bufPtr := <-l.dataCh:
+				err := l.writeFrame(*bufPtr, true)
+				if cap(*bufPtr) <= 4096 {
+					dataFramePool.Put(bufPtr)
+				}
+				if err != nil {
 					return err
 				}
 			}
@@ -144,9 +171,7 @@ func (l *link) readerLoop() error {
 			l.sess.rxBytes.Add(uint64(len(ipPkt)))
 			l.sess.rxPackets.Add(1)
 			if dev := l.sess.getDevice(); dev != nil {
-				cp := make([]byte, len(ipPkt))
-				copy(cp, ipPkt)
-				_ = dev.WritePacket(cp)
+				_ = dev.WritePacket(ipPkt)
 			}
 			continue
 		}

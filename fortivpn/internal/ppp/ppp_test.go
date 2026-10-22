@@ -284,6 +284,49 @@ func TestIPCPAcceptsPeerDNSAndLCPRejectsIPCP(t *testing.T) {
 	}
 }
 
+func TestFSMNakLoopCapAndFallbackLocalIP(t *testing.T) {
+	// 1. Verify FallbackLocalIP is used when peer Acks 0.0.0.0 without sending a Configure-Nak.
+	h := NewIPCPHandler()
+	h.SetFallbackIP(netip.MustParseAddr("10.200.0.77"))
+	if got := h.Config().LocalIP; got != netip.MustParseAddr("10.200.0.77") {
+		t.Fatalf("LocalIP with fallback = %v, want 10.200.0.77", got)
+	}
+	// Verify ApplyNak ignores 0.0.0.0.
+	_ = h.ApplyNak([]Option{{Type: OptIPAddress, Value: []byte{0, 0, 0, 0}}})
+	if got := h.Config().LocalIP; got != netip.MustParseAddr("10.200.0.77") {
+		t.Fatalf("LocalIP after 0.0.0.0 Nak = %v, want 10.200.0.77", got)
+	}
+
+	// 2. Verify FSM aborts when peer sends more than MaxConfigure Configure-Naks.
+	var lastSent Packet
+	var failedErr error
+	fsm := NewFSM(NewIPCPHandler(), FSMCallbacks{
+		Send: func(_ uint16, payload []byte) {
+			lastSent, _ = ParsePacket(payload)
+		},
+		ThisLayerFinished: func(err error) {
+			failedErr = err
+		},
+	}, FSMConfig{
+		RestartInterval: 50 * time.Millisecond,
+		MaxConfigure:    3,
+		MaxTerminate:    2,
+		MaxFailure:      2,
+	})
+	fsm.Open(nil)
+	fsm.Up(nil)
+	for i := 0; i < 4; i++ {
+		fsm.Input(Packet{
+			Code: CodeConfigureNak,
+			ID:   lastSent.ID,
+			Body: MarshalOptions([]Option{{Type: OptIPAddress, Value: []byte{10, 0, 0, byte(i + 1)}}}),
+		}.Marshal(), nil)
+	}
+	if failedErr == nil {
+		t.Fatal("expected FSM to fail after exceeding MaxConfigure Configure-Naks")
+	}
+}
+
 func TestExtractIPv4AndPaddingTrim(t *testing.T) {
 	pkt := make([]byte, 28)
 	pkt[0] = 0x45

@@ -64,14 +64,15 @@ type Service struct {
 
 	opRunning atomic.Bool
 	// emitMu 串行化“写状态 + 通知监听者”，保证前端与菜单栏收到的状态顺序与发生顺序一致。
-	emitMu        sync.Mutex
-	mu            sync.RWMutex
-	state         State
-	conn          Conn
-	streamDone    <-chan struct{}
-	opDone        chan struct{}
-	cancelConnect context.CancelFunc
-	listener      func(State)
+	emitMu            sync.Mutex
+	mu                sync.RWMutex
+	state             State
+	conn              Conn
+	streamDone        <-chan struct{}
+	opDone            chan struct{}
+	cancelConnect     context.CancelFunc
+	inFlightProfileID string
+	listener          func(State)
 }
 
 func NewService(rootDir string, profiles *profile.Store, launcher Launcher) *Service {
@@ -121,12 +122,18 @@ func (s *Service) Answer(ctx context.Context, promptID, value string, cancel boo
 	conn := s.conn
 	s.mu.RUnlock()
 	if conn == nil {
+		if cancel {
+			s.Cancel()
+			return nil
+		}
 		return ErrNoActivePrompt
 	}
+	err := conn.Answer(ctx, promptID, value, cancel)
 	if cancel {
 		s.Cancel()
+		return nil
 	}
-	return conn.Answer(ctx, promptID, value, cancel)
+	return err
 }
 
 // Log 读取指定配置的脱敏连接日志。

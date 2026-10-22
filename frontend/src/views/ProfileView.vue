@@ -34,7 +34,7 @@ const emit = defineEmits<{
   trustAndReconnect: [sha256: string]
   saveProfile: [input: ProfileInput]
   resetFormError: []
-  refreshLog: []
+  refreshLog: [silent?: boolean]
   clearLog: []
 }>()
 
@@ -167,7 +167,11 @@ const logLive = computed(() => status.value === 'connecting' || status.value ===
         />
       </TabsContent>
 
-      <TabsContent value="config" class="min-h-0 overflow-y-auto px-6 pt-3 pb-1">
+      <TabsContent
+        value="config"
+        :unmount-on-hide="false"
+        class="min-h-0 overflow-y-auto px-6 pt-3 pb-1"
+      >
         <ProfileForm
           ref="profileFormRef"
           v-model:dirty="configDirty"
@@ -188,7 +192,7 @@ const logLive = computed(() => status.value === 'connecting' || status.value ===
           :log-view="logView"
           :loading="logLoading"
           :auto-refresh="logLive"
-          @refresh="emit('refreshLog')"
+          @refresh="emit('refreshLog', $event)"
           @clear="emit('clearLog')"
         />
       </TabsContent>

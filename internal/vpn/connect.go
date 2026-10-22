@@ -19,11 +19,14 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 	s.mu.RLock()
 	inFlightCancel := s.cancelConnect
 	inFlightDone := s.opDone
-	sameProfile := s.state.ProfileID == profileID && s.state.Status != StatusDisconnected
+	sameProfile := (s.state.ProfileID == profileID && s.state.Status != StatusDisconnected) ||
+		(s.inFlightProfileID == profileID && inFlightCancel != nil)
 	s.mu.RUnlock()
 
-	if !sameProfile && inFlightCancel != nil && inFlightDone != nil {
-		inFlightCancel()
+	if !sameProfile && inFlightDone != nil {
+		if inFlightCancel != nil {
+			inFlightCancel()
+		}
 		select {
 		case <-inFlightDone:
 		case <-ctx.Done():
@@ -42,10 +45,12 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 	opCtx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	s.cancelConnect = cancel
+	s.inFlightProfileID = profileID
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		s.cancelConnect = nil
+		s.inFlightProfileID = ""
 		s.mu.Unlock()
 		cancel()
 	}()

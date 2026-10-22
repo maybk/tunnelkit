@@ -42,8 +42,9 @@ func (s *Store) List() ([]Profile, error) {
 	if err != nil {
 		return nil, err
 	}
+	hasPwd := s.secrets.idSet()
 	for i := range profiles {
-		profiles[i].HasPassword = s.secrets.has(profiles[i].ID)
+		_, profiles[i].HasPassword = hasPwd[profiles[i].ID]
 	}
 	return profiles, nil
 }

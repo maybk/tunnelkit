@@ -16,7 +16,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  refresh: []
+  refresh: [silent?: boolean]
   clear: []
 }>()
 
@@ -24,7 +24,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const syncPolling = () => {
   if (pollTimer) clearInterval(pollTimer)
-  pollTimer = props.autoRefresh ? setInterval(() => emit('refresh'), POLL_INTERVAL_MS) : null
+  pollTimer = props.autoRefresh ? setInterval(() => emit('refresh', true), POLL_INTERVAL_MS) : null
 }
 
 onMounted(() => {

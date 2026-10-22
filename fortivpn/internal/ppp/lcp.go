@@ -100,8 +100,10 @@ func (h *LCPHandler) ApplyNak(opts []Option) error {
 		case OptMRU:
 			if len(o.Value) == 2 {
 				suggested := binary.BigEndian.Uint16(o.Value)
-				if suggested >= minMRU && suggested <= 1500 {
+				if suggested >= minMRU && suggested <= 16384 {
 					h.localMRU = suggested
+				} else {
+					h.useMRU = false
 				}
 			}
 		case OptMagic:

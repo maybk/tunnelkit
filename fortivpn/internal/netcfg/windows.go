@@ -309,6 +309,57 @@ func (a *windowsApplied) Update(ctx context.Context, d Desired) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	ops := a.adapterOps()
+	oldNeedHost := NeedsGatewayHostRoute(a.desired.Routes, a.desired.Gateway)
+	newNeedHost := NeedsGatewayHostRoute(d.Routes, d.Gateway)
+	if oldNeedHost && (!newNeedHost || d.Gateway != a.desired.Gateway) {
+		for _, entry := range a.journal.Entries() {
+			if entry.Kind == KindHostRoute && entry.LUID != 0 && entry.Gateway != "" {
+				if gwAddr, err := netip.ParseAddr(entry.Gateway); err == nil {
+					nextHop := netip.IPv4Unspecified()
+					if entry.NextHop != "" {
+						if nh, err := netip.ParseAddr(entry.NextHop); err == nil {
+							nextHop = nh
+						}
+					}
+					_ = ops.deleteHostRoute(winipcfg.LUID(entry.LUID), netip.PrefixFrom(gwAddr, 32), nextHop)
+				}
+				_ = a.journal.Remove(entry)
+			}
+		}
+	}
+	if newNeedHost && (!oldNeedHost || d.Gateway != a.desired.Gateway) {
+		snap := a.snap
+		if snap.GatewayLUID == 0 {
+			if lookedUp, err := lookupWindowsGatewayRoute(d.Gateway, a.luid); err == nil {
+				snap = lookedUp
+				a.snap = snap
+			}
+		}
+		gwLUID := winipcfg.LUID(snap.GatewayLUID)
+		if gwLUID != 0 {
+			entry := JournalEntry{
+				Kind:    KindHostRoute,
+				Gateway: d.Gateway.String(),
+				LUID:    snap.GatewayLUID,
+			}
+			if snap.GatewayNextHop.IsValid() {
+				entry.NextHop = snap.GatewayNextHop.String()
+			}
+			if err := a.journal.Record(entry); err != nil {
+				return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: record host route journal failed", err)
+			}
+			created, err := ops.addHostRoute(gwLUID, netip.PrefixFrom(d.Gateway, 32), snap.GatewayNextHop)
+			if err != nil {
+				_ = a.journal.Remove(entry)
+				return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update host route failed", err)
+			}
+			if !created {
+				_ = a.journal.Remove(entry)
+			}
+		}
+	}
+
 	mtu := d.MTU
 	if mtu <= 0 {
 		mtu = 1400
@@ -317,13 +368,16 @@ func (a *windowsApplied) Update(ctx context.Context, d Desired) error {
 		return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update interface and routes failed", err)
 	}
 
-	ops := a.adapterOps()
 	if d.DNS.Mode != fortivpn.DNSOff && len(d.DNS.Servers) > 0 && !SplitDNSNeedsDomains(d.DNS) {
 		if err := ops.applyDNS(ctx, a.luid, d.DNS, a.journal); err != nil {
 			return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update dns failed", err)
 		}
 	} else {
 		_ = ops.removeDNS(ctx, a.luid)
+		_ = a.journal.Remove(JournalEntry{
+			Kind: KindWindowsNRPT,
+			Key:  nrptRulePrefix,
+		})
 	}
 
 	a.desired = d
@@ -406,7 +460,7 @@ func lookupWindowsGatewayRoute(gateway netip.Addr, skipLUID winipcfg.LUID) (Snap
 	var (
 		found      bool
 		bestBits   int = -1
-		bestMetric uint32
+		bestMetric uint64
 		bestRow    winipcfg.MibIPforwardRow2
 	)
 	for _, r := range rows {
@@ -417,13 +471,11 @@ func lookupWindowsGatewayRoute(gateway netip.Addr, skipLUID winipcfg.LUID) (Snap
 		if !pfx.IsValid() || !pfx.Contains(gateway) {
 			continue
 		}
-		metric := r.Metric
-		if ipIf, err := r.InterfaceLUID.IPInterface(windows.AF_INET); err == nil {
-			if !ipIf.Connected {
-				continue
-			}
-			metric += ipIf.Metric
+		ipIf, err := r.InterfaceLUID.IPInterface(windows.AF_INET)
+		if err != nil || !ipIf.Connected {
+			continue
 		}
+		metric := uint64(r.Metric) + uint64(ipIf.Metric)
 		bits := pfx.Bits()
 		if !found || bits > bestBits || (bits == bestBits && metric < bestMetric) {
 			found = true

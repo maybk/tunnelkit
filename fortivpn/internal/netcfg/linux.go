@@ -45,7 +45,7 @@ func applyLinuxWithRunner(ctx context.Context, d Desired, journalPath string, ru
 
 	var snap Snapshot
 	if NeedsGatewayHostRoute(d.Routes, d.Gateway) {
-		snap, err = lookupLinuxRoute(ctx, run, d.Gateway)
+		snap, err = lookupLinuxRoute(ctx, run, d.Gateway, d.Iface)
 		if err != nil {
 			return nil, fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: lookup gateway route failed", err)
 		}
@@ -134,6 +134,42 @@ func (a *linuxApplied) Update(ctx context.Context, d Desired) error {
 		}
 	}
 
+	oldNeedHost := NeedsGatewayHostRoute(a.desired.Routes, a.desired.Gateway)
+	newNeedHost := NeedsGatewayHostRoute(d.Routes, d.Gateway)
+	if oldNeedHost && (!newNeedHost || d.Gateway != a.desired.Gateway) {
+		for _, entry := range a.journal.Entries() {
+			if entry.Kind == KindHostRoute {
+				_ = deleteLinuxHostRoute(ctx, a.run, entry.Gateway, entry.NextHop, entry.Iface)
+				_ = a.journal.Remove(entry)
+			}
+		}
+	}
+	if newNeedHost && (!oldNeedHost || d.Gateway != a.desired.Gateway) {
+		snap, err := lookupLinuxRoute(ctx, a.run, d.Gateway, d.Iface)
+		if err == nil && (snap.GatewayNextHop.IsValid() || snap.GatewayIface != "") {
+			a.snap = snap
+			entry := JournalEntry{
+				Kind:    KindHostRoute,
+				Gateway: d.Gateway.String(),
+				Iface:   snap.GatewayIface,
+			}
+			if snap.GatewayNextHop.IsValid() {
+				entry.NextHop = snap.GatewayNextHop.String()
+			}
+			if err := a.journal.Record(entry); err != nil {
+				return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: record host route journal failed", err)
+			}
+			created, err := addLinuxHostRoute(ctx, a.run, d.Gateway, snap.GatewayNextHop, snap.GatewayIface)
+			if err != nil {
+				_ = a.journal.Remove(entry)
+				return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update gateway host route failed", err)
+			}
+			if !created {
+				_ = a.journal.Remove(entry)
+			}
+		}
+	}
+
 	oldSet := make(map[netip.Prefix]struct{}, len(a.tunnelRoutes))
 	for _, r := range a.tunnelRoutes {
 		oldSet[r] = struct{}{}
@@ -171,10 +207,17 @@ func (a *linuxApplied) Update(ctx context.Context, d Desired) error {
 		}
 		a.dnsBackend = backend
 	} else if a.dnsBackend != "" {
-		_ = removeLinuxDNS(ctx, a.run, d.Iface, a.dnsBackend)
+		_ = removeLinuxDNS(ctx, a.run, a.desired.Iface, a.dnsBackend)
+		_ = a.journal.Remove(JournalEntry{
+			Kind:  KindLinuxDNS,
+			Iface: a.desired.Iface,
+			Key:   a.dnsBackend,
+		})
 		a.dnsBackend = ""
 	}
 
+	d.MTU = mtu
+	d.Peer = peer
 	a.desired = d
 	return nil
 }
@@ -231,6 +274,7 @@ func rollbackLinuxJournalEntries(ctx context.Context, run cmdRunner, journal *Jo
 }
 
 func configureLinuxInterface(ctx context.Context, run cmdRunner, iface string, local, peer netip.Addr, mtu int) error {
+	_, _ = run(ctx, "", "ip", "-4", "addr", "flush", "dev", iface)
 	addrArgs := []string{"-4", "addr", "replace", local.String() + "/32"}
 	if peer.IsValid() && !peer.IsUnspecified() {
 		addrArgs = append(addrArgs, "peer", peer.String())
@@ -243,10 +287,10 @@ func configureLinuxInterface(ctx context.Context, run cmdRunner, iface string, l
 	return err
 }
 
-func lookupLinuxRoute(ctx context.Context, run cmdRunner, gateway netip.Addr) (Snapshot, error) {
+func lookupLinuxRoute(ctx context.Context, run cmdRunner, gateway netip.Addr, skipIface string) (Snapshot, error) {
 	out, err := run(ctx, "", "ip", "-4", "route", "get", gateway.String())
 	if err == nil {
-		if snap := parseLinuxRouteGet(out); snap.GatewayNextHop.IsValid() || snap.GatewayIface != "" {
+		if snap := parseLinuxRouteGet(out, skipIface); snap.GatewayNextHop.IsValid() || snap.GatewayIface != "" {
 			return snap, nil
 		}
 	}
@@ -257,32 +301,42 @@ func lookupLinuxRoute(ctx context.Context, run cmdRunner, gateway netip.Addr) (S
 		}
 		return Snapshot{}, errDef
 	}
-	return parseLinuxRouteGet(outDef), nil
+	return parseLinuxRouteGet(outDef, skipIface), nil
 }
 
-func parseLinuxRouteGet(out string) Snapshot {
-	var snap Snapshot
+func parseLinuxRouteGet(out string, skipIface string) Snapshot {
+	var fallback Snapshot
 	for _, line := range strings.Split(out, "\n") {
+		var lineSnap Snapshot
 		fields := strings.Fields(line)
 		for i := 0; i < len(fields)-1; i++ {
 			switch fields[i] {
 			case "via":
-				if !snap.GatewayNextHop.IsValid() {
+				if !lineSnap.GatewayNextHop.IsValid() {
 					if addr, err := netip.ParseAddr(fields[i+1]); err == nil && addr.Is4() {
-						snap.GatewayNextHop = addr
+						lineSnap.GatewayNextHop = addr
 					}
 				}
 			case "dev":
-				if snap.GatewayIface == "" {
-					snap.GatewayIface = fields[i+1]
+				if lineSnap.GatewayIface == "" {
+					lineSnap.GatewayIface = fields[i+1]
 				}
 			}
 		}
-		if snap.GatewayNextHop.IsValid() || snap.GatewayIface != "" {
-			return snap
+		if skipIface != "" && lineSnap.GatewayIface == skipIface {
+			continue
+		}
+		if lineSnap.GatewayIface == "lo" {
+			continue
+		}
+		if lineSnap.GatewayNextHop.IsValid() {
+			return lineSnap
+		}
+		if lineSnap.GatewayIface != "" && fallback.GatewayIface == "" {
+			fallback = lineSnap
 		}
 	}
-	return snap
+	return fallback
 }
 
 func addLinuxHostRoute(ctx context.Context, run cmdRunner, host netip.Addr, nextHop netip.Addr, iface string) (bool, error) {
@@ -329,7 +383,7 @@ func deleteLinuxHostRoute(ctx context.Context, run cmdRunner, host string, nextH
 }
 
 func addLinuxTunnelRoute(ctx context.Context, run cmdRunner, prefix netip.Prefix, iface string) (bool, error) {
-	out, err := run(ctx, "", "ip", "-4", "route", "add", prefix.String(), "dev", iface)
+	out, err := run(ctx, "", "ip", "-4", "route", "replace", prefix.String(), "dev", iface)
 	if err != nil {
 		if isRouteAlreadyExists(out, err) {
 			return false, nil

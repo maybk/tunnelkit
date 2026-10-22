@@ -30,6 +30,7 @@ type sealedSecret struct {
 type secretVault struct {
 	secretsPath string
 	keyPath     string
+	cachedKey   []byte
 	mu          sync.Mutex
 }
 
@@ -81,6 +82,21 @@ func (v *secretVault) has(profileID string) bool {
 	}
 	_, ok := secrets[profileID]
 	return ok
+}
+
+func (v *secretVault) idSet() map[string]struct{} {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	secrets, err := v.readMap()
+	if err != nil || len(secrets) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(secrets))
+	for id := range secrets {
+		set[id] = struct{}{}
+	}
+	return set
 }
 
 func (v *secretVault) remove(profileID string) error {
@@ -146,7 +162,11 @@ func (v *secretVault) decrypt(sealed sealedSecret) (string, error) {
 }
 
 func (v *secretVault) loadOrCreateKey() ([]byte, error) {
+	if len(v.cachedKey) == 32 {
+		return v.cachedKey, nil
+	}
 	if key, err := v.readKey(); err == nil {
+		v.cachedKey = key
 		return key, nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
@@ -168,11 +188,16 @@ func (v *secretVault) loadOrCreateKey() ([]byte, error) {
 	if errors.Is(err, fs.ErrExist) {
 		for range 10 {
 			if key, readErr := v.readKey(); readErr == nil {
+				v.cachedKey = key
 				return key, nil
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
-		return v.readKey()
+		key, readErr := v.readKey()
+		if readErr == nil {
+			v.cachedKey = key
+		}
+		return key, readErr
 	}
 	if err != nil {
 		return nil, err
@@ -184,6 +209,7 @@ func (v *secretVault) loadOrCreateKey() ([]byte, error) {
 	if err := f.Close(); err != nil {
 		return nil, err
 	}
+	v.cachedKey = newKey
 	return newKey, nil
 }
 

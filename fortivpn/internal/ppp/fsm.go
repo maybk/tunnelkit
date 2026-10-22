@@ -2,6 +2,7 @@ package ppp
 
 import (
 	"fmt"
+	"net/netip"
 	"time"
 )
 
@@ -83,6 +84,7 @@ type FSMConfig struct {
 	MaxConfigure    int
 	MaxTerminate    int
 	MaxFailure      int
+	FallbackLocalIP netip.Addr
 }
 
 // DefaultFSMConfig returns the RFC 1661 §4.6 default parameters.
@@ -108,6 +110,7 @@ type FSM struct {
 	lastTermID   byte
 	restartCount int
 	failureCount int
+	nakCount     int
 	timerGen     uint64
 	timer        *time.Timer
 }
@@ -167,6 +170,7 @@ func (f *FSM) Up(schedule func(gen uint64, d time.Duration)) {
 		f.h.ResetOptions()
 		f.restartCount = f.cfg.MaxConfigure
 		f.failureCount = 0
+		f.nakCount = 0
 		f.sendConfigureRequest(true)
 		f.state = StateReqSent
 		f.ArmTimer(schedule)
@@ -200,6 +204,7 @@ func (f *FSM) Open(schedule func(gen uint64, d time.Duration)) {
 		f.h.ResetOptions()
 		f.restartCount = f.cfg.MaxConfigure
 		f.failureCount = 0
+		f.nakCount = 0
 		f.sendConfigureRequest(true)
 		f.state = StateReqSent
 		f.ArmTimer(schedule)
@@ -404,6 +409,7 @@ func (f *FSM) handleConfigureAck(pkt Packet, schedule func(gen uint64, d time.Du
 		f.sendPacket(Packet{Code: CodeTerminateAck, ID: pkt.ID})
 	case StateReqSent:
 		f.restartCount = f.cfg.MaxConfigure
+		f.nakCount = 0
 		f.state = StateAckRcvd
 		f.ArmTimer(schedule)
 	case StateAckRcvd:
@@ -413,6 +419,7 @@ func (f *FSM) handleConfigureAck(pkt Packet, schedule func(gen uint64, d time.Du
 	case StateAckSent:
 		f.StopTimer()
 		f.restartCount = f.cfg.MaxConfigure
+		f.nakCount = 0
 		f.state = StateOpened
 		if f.cb.ThisLayerUp != nil {
 			f.cb.ThisLayerUp()
@@ -441,6 +448,15 @@ func (f *FSM) handleConfigureNakOrReject(pkt Packet, schedule func(gen uint64, d
 
 	opts, ok := ParseOptions(pkt.Body)
 	if !ok {
+		return
+	}
+	f.nakCount++
+	if f.nakCount > f.cfg.MaxConfigure {
+		f.StopTimer()
+		f.state = StateStopped
+		if f.cb.ThisLayerFinished != nil {
+			f.cb.ThisLayerFinished(fmt.Errorf("%s negotiation exceeded maximum %d Configure-Nak/Reject responses", f.h.Name(), f.cfg.MaxConfigure))
+		}
 		return
 	}
 	var err error

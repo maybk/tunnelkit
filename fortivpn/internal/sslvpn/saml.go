@@ -52,6 +52,7 @@ func (c *Client) AuthenticateSAML(ctx context.Context, promptFn func(ctx context
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimSpace(r.URL.Query().Get("id"))
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Connection", "close")
 		if id == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte("<html><body><h3>Missing SAML session ID.</h3></body></html>"))

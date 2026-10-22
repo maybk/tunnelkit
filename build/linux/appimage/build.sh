@@ -11,6 +11,14 @@ APP_DIR="${APP_NAME}.AppDir"
 # Create AppDir structure
 mkdir -p "${APP_DIR}/usr/bin"
 cp -r "${APP_BINARY}" "${APP_DIR}/usr/bin/"
+HELPER_CANDIDATE="$(dirname "${APP_BINARY}")/tunnelkit-helper"
+if [[ -f "${HELPER_CANDIDATE}" ]]; then
+    cp "${HELPER_CANDIDATE}" "${APP_DIR}/usr/bin/tunnelkit-helper"
+    chmod +x "${APP_DIR}/usr/bin/tunnelkit-helper"
+elif [[ -f "../tunnelkit-helper" ]]; then
+    cp "../tunnelkit-helper" "${APP_DIR}/usr/bin/tunnelkit-helper"
+    chmod +x "${APP_DIR}/usr/bin/tunnelkit-helper"
+fi
 cp "${ICON_PATH}" "${APP_DIR}/"
 cp "${DESKTOP_FILE}" "${APP_DIR}/"
 

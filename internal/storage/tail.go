@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"io/fs"
@@ -14,8 +15,9 @@ import (
 const DefaultTailBytes int64 = 64 * 1024
 
 var (
-	cookieValuePattern = regexp.MustCompile(`(?i)(SVPNCOOKIE=|Cookie:\s*)([^\s;]+)`)
-	sensitiveKeys      = []string{"password", "passphrase", "secret", "token", "cookie", "otp", "pinentry"}
+	cookieValuePattern     = regexp.MustCompile(`(?i)(SVPNCOOKIE=|Cookie:\s*)([^\s;]+)`)
+	inlineSensitivePattern = regexp.MustCompile(`(?i)\b([a-z0-9_.-]*(?:password|passwd|passphrase|credential|secret|token|cookie|otp|pinentry)[a-z0-9_.-]*)\s*=\s*([^\s&;,"')]+)`)
+	sensitiveKeys          = []string{"password", "passphrase", "secret", "token", "cookie", "otp", "pinentry"}
 )
 
 // LogTail 是日志文件尾部的脱敏内容。
@@ -54,6 +56,13 @@ func TailFile(path string, maxBytes int64) (LogTail, error) {
 	if err != nil {
 		return LogTail{}, err
 	}
+	if start > 0 {
+		if nl := bytes.IndexByte(data, '\n'); nl >= 0 {
+			data = data[nl+1:]
+		} else {
+			data = bytes.ToValidUTF8(data, []byte("?"))
+		}
+	}
 	content := strings.TrimRight(Redact(string(data)), "\n")
 	if start > 0 {
 		content = "... 已省略更早的日志\n" + content
@@ -81,7 +90,9 @@ func Redact(text string) string {
 			lines[i] = redacted
 			continue
 		}
-		lines[i] = cookieValuePattern.ReplaceAllString(line, "${1}******")
+		line = cookieValuePattern.ReplaceAllString(line, "${1}******")
+		line = inlineSensitivePattern.ReplaceAllString(line, "${1}=******")
+		lines[i] = line
 	}
 	return strings.Join(lines, "\n")
 }
@@ -96,6 +107,9 @@ func redactAssignment(line string) (string, bool) {
 		return "", false
 	}
 	key := strings.ToLower(strings.TrimSpace(prefix))
+	if strings.ContainsAny(key, " \t:()") {
+		return "", false
+	}
 	for _, token := range sensitiveKeys {
 		if strings.Contains(key, token) {
 			return strings.TrimRight(prefix, " \t") + " = ******", true

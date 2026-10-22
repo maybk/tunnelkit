@@ -34,8 +34,18 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 
 		var sawDisconnected bool
 		for msg := range conn.Events() {
+			s.mu.RLock()
+			isCurrent := s.conn == conn
+			cur := s.state
+			s.mu.RUnlock()
+			if !isCurrent {
+				continue
+			}
+
 			if msg.Prompt != nil {
-				cur := s.State()
+				if cur.Status == StatusDisconnecting {
+					continue
+				}
 				cur.Status = StatusConnecting
 				cur.Phase = fortivpn.PhaseWaitingInput
 				cp := *msg.Prompt
@@ -48,7 +58,9 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 				continue
 			}
 			ev := msg.Event
-			cur := s.State()
+			if cur.Status == StatusDisconnecting && ev.Phase != fortivpn.PhaseDisconnected {
+				continue
+			}
 			cur.ProfileID = ticket.ProfileID
 			cur.ProfileName = ticket.ProfileName
 			cur.Phase = ev.Phase

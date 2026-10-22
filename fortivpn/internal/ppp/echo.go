@@ -51,6 +51,7 @@ func NewSession(ev Events, cfg FSMConfig) *Session {
 	}
 	s.lcpH = NewLCPHandler(DefaultMRU, s.onEchoReplyLocked)
 	s.ipcpH = NewIPCPHandler()
+	s.ipcpH.SetFallbackIP(cfg.FallbackLocalIP)
 
 	s.lcp = NewFSM(s.lcpH, FSMCallbacks{
 		Send:              s.sendProtocolLocked,

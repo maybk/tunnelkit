@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"tunnelkit/fortivpn"
@@ -43,13 +44,16 @@ type TunnelConn struct {
 	conn           net.Conn
 	reader         io.Reader
 	upgradeChecked bool
+	writeMu        sync.Mutex
+	writeBuf       []byte
 }
 
 // NewTunnelConn wraps an upgraded TLS connection.
 func NewTunnelConn(conn net.Conn) *TunnelConn {
 	return &TunnelConn{
-		conn:   conn,
-		reader: conn,
+		conn:     conn,
+		reader:   conn,
+		writeBuf: make([]byte, FrameHeaderLen+2048),
 	}
 }
 
@@ -75,8 +79,16 @@ func (t *TunnelConn) ReadFrameInto(scratch []byte) ([]byte, error) {
 
 // WriteFrame encodes pppFrame with the 6-octet Fortinet header and writes it to the tunnel.
 func (t *TunnelConn) WriteFrame(pppFrame []byte) error {
-	rec := EncodeFrame(pppFrame)
-	_, err := t.conn.Write(rec)
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+
+	needed := FrameHeaderLen + len(pppFrame)
+	if cap(t.writeBuf) < needed {
+		t.writeBuf = make([]byte, needed)
+	}
+	buf := t.writeBuf[:needed]
+	EncodeFrameInto(buf, pppFrame)
+	_, err := t.conn.Write(buf)
 	return err
 }
 
@@ -90,8 +102,9 @@ func (t *TunnelConn) SetWriteDeadline(d time.Time) error {
 	return t.conn.SetWriteDeadline(d)
 }
 
-// Close closes the underlying TLS connection.
+// Close aborts any pending read/write immediately and closes the underlying TLS connection.
 func (t *TunnelConn) Close() error {
+	_ = t.conn.SetDeadline(time.Now())
 	return t.conn.Close()
 }
 

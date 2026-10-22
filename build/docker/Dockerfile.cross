@@ -204,6 +204,10 @@ fi
 
 ${COMPILER} -tags "$TAGS" -trimpath -buildvcs=false -ldflags="$LDFLAGS" -o bin/${APP}-${GOOS}-${GOARCH}${EXT} .
 echo "Built: bin/${APP}-${GOOS}-${GOARCH}${EXT}"
+if [ -d "cmd/tunnelkit-helper" ]; then
+    ${COMPILER} -trimpath -buildvcs=false -ldflags="-s -w" -o bin/tunnelkit-helper-${GOOS}-${GOARCH}${EXT} ./cmd/tunnelkit-helper
+    echo "Built: bin/tunnelkit-helper-${GOOS}-${GOARCH}${EXT}"
+fi
 SCRIPT
 RUN chmod +x /usr/local/bin/build.sh
 

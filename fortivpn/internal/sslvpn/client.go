@@ -107,7 +107,12 @@ func (c *Client) GatewayIP() netip.Addr {
 }
 
 // Probe performs a TLS handshake to the gateway to verify reachability and certificate trust.
+// It clears any cached gateway IP first so reconnects after a network change re-resolve DNS.
 func (c *Client) Probe(ctx context.Context) error {
+	c.mu.Lock()
+	c.gatewayIP = netip.Addr{}
+	c.mu.Unlock()
+
 	conn, err := c.dialTLS(ctx, "tcp", c.hostPort())
 	if err != nil {
 		return c.classifyTransportError(err)
@@ -218,7 +223,7 @@ func (c *Client) FetchTunnelConfig(ctx context.Context, cookie string) (TunnelCo
 	}
 
 	if c.configXMLHook != nil {
-		c.configXMLHook(body)
+		c.configXMLHook(RedactConfigXML(body))
 	}
 	cfg, err := ParseConfigXML(body)
 	if err != nil {
@@ -353,8 +358,22 @@ func (c *Client) dialTLS(ctx context.Context, network, addr string) (net.Conn, e
 			dialAddr = fmt.Sprintf("%s:%d", gwIP.String(), c.cfg.Port)
 		}
 	}
-	rawConn, err := c.dialer.DialContext(ctx, network, dialAddr)
-	if err != nil && dialAddr != addr {
+	var (
+		rawConn net.Conn
+		err     error
+	)
+	if dialAddr != addr {
+		// Bound the pinned IP dial attempt so DNS fallback still has time budget if the IP became unreachable.
+		pinnedCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		rawConn, err = c.dialer.DialContext(pinnedCtx, network, dialAddr)
+		cancel()
+		if err != nil {
+			c.mu.Lock()
+			c.gatewayIP = netip.Addr{}
+			c.mu.Unlock()
+			rawConn, err = c.dialer.DialContext(ctx, network, addr)
+		}
+	} else {
 		rawConn, err = c.dialer.DialContext(ctx, network, addr)
 	}
 	if err != nil {

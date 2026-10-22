@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,7 +25,7 @@ type link struct {
 	pppSess *ppp.Session
 
 	ctrlCh    chan []byte
-	dataCh    chan []byte
+	dataCh    chan *[]byte
 	doneCh    chan struct{}
 	closeOnce sync.Once
 	closing   atomic.Bool
@@ -34,12 +35,12 @@ type link struct {
 	ioWg    sync.WaitGroup
 }
 
-func newLink(sess *session, tconn *sslvpn.TunnelConn) *link {
+func newLink(sess *session, tconn *sslvpn.TunnelConn, fallbackIP netip.Addr) *link {
 	l := &link{
 		sess:    sess,
 		tconn:   tconn,
 		ctrlCh:  make(chan []byte, ctrlQueueSize),
-		dataCh:  make(chan []byte, dataQueueSize),
+		dataCh:  make(chan *[]byte, dataQueueSize),
 		doneCh:  make(chan struct{}),
 		readyCh: make(chan negotiatedPPP, 1),
 		ioErrCh: make(chan error, 3),
@@ -63,7 +64,7 @@ func newLink(sess *session, tconn *sslvpn.TunnelConn) *link {
 				l.reportIOErr(fortivpn.NewError(fortivpn.CodeConnectionLost, "peer terminated PPP session"))
 			}
 		},
-	}, ppp.FSMConfig{})
+	}, ppp.FSMConfig{FallbackLocalIP: fallbackIP})
 
 	return l
 }

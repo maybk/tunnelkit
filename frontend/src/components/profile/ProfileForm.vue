@@ -245,7 +245,9 @@ const populateFromProfile = (src?: Profile | null) => {
   textWarnings.value = []
   textParseError.value = ''
   showAdvanced.value = hasAdvancedValues.value
-  void syncTextFromForm(true)
+  if (editMode.value === 'text') {
+    void syncTextFromForm(true)
+  }
 }
 
 const reset = () => {
@@ -275,7 +277,9 @@ watch(
   (now, before) => {
     if (!before || now || props.error || !isEdit.value) return
     form.password = ''
-    void syncTextFromForm(true)
+    if (editMode.value === 'text') {
+      void syncTextFromForm(true)
+    }
     justSaved.value = true
     if (savedTimer) clearTimeout(savedTimer)
     savedTimer = setTimeout(() => (justSaved.value = false), 2000)
@@ -316,6 +320,7 @@ const triggerSubmit = async () => {
 
 const handleKeydown = (e: KeyboardEvent) => {
   if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+    if (formEl.value?.closest('[hidden]')) return
     e.preventDefault()
     if (props.saving || props.deleting) return
     if (isEdit.value && !isDirty.value) return

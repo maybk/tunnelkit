@@ -8,6 +8,12 @@ import (
 
 // Recover 在应用启动时通过 run/session.json 重新接入正在运行的 helper，或静默清理失效会话。
 func (s *Service) Recover(ctx context.Context) State {
+	release, err := s.begin()
+	if err != nil {
+		return s.State()
+	}
+	defer release()
+
 	s.tickets.CleanLegacyArtifacts()
 
 	ticket, err := s.tickets.Load()

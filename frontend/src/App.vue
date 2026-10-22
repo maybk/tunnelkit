@@ -151,7 +151,7 @@ const trustAndReconnect = (sha256: string) =>
       <main v-if="ready" class="flex min-w-0 flex-1 flex-col overflow-hidden pt-4">
         <HelperMissingBanner
           v-if="!helperReady"
-          :system-info="systemInfo"
+          :helper-path="systemInfo?.helperPath"
           :checking="checking"
           @recheck="recheckSystem"
         />
@@ -176,7 +176,7 @@ const trustAndReconnect = (sha256: string) =>
             @trust-and-reconnect="trustAndReconnect"
             @save-profile="profiles.save"
             @reset-form-error="profiles.clearFormError"
-            @refresh-log="withSelected(vpn.loadLog)"
+            @refresh-log="(silent) => withSelected((id) => vpn.loadLog(id, silent))"
             @clear-log="withSelected(vpn.clearLog)"
           />
           <CreateProfileView

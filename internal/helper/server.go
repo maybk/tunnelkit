@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -149,20 +148,10 @@ func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *s
 		helloReceived.Store(true)
 		helloTimer.Stop()
 
-		snap, pendingPrompt := state.SetClient(conn)
-		defer state.ClearClient(conn)
-
-		if err := conn.Send(ipc.TypeWelcome, env.ID, ipc.WelcomeData{
-			Protocol: ipc.ProtocolVersion,
-			Version:  opts.Version,
-			PID:      os.Getpid(),
-			Snapshot: snap,
-		}); err != nil {
+		if err := state.AttachClient(conn, env.ID, opts.Version); err != nil {
 			return
 		}
-		if pendingPrompt != nil {
-			_ = conn.Send(ipc.TypePrompt, 0, *pendingPrompt)
-		}
+		defer state.ClearClient(conn)
 
 		for {
 			msg, err := conn.ReadEnvelope()
@@ -202,10 +191,10 @@ func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *s
 
 				go func(cfg fortivpn.Config) {
 					err := engine.Run(eCtx, cfg, state, engOpts...)
+					_ = ln.Close()
 					engineDone <- err
 					time.Sleep(opts.ExitGrace)
 					cancelRun()
-					_ = ln.Close()
 				}(startData.Config)
 
 			case ipc.TypeAnswer:

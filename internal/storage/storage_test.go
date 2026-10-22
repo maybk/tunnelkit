@@ -55,4 +55,21 @@ func TestTailAndResetFile(t *testing.T) {
 	if strings.Contains(tail.Content, "mysecret") || strings.Contains(tail.Content, "tok123") {
 		t.Fatalf("TailFile did not redact secrets: %s", tail.Content)
 	}
+
+	// Verify inline structured log redaction and multi-byte UTF-8 boundary truncation.
+	structured := strings.Repeat("前缀中文日志行-测试截断\n", 10) +
+		"2026-10-22 10:00:00 INFO  Auth (user=alice token=sec999 password=pwd888 host=vpn.example.com)\n"
+	if err := os.WriteFile(logPath, []byte(structured), 0600); err != nil {
+		t.Fatalf("WriteFile structured: %v", err)
+	}
+	tail2, err := TailFile(logPath, 160)
+	if err != nil {
+		t.Fatalf("TailFile truncated: %v", err)
+	}
+	if strings.Contains(tail2.Content, "sec999") || strings.Contains(tail2.Content, "pwd888") {
+		t.Fatalf("TailFile did not redact inline structured secrets: %s", tail2.Content)
+	}
+	if !strings.Contains(tail2.Content, "user=alice") || !strings.Contains(tail2.Content, "host=vpn.example.com") {
+		t.Fatalf("TailFile wiped non-sensitive fields: %s", tail2.Content)
+	}
 }

@@ -50,7 +50,7 @@ const handleSubmit = () => {
 }
 
 const handleCancel = () => {
-  if (!props.prompt) return
+  if (!props.prompt || props.busy) return
   emit('cancel', props.prompt.id)
 }
 

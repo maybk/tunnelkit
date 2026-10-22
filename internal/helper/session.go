@@ -3,6 +3,7 @@ package helper
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"time"
 
@@ -37,22 +38,38 @@ func newSessionState(promptTimeout time.Duration) *sessionState {
 	}
 }
 
-func (s *sessionState) SetClient(c *ipc.Conn) (*fortivpn.Event, *fortivpn.Prompt) {
+func (s *sessionState) AttachClient(c *ipc.Conn, helloID uint64, version string) error {
 	s.mu.Lock()
 	old := s.client
-	s.client = c
 	snap := s.snapshotLocked()
 	var promptCopy *fortivpn.Prompt
 	if s.pendingPrompt != nil {
 		cp := *s.pendingPrompt
 		promptCopy = &cp
 	}
+
+	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	err := c.Send(ipc.TypeWelcome, helloID, ipc.WelcomeData{
+		Protocol: ipc.ProtocolVersion,
+		Version:  version,
+		PID:      os.Getpid(),
+		Snapshot: snap,
+	})
+	if err == nil && promptCopy != nil {
+		err = c.Send(ipc.TypePrompt, 0, *promptCopy)
+	}
+	_ = c.SetWriteDeadline(time.Time{})
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.client = c
 	s.mu.Unlock()
 
 	if old != nil && old != c {
 		_ = old.Close()
 	}
-	return snap, promptCopy
+	return nil
 }
 
 func (s *sessionState) ClearClient(c *ipc.Conn) {
@@ -95,7 +112,9 @@ func (s *sessionState) OnEvent(ev fortivpn.Event) {
 	s.mu.Unlock()
 
 	if client != nil {
+		_ = client.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		_ = client.Send(ipc.TypeEvent, 0, ev)
+		_ = client.SetWriteDeadline(time.Time{})
 	}
 }
 
@@ -118,7 +137,9 @@ func (s *sessionState) Prompt(ctx context.Context, p fortivpn.Prompt) (string, e
 	}()
 
 	if client != nil {
+		_ = client.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		_ = client.Send(ipc.TypePrompt, 0, p)
+		_ = client.SetWriteDeadline(time.Time{})
 	}
 
 	timer := time.NewTimer(s.promptTimeout)

@@ -157,7 +157,7 @@ func (s *session) run(ctx context.Context) error {
 			return s.failAndCleanup(client, cookie, err)
 		}
 
-		lnk := newLink(s, tconn)
+		lnk := newLink(s, tconn, tunCfg.AssignedIP)
 		lnk.start()
 
 		neg, err := lnk.waitNegotiated(ctx, handshakeTimeout)
@@ -291,7 +291,11 @@ func (s *session) promptUser(ctx context.Context, p fortivpn.Prompt) (string, er
 func (s *session) ensureDevice(mru int) error {
 	s.mu.Lock()
 	if s.dev != nil {
+		dev := s.dev
 		s.mu.Unlock()
+		if setter, ok := dev.(interface{ SetMTU(int) }); ok && mru > 0 {
+			setter.SetMTU(mru)
+		}
 		return nil
 	}
 	var (

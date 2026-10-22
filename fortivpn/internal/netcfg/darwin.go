@@ -44,7 +44,7 @@ func applyWithRunner(ctx context.Context, d Desired, journalPath string, run cmd
 
 	var snap Snapshot
 	if NeedsGatewayHostRoute(d.Routes, d.Gateway) {
-		snap, err = lookupDarwinRoute(ctx, run, d.Gateway)
+		snap, err = lookupDarwinRoute(ctx, run, d.Gateway, d.Iface)
 		if err != nil {
 			return nil, fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: lookup gateway route failed", err)
 		}
@@ -148,6 +148,9 @@ func (a *darwinApplied) Update(ctx context.Context, d Desired) error {
 	}
 
 	if d.Local != a.desired.Local || peer != a.desired.Peer || mtu != a.desired.MTU {
+		if a.desired.Local.IsValid() && (d.Local != a.desired.Local || peer != a.desired.Peer) {
+			_, _ = a.run(ctx, "", "/sbin/ifconfig", d.Iface, "inet", a.desired.Local.String(), a.desired.Peer.String(), "delete")
+		}
 		if _, err := a.run(
 			ctx,
 			"",
@@ -163,6 +166,42 @@ func (a *darwinApplied) Update(ctx context.Context, d Desired) error {
 			"up",
 		); err != nil {
 			return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update interface failed", err)
+		}
+	}
+
+	oldNeedHost := NeedsGatewayHostRoute(a.desired.Routes, a.desired.Gateway)
+	newNeedHost := NeedsGatewayHostRoute(d.Routes, d.Gateway)
+	if oldNeedHost && (!newNeedHost || d.Gateway != a.desired.Gateway) {
+		for _, entry := range a.journal.Entries() {
+			if entry.Kind == KindHostRoute {
+				_ = deleteDarwinHostRoute(ctx, a.run, entry.Gateway, entry.NextHop, entry.Iface)
+				_ = a.journal.Remove(entry)
+			}
+		}
+	}
+	if newNeedHost && (!oldNeedHost || d.Gateway != a.desired.Gateway) {
+		snap, err := lookupDarwinRoute(ctx, a.run, d.Gateway, d.Iface)
+		if err == nil && (snap.GatewayNextHop.IsValid() || snap.GatewayIface != "") {
+			a.snap = snap
+			entry := JournalEntry{
+				Kind:    KindHostRoute,
+				Gateway: d.Gateway.String(),
+				Iface:   snap.GatewayIface,
+			}
+			if snap.GatewayNextHop.IsValid() {
+				entry.NextHop = snap.GatewayNextHop.String()
+			}
+			if err := a.journal.Record(entry); err != nil {
+				return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: record host route journal failed", err)
+			}
+			created, err := addDarwinHostRoute(ctx, a.run, d.Gateway, snap.GatewayNextHop, snap.GatewayIface)
+			if err != nil {
+				_ = a.journal.Remove(entry)
+				return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update gateway host route failed", err)
+			}
+			if !created {
+				_ = a.journal.Remove(entry)
+			}
 		}
 	}
 
@@ -209,9 +248,15 @@ func (a *darwinApplied) Update(ctx context.Context, d Desired) error {
 		a.dnsApplied = true
 	} else if a.dnsApplied {
 		_ = removeDarwinDNS(ctx, a.run, darwinDNSServiceKey)
+		_ = a.journal.Remove(JournalEntry{
+			Kind: KindDarwinDNSKey,
+			Key:  darwinDNSServiceKey,
+		})
 		a.dnsApplied = false
 	}
 
+	d.MTU = mtu
+	d.Peer = peer
 	a.desired = d
 	return nil
 }
@@ -267,10 +312,11 @@ func rollbackJournalEntries(ctx context.Context, run cmdRunner, journal *Journal
 	return errors.Join(errs...)
 }
 
-func lookupDarwinRoute(ctx context.Context, run cmdRunner, gateway netip.Addr) (Snapshot, error) {
+func lookupDarwinRoute(ctx context.Context, run cmdRunner, gateway netip.Addr, skipIface string) (Snapshot, error) {
 	out, err := run(ctx, "", "/sbin/route", "-n", "get", gateway.String())
 	if err == nil {
-		if snap := parseDarwinRouteGet(out); snap.GatewayNextHop.IsValid() || snap.GatewayIface != "" {
+		snap := parseDarwinRouteGet(out)
+		if (snap.GatewayNextHop.IsValid() || snap.GatewayIface != "") && (skipIface == "" || snap.GatewayIface != skipIface) {
 			return snap, nil
 		}
 	}

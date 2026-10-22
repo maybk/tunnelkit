@@ -91,6 +91,7 @@ tasks:
         platforms: [linux, darwin]
       - mkdir -p {{.BIN_DIR}}
       - mv "bin/{{.APP_NAME}}-linux-{{.DOCKER_ARCH}}" "{{.OUTPUT}}"
+      - if [ -f "bin/tunnelkit-helper-linux-{{.DOCKER_ARCH}}" ]; then mv "bin/tunnelkit-helper-linux-{{.DOCKER_ARCH}}" "{{.BIN_DIR}}/tunnelkit-helper"; fi
     vars:
       DOCKER_ARCH: '{{.ARCH | default "amd64"}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
@@ -118,6 +119,7 @@ tasks:
       - task: generate:dotdesktop
     cmds:
       - cp "{{.APP_BINARY}}" "{{.APP_NAME}}"
+      - if [ -f "../../../bin/tunnelkit-helper" ]; then cp "../../../bin/tunnelkit-helper" "tunnelkit-helper"; fi
       - cp ../../appicon.png "{{.APP_NAME}}.png"
       - wails3 generate appimage -binary "{{.APP_NAME}}" -icon {{.ICON}} -desktopfile {{.DESKTOP_FILE}} -outputdir {{.OUTPUT_DIR}} -builddir {{.ROOT_DIR}}/build/linux/appimage/build
     vars:

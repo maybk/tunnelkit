@@ -32,11 +32,13 @@ func applyWindowsDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, jour
 		return nil
 	}
 
-	if err := luid.SetDNS(windows.AF_INET, plan.Servers, plan.Domains); err != nil {
-		return fmt.Errorf("winipcfg SetDNS: %w", err)
-	}
-
 	if plan.Mode == fortivpn.DNSSplit && len(plan.Domains) > 0 {
+		// In split-DNS mode, only attach the search domain suffix list to the
+		// adapter; NRPT rules route matching domains to the VPN DNS servers
+		// without hijacking all non-corporate DNS traffic via the Metric=1 adapter.
+		if err := luid.SetDNS(windows.AF_INET, nil, plan.Domains); err != nil {
+			return fmt.Errorf("winipcfg SetDNS: %w", err)
+		}
 		if err := journal.Record(JournalEntry{
 			Kind: KindWindowsNRPT,
 			Key:  nrptRulePrefix,
@@ -47,7 +49,14 @@ func applyWindowsDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, jour
 			return err
 		}
 	} else {
+		if err := luid.SetDNS(windows.AF_INET, plan.Servers, plan.Domains); err != nil {
+			return fmt.Errorf("winipcfg SetDNS: %w", err)
+		}
 		_ = clearWindowsNRPT()
+		_ = journal.Remove(JournalEntry{
+			Kind: KindWindowsNRPT,
+			Key:  nrptRulePrefix,
+		})
 	}
 
 	flushWindowsDNSCache(ctx)
@@ -82,11 +91,11 @@ func writeWindowsNRPT(plan DNSPlan) error {
 	}
 	serverList := strings.Join(servers, ";")
 
-	names := make([]string, 0, len(plan.Domains))
+	names := make([]string, 0, len(plan.Domains)*2)
 	for _, d := range plan.Domains {
 		trimmed := strings.TrimSpace(strings.TrimPrefix(d, "."))
 		if trimmed != "" {
-			names = append(names, "."+trimmed)
+			names = append(names, "."+trimmed, trimmed)
 		}
 	}
 	if len(names) == 0 {

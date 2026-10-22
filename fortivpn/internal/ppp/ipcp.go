@@ -23,12 +23,13 @@ type IPConfig struct {
 
 // IPCPHandler implements OptionHandler for the IP Control Protocol (0x8021).
 type IPCPHandler struct {
-	reqIP   [4]byte
-	reqDNS1 [4]byte
-	reqDNS2 [4]byte
-	useDNS1 bool
-	useDNS2 bool
-	peerIP  netip.Addr
+	reqIP      [4]byte
+	reqDNS1    [4]byte
+	reqDNS2    [4]byte
+	useDNS1    bool
+	useDNS2    bool
+	peerIP     netip.Addr
+	fallbackIP netip.Addr
 }
 
 // NewIPCPHandler creates an IPCP option handler.
@@ -36,6 +37,14 @@ func NewIPCPHandler() *IPCPHandler {
 	h := &IPCPHandler{}
 	h.ResetOptions()
 	return h
+}
+
+// SetFallbackIP sets the fallback local IPv4 address (e.g. from fortisslvpn_xml)
+// used when the peer completes IPCP without assigning a non-zero IP.
+func (h *IPCPHandler) SetFallbackIP(ip netip.Addr) {
+	if ip.IsValid() && ip.Is4() && !ip.IsUnspecified() {
+		h.fallbackIP = ip
+	}
 }
 
 func (h *IPCPHandler) Protocol() uint16 { return ProtocolIPCP }
@@ -52,8 +61,12 @@ func (h *IPCPHandler) ResetOptions() {
 
 // Config returns the negotiated IPv4 configuration.
 func (h *IPCPHandler) Config() IPConfig {
+	localIP := netip.AddrFrom4(h.reqIP)
+	if (!localIP.IsValid() || localIP.IsUnspecified()) && h.fallbackIP.IsValid() {
+		localIP = h.fallbackIP
+	}
 	cfg := IPConfig{
-		LocalIP: netip.AddrFrom4(h.reqIP),
+		LocalIP: localIP,
 		PeerIP:  h.peerIP,
 	}
 	for _, raw := range [][4]byte{h.reqDNS1, h.reqDNS2} {
@@ -93,7 +106,9 @@ func (h *IPCPHandler) ApplyNak(opts []Option) error {
 		copy(v[:], o.Value)
 		switch o.Type {
 		case OptIPAddress:
-			h.reqIP = v
+			if addr := netip.AddrFrom4(v); addr.IsValid() && !addr.IsUnspecified() {
+				h.reqIP = v
+			}
 		case OptPrimaryDNS:
 			h.reqDNS1 = v
 		case OptSecondaryDNS:

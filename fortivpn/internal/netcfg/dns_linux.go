@@ -65,6 +65,8 @@ func applyLinuxDNS(ctx context.Context, run cmdRunner, iface string, plan DNSPla
 		}
 		if len(domainArgs) > 2 {
 			if _, err := run(ctx, "", "resolvectl", domainArgs...); err != nil {
+				_, _ = run(ctx, "", "resolvectl", "revert", iface)
+				_ = journal.Remove(entry)
 				return "", fmt.Errorf("resolvectl domain %s: %w", iface, err)
 			}
 		}
@@ -108,17 +110,14 @@ func removeLinuxDNS(ctx context.Context, run cmdRunner, iface string, backend st
 	switch backend {
 	case linuxDNSBackendResolvconf:
 		out, err := run(ctx, "", "resolvconf", "-d", iface+".tunnelkit")
-		if err != nil && !isRouteNotInTable(out, err) {
+		if err != nil && !isRouteNotInTable(out, err) && !isIgnorableLinuxDNSError(out, err) {
 			return err
 		}
 		return nil
 	default:
 		out, err := run(ctx, "", "resolvectl", "revert", iface)
 		if err != nil {
-			lower := strings.ToLower(out + " " + err.Error())
-			if strings.Contains(lower, "unknown interface") ||
-				strings.Contains(lower, "no such device") ||
-				strings.Contains(lower, "not found") {
+			if isIgnorableLinuxDNSError(out, err) {
 				return nil
 			}
 			return err
@@ -126,4 +125,19 @@ func removeLinuxDNS(ctx context.Context, run cmdRunner, iface string, backend st
 		_, _ = run(ctx, "", "resolvectl", "flush-caches")
 		return nil
 	}
+}
+
+func isIgnorableLinuxDNSError(out string, err error) bool {
+	if err == nil {
+		return true
+	}
+	lower := strings.ToLower(out + " " + err.Error())
+	return strings.Contains(lower, "unknown interface") ||
+		strings.Contains(lower, "no such device") ||
+		strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "no such file") ||
+		strings.Contains(lower, "executable file not found") ||
+		strings.Contains(lower, "service not available") ||
+		strings.Contains(lower, "failed to get bus connection") ||
+		strings.Contains(lower, "connection refused")
 }

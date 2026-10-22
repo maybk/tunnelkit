@@ -48,12 +48,18 @@ func buildScutilSetScript(key string, plan DNSPlan) string {
 	b.WriteString(key)
 	b.WriteByte('\n')
 
-	if plan.Mode == fortivpn.DNSFull && key == darwinDNSServiceKey {
-		b.WriteString("d.init\n")
-		b.WriteString("d.add OverridePrimary # 1\n")
-		b.WriteString("set ")
-		b.WriteString(darwinIPv4ServiceKey)
-		b.WriteByte('\n')
+	if key == darwinDNSServiceKey {
+		if plan.Mode == fortivpn.DNSFull {
+			b.WriteString("d.init\n")
+			b.WriteString("d.add OverridePrimary # 1\n")
+			b.WriteString("set ")
+			b.WriteString(darwinIPv4ServiceKey)
+			b.WriteByte('\n')
+		} else {
+			b.WriteString("remove ")
+			b.WriteString(darwinIPv4ServiceKey)
+			b.WriteByte('\n')
+		}
 	}
 	return b.String()
 }
@@ -74,7 +80,11 @@ func applyDarwinDNS(ctx context.Context, run cmdRunner, key string, plan DNSPlan
 	if err != nil {
 		return fmt.Errorf("scutil set %s: %w", key, err)
 	}
-	if trimmed := strings.TrimSpace(out); trimmed != "" {
+	for _, line := range strings.Split(out, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.Contains(strings.ToLower(trimmed), "no such key") {
+			continue
+		}
 		return fmt.Errorf("scutil set %s: %s", key, trimmed)
 	}
 	flushDarwinDNSCache(ctx, run)

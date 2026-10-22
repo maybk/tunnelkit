@@ -4,7 +4,7 @@
   <img src="build/appicon.png" alt="TunnelKit Logo" width="120">
 </div>
 
-> 🛡️ **TunnelKit** 是基于 **Wails v3**、**Go** 与 **Vue 3 + TypeScript** 构建的跨平台 Fortinet SSL-VPN 桌面与菜单栏客户端，支持 macOS、Windows 和 Linux。
+> 🛡️ **TunnelKit** 是基于 **Wails v3**、**Go** 与 **Vue 3 + TypeScript** 构建的轻量级跨平台 Fortinet（FortiGate）SSL-VPN 桌面与菜单栏客户端，支持 macOS、Windows 和 Linux。
 
 <div align="center">
 
@@ -48,7 +48,7 @@ xattr -dr com.apple.quarantine "/Applications/TunnelKit.app"
 
 ### 🔧 技术特性
 
-- **原生 Go 协议引擎** - 内置自包含的 `fortivpn` 协议内核，开箱即用，不依赖外部命令行工具
+- **原生 Go 协议引擎** - 内置自包含的 `fortivpn` 协议内核，无需安装 `FortiClient` 或依赖 `openfortivpn` 等外部命令行工具，开箱即用
 - **按会话最小权限隔离** - 桌面界面以普通用户权限运行，仅在建立隧道时按需拉起后台辅助服务，断开即退出
 - **密码加密与日志脱敏** - 密码在本机加密存储，运行日志自动遮蔽密码、令牌与会话凭据
 - **网络状态自动恢复** - 异常断开或进程意外退出后自动清理并恢复宿主路由与 DNS 设置

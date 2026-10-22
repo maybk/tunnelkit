@@ -5,6 +5,7 @@ import (
 	"runtime"
 
 	"tunnelkit/internal/helperclient"
+	"tunnelkit/internal/update"
 )
 
 // SystemInfo 包含应用版本、运行平台与内置 tunnelkit-helper 组件就绪状态。
@@ -15,13 +16,20 @@ type SystemInfo struct {
 	HelperPath  string `json:"helperPath,omitempty"`
 }
 
-// SystemAPI 暴露只读系统与组件就绪信息。
+// UpdateInfo 表示版本更新检查结果。
+type UpdateInfo = update.Info
+
+// SystemAPI 暴露只读系统、组件就绪与版本更新检查接口。
 type SystemAPI struct {
 	version string
+	updater *update.Checker
 }
 
-func NewSystemAPI(version string) *SystemAPI {
-	return &SystemAPI{version: version}
+func NewSystemAPI(version string, opts ...update.Option) *SystemAPI {
+	return &SystemAPI{
+		version: version,
+		updater: update.NewChecker(version, opts...),
+	}
 }
 
 func (a *SystemAPI) Info(_ context.Context) SystemInfo {
@@ -32,4 +40,9 @@ func (a *SystemAPI) Info(_ context.Context) SystemInfo {
 		HelperReady: ready,
 		HelperPath:  helperPath,
 	}
+}
+
+// CheckUpdate 检查 GitHub Releases 最新正式版本（优先使用加速源，失败时自动回退官方直连源）。
+func (a *SystemAPI) CheckUpdate(ctx context.Context) (UpdateInfo, error) {
+	return a.updater.Check(ctx)
 }

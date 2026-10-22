@@ -12,5 +12,6 @@ export {
 
 export {
     ParsedProfileText,
-    SystemInfo
+    SystemInfo,
+    UpdateInfo
 } from "./models.js";

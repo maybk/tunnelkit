@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/helperclient"
 	"tunnelkit/internal/profile"
+	"tunnelkit/internal/update"
 	"tunnelkit/internal/vpn"
 )
 
@@ -147,13 +150,31 @@ func TestProfileAPICrudTextAndActiveProtection(t *testing.T) {
 	}
 }
 
-func TestSystemAPIInfoReturnsVersionAndPlatform(t *testing.T) {
-	sysAPI := NewSystemAPI("0.1.0")
+func TestSystemAPIInfoAndCheckUpdate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"v0.1.1","html_url":"https://github.com/maybk/tunnelkit/releases/tag/v0.1.1"}`))
+	}))
+	defer srv.Close()
+
+	sysAPI := NewSystemAPI(
+		"0.1.0",
+		update.WithHTTPClient(srv.Client()),
+		update.WithReleaseURLs(srv.URL),
+	)
 	info := sysAPI.Info(context.Background())
 	if info.AppVersion != "0.1.0" {
 		t.Fatalf("AppVersion = %q, want 0.1.0", info.AppVersion)
 	}
 	if info.Platform == "" {
 		t.Fatal("Platform must not be empty")
+	}
+
+	upd, err := sysAPI.CheckUpdate(context.Background())
+	if err != nil {
+		t.Fatalf("CheckUpdate failed: %v", err)
+	}
+	if !upd.HasUpdate || upd.LatestVersion != "0.1.1" {
+		t.Fatalf("unexpected UpdateInfo: %+v", upd)
 	}
 }

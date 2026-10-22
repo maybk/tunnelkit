@@ -17,6 +17,7 @@ Vue 前端 -> Wails bindings -> internal/api -> internal/vpn -> internal/helperc
 | [`internal/helper`](../../internal/helper/README.md) | 单会话特权辅助服务、脱敏日志落盘与网络恢复看门狗 | 仅响应通过本机身份与一次性令牌校验的连接 |
 | `internal/profile` | 配置增删改查、字段校验与密码加密存储 | 不感知运行期隧道会话 |
 | `internal/storage` | `~/.tunnelkit` 目录布局与原子文件写入 | 不依赖上层业务模型 |
+| `internal/update` | GitHub Releases 版本更新检查、多源降级与语义化版本比较 | 零业务耦合，严格校验发布页跳转地址 |
 | [`fortivpn`](../../fortivpn/README.md) | 纯 Go Fortinet SSL-VPN 协议内核与独立 CLI | 严禁引用 `tunnelkit/internal/**` 或 Wails |
 
 ## 目录结构
@@ -43,6 +44,7 @@ tunnelkit/
 │   ├── helperclient/          # 辅助进程按需拉起与客户端封装
 │   ├── profile/               # 配置模型、校验器、持久化与密码库
 │   ├── storage/               # 数据目录路径与原子写入
+│   ├── update/                # 版本更新检查、多源回退与版本比较
 │   └── vpn/                   # 桌面连接状态机与会话恢复
 ├── assets/
 │   ├── brand/                 # 品牌与菜单栏图标 SVG 母版

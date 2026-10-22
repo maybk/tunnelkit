@@ -11,6 +11,9 @@ import * as fortivpn$0 from "../../fortivpn/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as profile$0 from "../profile/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as update$0 from "../update/models.js";
 
 /**
  * ParsedProfileText 是文本模式解析后的配置及兼容提示。
@@ -77,6 +80,16 @@ export class SystemInfo {
         return new SystemInfo($$parsedSource as Partial<SystemInfo>);
     }
 }
+
+/**
+ * UpdateInfo 表示版本更新检查结果。
+ */
+export const UpdateInfo = update$0.Info;
+
+/**
+ * UpdateInfo 表示版本更新检查结果。
+ */
+export type UpdateInfo = update$0.Info;
 
 // Private type creation functions
 const $$createType0 = profile$0.Input.createFrom;

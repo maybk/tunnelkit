@@ -17,6 +17,9 @@ import { Button } from '@/components/ui/button'
 import AboutDialog from '@/views/AboutDialog.vue'
 import CreateProfileView from '@/views/CreateProfileView.vue'
 import ProfileView from '@/views/ProfileView.vue'
+import UpdateDialog from '@/views/UpdateDialog.vue'
+
+const AUTO_UPDATE_CHECK_DELAY_MS = 3000
 
 const desktopWindow = useDesktopWindow()
 const notice = useNotice()
@@ -24,13 +27,24 @@ const system = useSystem()
 const profiles = useProfiles()
 const vpn = useVpn()
 
-const { systemInfo, checking } = system
+const {
+  systemInfo,
+  checking,
+  updateInfo,
+  checkingUpdate,
+  updateDialogOpen,
+  updateFeedback,
+  hasUpdate,
+} = system
 const { selectedProfile, creating, activeTab } = profiles
 const { state: vpnState } = vpn
 
 const ready = ref(false)
 const aboutOpen = ref(false)
+const openingRelease = ref(false)
 const helperReady = computed(() => Boolean(systemInfo.value?.helperReady))
+
+let updateTimer: ReturnType<typeof setTimeout> | null = null
 
 const globalStatus = computed(() => {
   const name = vpnState.value.profileName
@@ -48,6 +62,36 @@ const globalStatus = computed(() => {
 
 const recheckSystem = () => system.refreshSystem().catch(notice.showError)
 
+const handleOpenRepo = () => system.openRepository().catch(notice.showError)
+
+const handleManualCheckUpdate = () => {
+  system
+    .checkUpdate({ silent: false })
+    .then((info) => {
+      if (info?.hasUpdate) {
+        aboutOpen.value = false
+      }
+    })
+    .catch(notice.showError)
+}
+
+const handleShowUpdateDialog = () => {
+  aboutOpen.value = false
+  updateDialogOpen.value = true
+}
+
+const handleOpenRelease = async (url: string) => {
+  if (openingRelease.value) return
+  openingRelease.value = true
+  try {
+    await system.openUpdateRelease(url)
+  } catch (err) {
+    notice.showError(err)
+  } finally {
+    openingRelease.value = false
+  }
+}
+
 onMounted(async () => {
   desktopWindow.startWatching()
   vpn.startWatching()
@@ -63,9 +107,17 @@ onMounted(async () => {
     profiles.selectProfile(activeId)
   }
   ready.value = true
+
+  updateTimer = setTimeout(() => {
+    system.checkUpdate({ silent: true }).catch(() => {})
+  }, AUTO_UPDATE_CHECK_DELAY_MS)
 })
 
 onBeforeUnmount(() => {
+  if (updateTimer) {
+    clearTimeout(updateTimer)
+    updateTimer = null
+  }
   desktopWindow.stopWatching()
   vpn.stopWatching()
 })
@@ -119,13 +171,27 @@ const trustAndReconnect = (sha256: string) =>
         <Button
           variant="ghost"
           size="icon-xs"
-          title="关于 TunnelKit"
+          :title="
+            hasUpdate
+              ? `关于 TunnelKit（发现新版本 v${updateInfo?.latestVersion}）`
+              : '关于 TunnelKit'
+          "
           aria-label="关于 TunnelKit"
-          class="text-muted-foreground hover:text-foreground"
+          class="relative text-muted-foreground hover:text-foreground"
           :style="windowInteractiveRegionStyle"
-          @click="aboutOpen = true"
+          @click="
+            () => {
+              system.clearUpdateFeedback()
+              aboutOpen = true
+            }
+          "
         >
           <Info class="size-4" aria-hidden="true" />
+          <span
+            v-if="hasUpdate"
+            class="absolute top-1 right-1 size-1.5 rounded-full bg-primary"
+            aria-hidden="true"
+          />
         </Button>
       </template>
     </DesktopChrome>
@@ -202,8 +268,23 @@ const trustAndReconnect = (sha256: string) =>
       v-model:open="aboutOpen"
       :system-info="systemInfo"
       :checking="checking"
+      :update-info="updateInfo"
+      :checking-update="checkingUpdate"
+      :update-feedback="updateFeedback"
       @recheck="recheckSystem"
+      @check-update="handleManualCheckUpdate"
+      @show-update="handleShowUpdateDialog"
+      @open-repo="handleOpenRepo"
     />
+
+    <UpdateDialog
+      v-model:open="updateDialogOpen"
+      :update-info="updateInfo"
+      :opening="openingRelease"
+      @open-release="handleOpenRelease"
+      @dismiss-version="system.dismissUpdate"
+    />
+
     <NoticeToast :message="notice.message.value" @dismiss="notice.dismiss" />
   </div>
 </template>

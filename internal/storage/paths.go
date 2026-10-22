@@ -5,28 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
-const (
-	unixDirName    = ".tunnelkit"
-	windowsDirName = "TunnelKit"
-)
+const defaultDirName = ".tunnelkit"
 
-// DefaultRoot 返回默认数据根目录（macOS: ~/.tunnelkit，Windows: %APPDATA%\TunnelKit）。
+// DefaultRoot 返回默认数据根目录（~/.tunnelkit）。
 func DefaultRoot() (string, error) {
-	if runtime.GOOS == "windows" {
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			return "", fmt.Errorf("获取用户配置目录失败: %w", err)
-		}
-		return filepath.Join(dir, windowsDirName), nil
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("获取用户主目录失败: %w", err)
 	}
-	return filepath.Join(home, unixDirName), nil
+	return filepath.Join(home, defaultDirName), nil
 }
 
 // ProfilesPath 返回服务配置列表文件路径。
@@ -69,7 +58,7 @@ func TicketPath(rootDir string) string {
 	return SessionPath(rootDir)
 }
 
-// HelperSocketPath 返回 macOS 下 helper 的 Unix domain socket 路径。
+// HelperSocketPath 返回 macOS / Linux 下 helper 的 Unix domain socket 路径。
 func HelperSocketPath(rootDir string) string {
 	return filepath.Join(RunDir(rootDir), "helper.sock")
 }

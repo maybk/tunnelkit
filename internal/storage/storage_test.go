@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestDefaultRootUsesHomeDotTunnelkit(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	root, err := DefaultRoot()
+	if err != nil {
+		t.Fatalf("DefaultRoot: %v", err)
+	}
+	want := filepath.Join(home, ".tunnelkit")
+	if root != want {
+		t.Fatalf("DefaultRoot() = %q, want %q", root, want)
+	}
+}
+
 func TestWriteFileAtomicAndPerm(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "sub", "data.json")

@@ -2,7 +2,7 @@
 
 ## 本地数据目录
 
-TunnelKit 将所有运行数据保存在本机用户配置目录下（macOS / Linux 为 `~/.tunnelkit/`，Windows 为 `%APPDATA%\TunnelKit\`）：
+TunnelKit 将所有运行数据保存在用户主目录下的 `~/.tunnelkit/`：
 
 ```text
 ~/.tunnelkit/

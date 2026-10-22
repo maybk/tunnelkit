@@ -41,38 +41,33 @@ const emit = defineEmits<{
       </div>
 
       <dl
-        class="mt-4 divide-y divide-border rounded-xl border border-border bg-muted/35 text-caption"
+        class="mt-1 min-w-0 divide-y divide-border overflow-hidden rounded-xl border border-border bg-muted/35 text-caption"
       >
-        <div class="flex items-center justify-between px-4 py-3">
-          <dt class="text-muted-foreground">协议引擎</dt>
-          <dd class="inline-flex items-center gap-1.5 font-medium text-foreground">
-            <StatusDot tone="ok" />
-            <span>fortivpn 原生引擎</span>
-          </dd>
-        </div>
-        <div class="flex items-center justify-between px-4 py-3">
-          <dt class="text-muted-foreground">后台隧道服务</dt>
-          <dd class="inline-flex items-center gap-1.5 font-medium text-foreground">
-            <StatusDot :tone="systemInfo?.helperReady ? 'ok' : 'danger'" />
-            <span>{{ systemInfo?.helperReady ? '已就绪' : '未就绪' }}</span>
-          </dd>
+        <div class="flex items-center justify-between gap-4 px-4 py-3">
+          <dt class="shrink-0 text-muted-foreground">协议引擎</dt>
+          <dd class="min-w-0 truncate font-medium text-foreground">fortivpn 原生引擎</dd>
         </div>
         <div class="flex items-center justify-between gap-4 px-4 py-3">
-          <dt class="shrink-0 text-muted-foreground">服务组件路径</dt>
-          <dd class="truncate font-mono text-foreground">{{ systemInfo?.helperPath || '—' }}</dd>
+          <dt class="shrink-0 text-muted-foreground">后台隧道服务</dt>
+          <dd
+            class="inline-flex min-w-0 items-center gap-1.5 font-medium text-foreground"
+            :title="systemInfo?.helperPath || undefined"
+          >
+            <StatusDot :tone="systemInfo?.helperReady ? 'ok' : 'danger'" />
+            <span class="truncate">{{ systemInfo?.helperReady ? '已就绪' : '未就绪' }}</span>
+          </dd>
         </div>
         <div class="flex items-center justify-between gap-4 px-4 py-3">
           <dt class="shrink-0 text-muted-foreground">配置与日志目录</dt>
-          <dd class="font-mono text-foreground">~/.tunnelkit/</dd>
+          <dd class="min-w-0 truncate font-mono text-foreground">~/.tunnelkit/</dd>
         </div>
       </dl>
 
-      <div class="mt-4 flex items-center justify-between">
+      <div v-if="systemInfo && !systemInfo.helperReady" class="flex justify-end">
         <Button variant="outline" size="sm" :disabled="checking" @click="emit('recheck')">
           <RefreshCw class="size-3.5" :class="checking ? 'animate-spin' : ''" aria-hidden="true" />
           重新检测
         </Button>
-        <Button size="sm" @click="open = false">关闭</Button>
       </div>
     </DialogContent>
   </Dialog>

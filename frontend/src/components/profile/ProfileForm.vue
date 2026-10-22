@@ -11,29 +11,26 @@ import {
   SlidersHorizontal,
 } from 'lucide-vue-next'
 import {
-  DEFAULT_VPN_PORT,
   formatProfileText,
   parseProfileText,
   type ConfigWarning,
   type Profile,
   type ProfileInput,
 } from '@/api/profile'
+import {
+  CONFIG_TEXT_PLACEHOLDER,
+  applyInputToFormState,
+  createProfileFormState,
+  formStateToInput,
+  hasAdvancedFormValues,
+  profileToBaselineInput,
+} from '@/lib/profileForm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 
 type EditMode = 'form' | 'text'
-
-const CONFIG_TEXT_PLACEHOLDER = `host = vpn.example.com
-port = 443
-username = your_account
-password = your_password
-realm = corp
-routes = gateway
-dns = split
-dns-domain = corp.example.com
-reconnect = 1`
 
 const props = defineProps<{
   profile?: Profile | null
@@ -59,122 +56,29 @@ const editMode = ref<EditMode>('form')
 const showAdvanced = ref(false)
 const justSaved = ref(false)
 
-const form = reactive({
-  name: '',
-  host: '',
-  port: DEFAULT_VPN_PORT,
-  username: '',
-  password: '',
-  realm: '',
-  trustedCert: '',
-  auth: 'password',
-  routes: 'gateway',
-  extraRoutesText: '',
-  dns: 'split',
-  dnsDomainsText: '',
-  reconnect: true,
-  userAgent: '',
-  legacyTls: false,
-  clientCert: '',
-  clientKey: '',
-})
+const form = reactive(createProfileFormState())
 
 const configText = ref('')
 const baselineConfigText = ref('')
 const textWarnings = ref<ConfigWarning[]>([])
 const textParseError = ref('')
 
-const splitList = (raw: string): string[] =>
-  raw
-    .split(/[\n,;]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-
-const toProfileInput = (): ProfileInput => ({
-  id: props.profile?.id ?? '',
-  name: form.name.trim(),
-  host: form.host.trim(),
-  port: Number(form.port) || DEFAULT_VPN_PORT,
-  username: form.username.trim(),
-  password: form.password,
-  realm: form.realm.trim(),
-  trustedCert: form.trustedCert.trim(),
-  auth: form.auth,
-  routes: form.routes,
-  extraRoutes: splitList(form.extraRoutesText),
-  dns: form.dns,
-  dnsDomains: splitList(form.dnsDomainsText),
-  reconnect: form.reconnect,
-  userAgent: form.userAgent.trim(),
-  legacyTls: form.legacyTls,
-  clientCert: form.clientCert.trim(),
-  clientKey: form.clientKey.trim(),
-})
-
-const toBaselineInput = (src?: Profile | null): ProfileInput => ({
-  id: src?.id ?? '',
-  name: (src?.name ?? '').trim(),
-  host: (src?.host ?? '').trim(),
-  port: Number(src?.port) || DEFAULT_VPN_PORT,
-  username: (src?.username ?? '').trim(),
-  password: '',
-  realm: (src?.realm ?? '').trim(),
-  trustedCert: (src?.trustedCert ?? '').trim(),
-  auth: src?.auth || 'password',
-  routes: src?.routes || 'gateway',
-  extraRoutes: splitList((src?.extraRoutes ?? []).join('\n')),
-  dns: src?.dns || 'split',
-  dnsDomains: splitList((src?.dnsDomains ?? []).join(', ')),
-  reconnect: src ? Boolean(src.reconnect) : true,
-  userAgent: (src?.userAgent ?? '').trim(),
-  legacyTls: Boolean(src?.legacyTls),
-  clientCert: (src?.clientCert ?? '').trim(),
-  clientKey: (src?.clientKey ?? '').trim(),
-})
+const toProfileInput = (): ProfileInput => formStateToInput(form, props.profile?.id ?? '')
 
 const isDirty = computed(() => {
   const formChanged =
-    JSON.stringify(toProfileInput()) !== JSON.stringify(toBaselineInput(props.profile))
+    JSON.stringify(toProfileInput()) !== JSON.stringify(profileToBaselineInput(props.profile))
   if (editMode.value === 'text') {
     return formChanged || configText.value !== baselineConfigText.value
   }
   return formChanged
 })
 
-const applyInputToForm = (inp: ProfileInput) => {
-  form.host = inp.host ?? ''
-  form.port = inp.port || DEFAULT_VPN_PORT
-  form.username = inp.username ?? ''
-  form.password = inp.password ?? ''
-  form.realm = inp.realm ?? ''
-  form.trustedCert = inp.trustedCert ?? ''
-  form.auth = inp.auth || 'password'
-  form.routes = inp.routes || 'gateway'
-  form.extraRoutesText = (inp.extraRoutes ?? []).join('\n')
-  form.dns = inp.dns || 'split'
-  form.dnsDomainsText = (inp.dnsDomains ?? []).join(', ')
-  form.reconnect = Boolean(inp.reconnect)
-  form.userAgent = inp.userAgent ?? ''
-  form.legacyTls = Boolean(inp.legacyTls)
-  form.clientCert = inp.clientCert ?? ''
-  form.clientKey = inp.clientKey ?? ''
-}
-
-const hasAdvancedValues = computed(() =>
-  Boolean(
-    form.realm.trim() ||
-    form.trustedCert.trim() ||
-    form.auth === 'saml' ||
-    form.userAgent.trim() ||
-    form.legacyTls ||
-    form.clientCert.trim() ||
-    form.clientKey.trim(),
-  ),
-)
+const hasAdvancedValues = computed(() => hasAdvancedFormValues(form))
 
 const syncTextFromForm = async (asBaseline = false) => {
   const wasClean =
-    JSON.stringify(toProfileInput()) === JSON.stringify(toBaselineInput(props.profile))
+    JSON.stringify(toProfileInput()) === JSON.stringify(profileToBaselineInput(props.profile))
   try {
     const formatted = await formatProfileText(toProfileInput(), hasSavedPassword.value)
     configText.value = formatted
@@ -190,7 +94,7 @@ const syncTextFromForm = async (asBaseline = false) => {
 const syncFormFromText = async (raw: string): Promise<boolean> => {
   try {
     const res = await parseProfileText(toProfileInput(), raw)
-    applyInputToForm(res.input)
+    applyInputToFormState(form, res.input)
     textWarnings.value = res.warnings ?? []
     textParseError.value = ''
     if (hasAdvancedValues.value) {
@@ -225,23 +129,8 @@ const populateFromProfile = (src?: Profile | null) => {
     clearTimeout(textDebounceTimer)
     textDebounceTimer = null
   }
+  applyInputToFormState(form, profileToBaselineInput(src), { includeName: true })
   form.name = src?.name ?? ''
-  form.host = src?.host ?? ''
-  form.port = src?.port ?? DEFAULT_VPN_PORT
-  form.username = src?.username ?? ''
-  form.password = ''
-  form.realm = src?.realm ?? ''
-  form.trustedCert = src?.trustedCert ?? ''
-  form.auth = src?.auth || 'password'
-  form.routes = src?.routes || 'gateway'
-  form.extraRoutesText = (src?.extraRoutes ?? []).join('\n')
-  form.dns = src?.dns || 'split'
-  form.dnsDomainsText = (src?.dnsDomains ?? []).join(', ')
-  form.reconnect = src ? Boolean(src.reconnect) : true
-  form.userAgent = src?.userAgent ?? ''
-  form.legacyTls = Boolean(src?.legacyTls)
-  form.clientCert = src?.clientCert ?? ''
-  form.clientKey = src?.clientKey ?? ''
   textWarnings.value = []
   textParseError.value = ''
   showAdvanced.value = hasAdvancedValues.value

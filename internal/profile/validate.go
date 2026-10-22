@@ -48,27 +48,7 @@ func NormalizeAndValidate(in Input, hasExistingPassword bool) (Input, error) {
 		return Input{}, errors.New("请填写连接名称")
 	}
 
-	tempProfile := Profile{
-		ID:          in.ID,
-		Name:        in.Name,
-		Host:        in.Host,
-		Port:        in.Port,
-		Username:    in.Username,
-		Realm:       in.Realm,
-		TrustedCert: in.TrustedCert,
-		Auth:        in.Auth,
-		Routes:      in.Routes,
-		ExtraRoutes: in.ExtraRoutes,
-		DNS:         in.DNS,
-		DNSDomains:  in.DNSDomains,
-		Reconnect:   in.Reconnect,
-		UserAgent:   in.UserAgent,
-		LegacyTLS:   in.LegacyTLS,
-		ClientCert:  in.ClientCert,
-		ClientKey:   in.ClientKey,
-	}
-
-	cfg := tempProfile.ToConfig(in.Password)
+	cfg := in.ToProfile().ToConfig(in.Password)
 	var err error
 	if hasExistingPassword && in.Password == "" {
 		err = cfg.ValidateStructural()

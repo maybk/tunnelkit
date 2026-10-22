@@ -19,7 +19,7 @@ TunnelKit 是基于 Wails v3、Go 与 Vue 3 + TypeScript 的跨平台（macOS / 
 - `internal/profile`：配置增删改查、字段校验与密码加密存储。
 - `internal/storage`：统一管理 `~/.tunnelkit` 目录路径与原子文件写入。
 - `internal/update`：版本更新检查、多源降级回退、发布地址白名单校验与语义化版本比较。
-- `internal/api`：Wails 服务薄适配层，负责参数转发与简单编排。
+- `internal/api`：Wails 服务薄适配层，仅做参数转发与跨包编排；领域逻辑与 I/O 实现下沉至对应 `internal/*` 子包。
 - `main.go` 与 `internal/app`：应用装配、窗口与标题栏配置、关闭隐藏到菜单栏及 `vpn:state` 事件推送。
 
 ## 常用命令

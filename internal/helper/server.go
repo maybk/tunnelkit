@@ -29,6 +29,19 @@ type Options struct {
 	EngineOptions []engine.Option
 }
 
+func (o Options) withDefaults(defaultExitGrace time.Duration) Options {
+	if o.HelloTimeout <= 0 {
+		o.HelloTimeout = 60 * time.Second
+	}
+	if o.ExitGrace <= 0 {
+		o.ExitGrace = defaultExitGrace
+	}
+	if o.Version == "" {
+		o.Version = "dev"
+	}
+	return o
+}
+
 // Serve runs the single-session privileged helper lifecycle:
 //  1. Roll back any stale journal entries via engine.Recover.
 //  2. Listen on Endpoint restricted to OwnerID.
@@ -36,25 +49,7 @@ type Options struct {
 //  4. Accept a single start command, execute engine.Run, stream Events/Prompts,
 //     and exit after the VPN session terminates.
 func Serve(ctx context.Context, opts Options) error {
-	if opts.HelloTimeout <= 0 {
-		opts.HelloTimeout = 60 * time.Second
-	}
-	if opts.ExitGrace <= 0 {
-		opts.ExitGrace = 500 * time.Millisecond
-	}
-	if opts.Version == "" {
-		opts.Version = "dev"
-	}
-
-	logFile, err := OpenLogFile(opts.LogPath)
-	if err != nil {
-		return fmt.Errorf("helper: open log file: %w", err)
-	}
-	if logFile != nil {
-		defer logFile.Close()
-	}
-	logger := NewLogger(logFile)
-
+	opts = opts.withDefaults(500 * time.Millisecond)
 	if opts.JournalPath != "" {
 		_ = engine.Recover(ctx, opts.JournalPath)
 	}
@@ -65,29 +60,20 @@ func Serve(ctx context.Context, opts Options) error {
 	}
 	defer ln.Close()
 
-	return serveListener(ctx, ln, opts, logger)
+	return ServeListener(ctx, ln, opts)
 }
 
 // ServeListener runs the helper loop on an already-opened net.Listener (used by unit tests).
 func ServeListener(ctx context.Context, ln net.Listener, opts Options) error {
-	if opts.HelloTimeout <= 0 {
-		opts.HelloTimeout = 60 * time.Second
-	}
-	if opts.ExitGrace <= 0 {
-		opts.ExitGrace = 100 * time.Millisecond
-	}
-	if opts.Version == "" {
-		opts.Version = "dev"
-	}
+	opts = opts.withDefaults(100 * time.Millisecond)
 	logFile, err := OpenLogFile(opts.LogPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("helper: open log file: %w", err)
 	}
 	if logFile != nil {
 		defer logFile.Close()
 	}
-	logger := NewLogger(logFile)
-	return serveListener(ctx, ln, opts, logger)
+	return serveListener(ctx, ln, opts, NewLogger(logFile))
 }
 
 func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *slog.Logger) error {

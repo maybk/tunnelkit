@@ -54,6 +54,61 @@ type Input struct {
 	ClientKey   string   `json:"clientKey,omitempty"`
 }
 
+// ToProfile 将输入参数转换为非敏感字段的 Profile 结构。
+func (in Input) ToProfile() Profile {
+	return Profile{
+		ID:          in.ID,
+		Name:        in.Name,
+		Host:        in.Host,
+		Port:        in.Port,
+		Username:    in.Username,
+		Realm:       in.Realm,
+		TrustedCert: in.TrustedCert,
+		Auth:        in.Auth,
+		Routes:      in.Routes,
+		ExtraRoutes: in.ExtraRoutes,
+		DNS:         in.DNS,
+		DNSDomains:  in.DNSDomains,
+		Reconnect:   in.Reconnect,
+		UserAgent:   in.UserAgent,
+		LegacyTLS:   in.LegacyTLS,
+		ClientCert:  in.ClientCert,
+		ClientKey:   in.ClientKey,
+	}
+}
+
+// ParseText 将 openfortivpn 兼容格式的配置文本解析为表单 Input。
+func ParseText(base Input, text string) (Input, []fortivpn.Warning, error) {
+	cfg, warnings, err := fortivpn.ParseConfigText(text)
+	if err != nil {
+		return Input{}, nil, err
+	}
+	return FromConfig(base, cfg), warnings, nil
+}
+
+// FormatText 将当前表单 Input 渲染为 openfortivpn 兼容格式的配置文本（不落盘）。
+func FormatText(in Input, hasSavedPassword bool) string {
+	if !hasSavedPassword &&
+		in.Host == "" &&
+		(in.Port == 0 || in.Port == DefaultPort) &&
+		in.Username == "" &&
+		in.Password == "" &&
+		in.Realm == "" &&
+		in.TrustedCert == "" &&
+		len(in.ExtraRoutes) == 0 &&
+		len(in.DNSDomains) == 0 {
+		return ""
+	}
+	pwd := in.Password
+	includePassword := true
+	if pwd == "" && hasSavedPassword {
+		pwd = "__SAVED__"
+		includePassword = false
+	}
+	cfg := in.ToProfile().ToConfig(pwd)
+	return fortivpn.FormatConfigText(cfg, includePassword)
+}
+
 // ToConfig 将桌面端 Profile 转换为内核 fortivpn.Config（唯一的转换入口）。
 func (p Profile) ToConfig(password string) fortivpn.Config {
 	var trustedCerts []string

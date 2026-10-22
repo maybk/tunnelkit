@@ -66,56 +66,19 @@ func (a *ProfileAPI) TrustCert(id, sha256 string) (profile.Profile, error) {
 
 // ParseText 将 openfortivpn 兼容格式的配置文本解析为表单 Input。
 func (a *ProfileAPI) ParseText(base profile.Input, text string) (ParsedProfileText, error) {
-	cfg, warnings, err := fortivpn.ParseConfigText(text)
+	input, warnings, err := profile.ParseText(base, text)
 	if err != nil {
 		return ParsedProfileText{}, err
 	}
 	return ParsedProfileText{
-		Input:    profile.FromConfig(base, cfg),
+		Input:    input,
 		Warnings: warnings,
 	}, nil
 }
 
 // FormatText 将当前表单 Input 渲染为 openfortivpn 兼容格式的配置文本（不落盘）。
 func (a *ProfileAPI) FormatText(in profile.Input, hasSavedPassword bool) string {
-	if !hasSavedPassword &&
-		in.Host == "" &&
-		(in.Port == 0 || in.Port == profile.DefaultPort) &&
-		in.Username == "" &&
-		in.Password == "" &&
-		in.Realm == "" &&
-		in.TrustedCert == "" &&
-		len(in.ExtraRoutes) == 0 &&
-		len(in.DNSDomains) == 0 {
-		return ""
-	}
-	temp := profile.Profile{
-		ID:          in.ID,
-		Name:        in.Name,
-		Host:        in.Host,
-		Port:        in.Port,
-		Username:    in.Username,
-		Realm:       in.Realm,
-		TrustedCert: in.TrustedCert,
-		Auth:        in.Auth,
-		Routes:      in.Routes,
-		ExtraRoutes: in.ExtraRoutes,
-		DNS:         in.DNS,
-		DNSDomains:  in.DNSDomains,
-		Reconnect:   in.Reconnect,
-		UserAgent:   in.UserAgent,
-		LegacyTLS:   in.LegacyTLS,
-		ClientCert:  in.ClientCert,
-		ClientKey:   in.ClientKey,
-	}
-	pwd := in.Password
-	includePassword := true
-	if pwd == "" && hasSavedPassword {
-		pwd = "__SAVED__"
-		includePassword = false
-	}
-	cfg := temp.ToConfig(pwd)
-	return fortivpn.FormatConfigText(cfg, includePassword)
+	return profile.FormatText(in, hasSavedPassword)
 }
 
 func (a *ProfileAPI) notify() {

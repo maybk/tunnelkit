@@ -1,3 +1,4 @@
+import { DEFAULT_VPN_PORT } from '@/lib/profileForm'
 import { ProfileAPI } from '../../bindings/tunnelkit/internal/api'
 import type * as api from '../../bindings/tunnelkit/internal/api'
 import type * as profile from '../../bindings/tunnelkit/internal/profile'
@@ -8,7 +9,7 @@ export type ProfileInput = profile.Input
 export type ParsedProfileText = api.ParsedProfileText
 export type ConfigWarning = fortivpn.Warning
 
-export const DEFAULT_VPN_PORT = 443
+export { DEFAULT_VPN_PORT }
 
 export const listProfiles = (): Promise<Profile[]> => ProfileAPI.List()
 

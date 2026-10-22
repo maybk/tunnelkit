@@ -27,11 +27,11 @@ TunnelKit 是基于 Wails v3、Go 与 Vue 3 + TypeScript 的跨平台（macOS / 
 在项目根目录执行：
 
 ```bash
-npm --prefix frontend ci
-npm --prefix frontend run format:check
-npm --prefix frontend run lint:check
-npm --prefix frontend run test -- --run
-npm --prefix frontend run build
+pnpm --dir frontend install --frozen-lockfile
+pnpm --dir frontend run format:check
+pnpm --dir frontend run lint:check
+pnpm --dir frontend run test -- --run
+pnpm --dir frontend run build
 go vet ./...
 go test -race ./...
 bash scripts/test_extract_pending_version.sh

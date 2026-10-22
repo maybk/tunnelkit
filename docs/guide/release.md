@@ -94,10 +94,10 @@ wails3 task linux:package
 2. 将 `CHANGELOG.md` 中目标版本的 `未发布` 改为正式日期（`YYYY-MM-DD`），并在其上方新增下一个语义版本的 `## [x.y.z] - 未发布` 段落。
 3. 运行全量本地检查并创建版本提交：
    ```bash
-   npm --prefix frontend run format:check
-   npm --prefix frontend run lint:check
-   npm --prefix frontend run test -- --run
-   npm --prefix frontend run build
+   pnpm --dir frontend run format:check
+   pnpm --dir frontend run lint:check
+   pnpm --dir frontend run test -- --run
+   pnpm --dir frontend run build
    go vet ./...
    go test -race ./...
    bash scripts/test_extract_pending_version.sh

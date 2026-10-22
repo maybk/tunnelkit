@@ -38,12 +38,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12
+
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install Wails v3 CLI
         shell: bash
@@ -54,7 +59,7 @@ jobs:
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
 
       - name: Install frontend dependencies
-        run: npm --prefix frontend ci --registry=https://registry.npmjs.org
+        run: pnpm --dir frontend install --frozen-lockfile --registry=https://registry.npmjs.org
 
       - name: Build and verify macOS bundles and DMGs
         shell: bash
@@ -118,12 +123,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12
+
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install Wails v3 CLI
         shell: bash
@@ -134,7 +144,7 @@ jobs:
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
 
       - name: Install frontend dependencies
-        run: npm --prefix frontend ci --registry=https://registry.npmjs.org
+        run: pnpm --dir frontend install --frozen-lockfile --registry=https://registry.npmjs.org
 
       - name: Prepare verified Wintun DLLs
         shell: pwsh
@@ -208,12 +218,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12
+
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install Wails v3 CLI
         shell: bash
@@ -224,7 +239,7 @@ jobs:
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
 
       - name: Install frontend dependencies
-        run: npm --prefix frontend ci --registry=https://registry.npmjs.org
+        run: pnpm --dir frontend install --frozen-lockfile --registry=https://registry.npmjs.org
 
       - name: Build and archive Linux amd64 release
         shell: bash

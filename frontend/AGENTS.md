@@ -19,4 +19,4 @@
 5. 禁止手工编辑 `bindings/`（由根目录 `wails3 generate bindings -ts` 生成）；禁止调用 `window.alert / confirm / prompt`（使用 `AlertDialog` / `Dialog`）。
 6. 自定义字号类（`text-caption`、`text-body`、`text-title`、`text-heading`）必须在 `src/lib/utils.ts` 的 `extendTailwindMerge` `font-size` 分组中注册，防止 `cn()` 覆盖文字颜色类。
 7. 顶栏 `DesktopChrome` 使用 `--wails-draggable: drag`，内部交互控件必须标记 `no-drag`，macOS 下保留左侧交通灯安全间距 `pl-[78px]`。
-8. 测试位于 `tests/*.spec.ts`（Vitest + `@vue/test-utils`）；修改后运行 `npm run format:check`、`npm run lint:check`、`npm run test` 与 `npm run build` 验证。
+8. 测试位于 `tests/*.spec.ts`（Vitest + `@vue/test-utils`）；修改后运行 `pnpm run format:check`、`pnpm run lint:check`、`pnpm run test` 与 `pnpm run build` 验证。

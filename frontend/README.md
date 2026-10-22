@@ -14,7 +14,7 @@ TunnelKit 前端是运行在 Wails v3 WebView 中的 Vue 3 + TypeScript 桌面�
 在 `frontend/` 目录安装依赖：
 
 ```bash
-npm ci
+pnpm install
 ```
 
 从仓库根目录启动完整桌面开发环境：
@@ -29,10 +29,10 @@ wails3 dev
 在 `frontend/` 目录执行：
 
 ```bash
-npm run format:check
-npm run lint:check
-npm run test
-npm run build
+pnpm run format:check
+pnpm run lint:check
+pnpm run test
+pnpm run build
 ```
 
 ## 项目文档

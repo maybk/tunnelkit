@@ -8,7 +8,7 @@
 
 <div align="center">
 
-![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&logoColor=white)
 ![Wails](https://img.shields.io/badge/Wails-v3-DF0000?logo=go&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3.5+-4FC08D?logo=vuedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.0+-3178C6?logo=typescript&logoColor=white)
@@ -69,10 +69,10 @@ xattr -dr com.apple.quarantine "/Applications/TunnelKit.app"
 
 ## 🚀 快速开始
 
-本地开发需要 Go 1.26+、Node.js 22+ 以及 [Wails v3 CLI](https://v3.wails.io/quick-start/installation/)：
+本地开发需要 Go 1.27+、Node.js 24+、pnpm 以及 [Wails v3 CLI](https://v3.wails.io/quick-start/installation/)：
 
 ```bash
-npm --prefix frontend ci
+pnpm --dir frontend install
 wails3 dev
 ```
 
@@ -81,7 +81,7 @@ wails3 dev
 ### 核心技术栈
 
 - **Wails v3** - 跨平台桌面与菜单栏应用框架
-- **Go 1.26+** - 桌面端状态机、后台隧道服务与 `fortivpn` 协议内核
+- **Go 1.27+** - 桌面端状态机、后台隧道服务与 `fortivpn` 协议内核
 - **Vue 3.5 + TypeScript 6.0 + Tailwind CSS v4** - 桌面工作台界面
 - **WireGuard `tun` / Wintun** - 跨平台虚拟网卡适配
 

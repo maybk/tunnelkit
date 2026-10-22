@@ -9,12 +9,16 @@ rolling_workflow="$repo_root/.github/workflows/rolling.yml"
 dependabot_config="$repo_root/.github/dependabot.yml"
 windows_wintun_setup="$repo_root/scripts/prepare_windows_wintun.ps1"
 
-locked_npm_sources="$(
-  sed -n 's/^[[:space:]]*"resolved":[[:space:]]*"\(https:\/\/[^/]*\)\/.*/\1/p' \
-    "$repo_root/frontend/package-lock.json" | sort -u
+if [ ! -f "$repo_root/frontend/pnpm-lock.yaml" ] || [ -f "$repo_root/frontend/package-lock.json" ]; then
+  echo "frontend must use pnpm-lock.yaml exclusively"
+  exit 1
+fi
+custom_tarball_sources="$(
+  sed -n 's/.*tarball:[[:space:]]*\(https:\/\/[^/}]*\)\/.*/\1/p' \
+    "$repo_root/frontend/pnpm-lock.yaml" | grep -v '^https://registry\.npmjs\.org$' | sort -u || true
 )"
-if [ "$locked_npm_sources" != "https://registry.npmjs.org" ]; then
-  echo "frontend/package-lock.json must resolve exclusively against https://registry.npmjs.org; got: $locked_npm_sources"
+if [ -n "$custom_tarball_sources" ]; then
+  echo "frontend/pnpm-lock.yaml must not contain non-official tarball URLs; got: $custom_tarball_sources"
   exit 1
 fi
 

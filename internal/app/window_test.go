@@ -261,3 +261,63 @@ func TestTrayControllerDefersRefreshUntilReady(t *testing.T) {
 		t.Fatalf("rebuild called %d times after second refresh, want 2", got)
 	}
 }
+
+func TestTrayControllerCoalescesConcurrentRefreshes(t *testing.T) {
+	var (
+		called    atomic.Int32
+		inFlight  atomic.Int32
+		maxActive atomic.Int32
+	)
+	blockFirst := make(chan struct{})
+	firstEntered := make(chan struct{})
+	done := make(chan struct{}, 8)
+
+	tray := &trayController{
+		ready: true,
+		rebuild: func() {
+			cur := inFlight.Add(1)
+			for {
+				prev := maxActive.Load()
+				if cur <= prev || maxActive.CompareAndSwap(prev, cur) {
+					break
+				}
+			}
+			n := called.Add(1)
+			if n == 1 {
+				close(firstEntered)
+				<-blockFirst
+			}
+			inFlight.Add(-1)
+			done <- struct{}{}
+		},
+	}
+
+	tray.refresh()
+	select {
+	case <-firstEntered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first rebuild to start")
+	}
+
+	// 在第一次 rebuild 执行期间连续触发多次 refresh，应被合并为后续 1 次串行执行。
+	tray.refresh()
+	tray.refresh()
+	tray.refresh()
+
+	close(blockFirst)
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for rebuild #%d", i+1)
+		}
+	}
+
+	if got := called.Load(); got != 2 {
+		t.Fatalf("rebuild called %d times, want 2 (1 initial + 1 coalesced)", got)
+	}
+	if got := maxActive.Load(); got != 1 {
+		t.Fatalf("max concurrent rebuilds = %d, want 1", got)
+	}
+}

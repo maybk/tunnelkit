@@ -15,12 +15,16 @@ static void setMacActivationPolicy(bool regular, const void *iconBytes, int icon
 		}
 		if (regular) {
 			[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-			if (iconBytes != NULL && iconLen > 0) {
-				NSData *data = [NSData dataWithBytes:iconBytes length:iconLen];
-				NSImage *image = [[NSImage alloc] initWithData:data];
-				if (image != nil) {
-					[NSApp setApplicationIconImage:image];
+			static NSImage *cachedIcon = nil;
+			if (cachedIcon == nil && iconBytes != NULL && iconLen > 0) {
+				NSData *data = [[NSData alloc] initWithBytes:iconBytes length:(NSUInteger)iconLen];
+				if (data != nil) {
+					cachedIcon = [[NSImage alloc] initWithData:data];
+					[data release];
 				}
+			}
+			if (cachedIcon != nil) {
+				[NSApp setApplicationIconImage:cachedIcon];
 			}
 			[NSApp unhide:nil];
 			[NSApp activateIgnoringOtherApps:YES];

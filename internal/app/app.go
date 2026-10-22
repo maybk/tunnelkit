@@ -110,18 +110,16 @@ func Run(assets embed.FS) error {
 
 	initialState := vpnService.State()
 	var (
-		listenerMu      sync.Mutex
-		lastStatus      = initialState.Status
-		lastPhase       = initialState.Phase
-		lastProfileName = initialState.ProfileName
+		listenerMu    sync.Mutex
+		lastStatus    = initialState.Status
+		lastProfileID = initialState.ProfileID
 	)
 	vpnService.SetListener(func(state vpn.State) {
 		listenerMu.Lock()
-		changed := state.Status != lastStatus || state.Phase != lastPhase || state.ProfileName != lastProfileName
+		changed := state.Status != lastStatus || state.ProfileID != lastProfileID
 		if changed {
 			lastStatus = state.Status
-			lastPhase = state.Phase
-			lastProfileName = state.ProfileName
+			lastProfileID = state.ProfileID
 		}
 		listenerMu.Unlock()
 		if changed {

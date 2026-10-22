@@ -69,5 +69,9 @@ describe('useSystem update workflow', () => {
     expect(sys.hasUpdate.value).toBe(false)
     expect(sys.updateDialogOpen.value).toBe(false)
     expect(sys.updateFeedback.value).toBe('当前已是最新版本')
+
+    // 手动检查执行过后，延后触发的静默自动检查不再重复发起请求
+    await sys.checkUpdate({ silent: true })
+    expect(mockCheckUpdate).toHaveBeenCalledTimes(1)
   })
 })

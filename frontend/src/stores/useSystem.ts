@@ -52,10 +52,11 @@ export const useSystem = createGlobalState(() => {
   const checkUpdate = async (options?: { silent?: boolean }): Promise<UpdateInfo | null> => {
     const silent = Boolean(options?.silent)
     if (silent) {
-      if (autoCheckStarted) return updateInfo.value
+      if (autoCheckStarted || checkingUpdate.value) return updateInfo.value
       autoCheckStarted = true
     } else {
       if (checkingUpdate.value) return updateInfo.value
+      autoCheckStarted = true
       checkingUpdate.value = true
       updateFeedback.value = ''
     }

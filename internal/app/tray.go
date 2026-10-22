@@ -49,11 +49,12 @@ func (s iconSet) trayIconForPlatform(goos string) (icon []byte, isTemplate bool)
 }
 
 // trayController 维护菜单栏图标与菜单；在 Wails 主线程事件循环就绪前不会调用 InvokeAsync，
-// 启动阶段收到的 refresh 请求会被合并到 markReady 后执行。
+// 启动阶段与运行期并发收到的 refresh 请求都会串行合并执行，避免旧快照覆盖新状态。
 type trayController struct {
 	mu                sync.Mutex
 	ready             bool
 	pending           bool
+	running           bool
 	selectedProfileID string
 	rebuild           func()
 }
@@ -73,25 +74,46 @@ func (t *trayController) syncSelectedProfileID(state vpn.State, profiles []profi
 
 func (t *trayController) refresh() {
 	t.mu.Lock()
-	if !t.ready || t.rebuild == nil {
+	if !t.ready || t.rebuild == nil || t.running {
 		t.pending = true
 		t.mu.Unlock()
 		return
 	}
-	fn := t.rebuild
+	t.pending = false
+	t.running = true
 	t.mu.Unlock()
-	go fn()
+	go t.runLoop()
 }
 
 func (t *trayController) markReady() {
 	t.mu.Lock()
 	t.ready = true
-	shouldRun := t.pending && t.rebuild != nil
+	if !t.pending || t.rebuild == nil || t.running {
+		t.mu.Unlock()
+		return
+	}
 	t.pending = false
-	fn := t.rebuild
+	t.running = true
 	t.mu.Unlock()
-	if shouldRun {
-		go fn()
+	go t.runLoop()
+}
+
+func (t *trayController) runLoop() {
+	for {
+		t.mu.Lock()
+		fn := t.rebuild
+		t.mu.Unlock()
+		if fn != nil {
+			fn()
+		}
+		t.mu.Lock()
+		if !t.pending || !t.ready || t.rebuild == nil {
+			t.running = false
+			t.mu.Unlock()
+			return
+		}
+		t.pending = false
+		t.mu.Unlock()
 	}
 }
 

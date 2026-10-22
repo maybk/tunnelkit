@@ -11,7 +11,7 @@ info:
   description: "Cross-platform Fortinet SSL-VPN desktop client" # 应用描述
   copyright: "(c) 2026, maybk" # 版权信息
   comments: "Cross-platform Fortinet SSL-VPN desktop client" # 应用备注
-  version: "0.1.0" # 应用版本
+  version: "0.2.0" # 应用版本
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension
   #                               # If not set and Assets.car exists, defaults to "appicon"

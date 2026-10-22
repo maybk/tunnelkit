@@ -119,10 +119,40 @@ describe('ProfileForm', () => {
     expect(wrapper.text()).toContain('已保存')
   })
 
-  it('disables delete while the profile is in use', () => {
-    const wrapper = mount(ProfileForm, { props: { profile: saved, deleteDisabled: true } })
-    const del = wrapper.findAll('button').find((b) => b.text().includes('删除连接'))
-    expect(del?.attributes('disabled')).toBeDefined()
+  it('tracks dirty state, supports resetting changes, and handles Cmd/Ctrl+S', async () => {
+    const wrapper = mount(ProfileForm, { props: { profile: saved } })
+    const saveBtn = wrapper.get('[data-testid="save-profile-button"]')
+
+    expect(saveBtn.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="reset-profile-button"]').exists()).toBe(false)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', metaKey: true }))
+    expect(wrapper.emitted('save')).toBeUndefined()
+
+    await wrapper.get('#profile-port').setValue('8443')
+    expect(saveBtn.attributes('disabled')).toBeUndefined()
+    const resetBtn = wrapper.get('[data-testid="reset-profile-button"]')
+
+    await resetBtn.trigger('click')
+    expect((wrapper.get('#profile-port').element as HTMLInputElement).value).toBe('443')
+    expect(saveBtn.attributes('disabled')).toBeDefined()
+    expect(wrapper.emitted('reset')).toHaveLength(1)
+
+    await wrapper.get('#profile-port').setValue('9443')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', metaKey: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({
+      id: 'p1',
+      port: 9443,
+    })
+
+    wrapper.unmount()
+  })
+
+  it('hides bottom action bar when hideActions is true', () => {
+    const wrapper = mount(ProfileForm, { props: { profile: saved, hideActions: true } })
+    expect(wrapper.find('[data-testid="save-profile-button"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('syncs pasted openfortivpn config text to form fields and back', async () => {

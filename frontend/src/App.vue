@@ -136,8 +136,16 @@ const trustAndReconnect = (sha256: string) =>
         :selected-id="profiles.selectedId.value"
         :creating="creating"
         :vpn-state="vpnState"
+        :pending="vpn.pending.value"
+        :helper-ready="helperReady"
+        :deleting="profiles.deleting.value"
+        :saving="profiles.saving.value"
         @select="profiles.selectProfile"
         @create="profiles.startCreate"
+        @connect="vpn.connect"
+        @cancel="vpn.cancel"
+        @disconnect="vpn.disconnect"
+        @delete="profiles.remove"
       />
 
       <main v-if="ready" class="flex min-w-0 flex-1 flex-col overflow-hidden pt-4">
@@ -167,7 +175,7 @@ const trustAndReconnect = (sha256: string) =>
             @disconnect="vpn.disconnect"
             @trust-and-reconnect="trustAndReconnect"
             @save-profile="profiles.save"
-            @delete-profile="profiles.remove"
+            @reset-form-error="profiles.clearFormError"
             @refresh-log="withSelected(vpn.loadLog)"
             @clear-log="withSelected(vpn.clearLog)"
           />

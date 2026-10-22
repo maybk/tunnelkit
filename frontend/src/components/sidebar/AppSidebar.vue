@@ -10,11 +10,19 @@ defineProps<{
   selectedId: string
   creating: boolean
   vpnState: VpnState
+  pending?: boolean
+  helperReady?: boolean
+  deleting?: boolean
+  saving?: boolean
 }>()
 
 const emit = defineEmits<{
   select: [id: string]
   create: []
+  connect: [id: string]
+  cancel: []
+  disconnect: []
+  delete: [id: string]
 }>()
 </script>
 
@@ -40,7 +48,15 @@ const emit = defineEmits<{
         :profile="item"
         :selected="!creating && item.id === selectedId"
         :vpn-state="vpnState"
+        :pending="pending"
+        :helper-ready="helperReady"
+        :deleting="deleting"
+        :saving="saving"
         @select="emit('select', $event)"
+        @connect="emit('connect', $event)"
+        @cancel="emit('cancel')"
+        @disconnect="emit('disconnect')"
+        @delete="emit('delete', $event)"
       />
 
       <div

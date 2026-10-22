@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   AlertCircle,
   Check,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   FileCode2,
   Loader2,
+  RotateCcw,
   SlidersHorizontal,
 } from 'lucide-vue-next'
 import {
@@ -21,7 +22,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import DeleteProfileButton from './DeleteProfileButton.vue'
 
 type EditMode = 'form' | 'text'
 
@@ -41,16 +41,18 @@ const props = defineProps<{
   deleting?: boolean
   error?: string
   canCancel?: boolean
-  /** 配置正在使用时禁止删除。 */
-  deleteDisabled?: boolean
+  hideActions?: boolean
 }>()
 
 const emit = defineEmits<{
   save: [input: ProfileInput]
   cancel: []
-  delete: [id: string]
+  reset: []
+  'update:dirty': [dirty: boolean]
+  'update:justSaved': [justSaved: boolean]
 }>()
 
+const formEl = ref<HTMLFormElement | null>(null)
 const isEdit = computed(() => Boolean(props.profile?.id))
 const hasSavedPassword = computed(() => Boolean(props.profile?.hasPassword))
 const editMode = ref<EditMode>('form')
@@ -78,6 +80,7 @@ const form = reactive({
 })
 
 const configText = ref('')
+const baselineConfigText = ref('')
 const textWarnings = ref<ConfigWarning[]>([])
 const textParseError = ref('')
 
@@ -106,6 +109,36 @@ const toProfileInput = (): ProfileInput => ({
   legacyTls: form.legacyTls,
   clientCert: form.clientCert.trim(),
   clientKey: form.clientKey.trim(),
+})
+
+const toBaselineInput = (src?: Profile | null): ProfileInput => ({
+  id: src?.id ?? '',
+  name: (src?.name ?? '').trim(),
+  host: (src?.host ?? '').trim(),
+  port: Number(src?.port) || DEFAULT_VPN_PORT,
+  username: (src?.username ?? '').trim(),
+  password: '',
+  realm: (src?.realm ?? '').trim(),
+  trustedCert: (src?.trustedCert ?? '').trim(),
+  auth: src?.auth || 'password',
+  routes: src?.routes || 'gateway',
+  extraRoutes: splitList((src?.extraRoutes ?? []).join('\n')),
+  dns: src?.dns || 'split',
+  dnsDomains: splitList((src?.dnsDomains ?? []).join(', ')),
+  reconnect: src ? Boolean(src.reconnect) : true,
+  userAgent: (src?.userAgent ?? '').trim(),
+  legacyTls: Boolean(src?.legacyTls),
+  clientCert: (src?.clientCert ?? '').trim(),
+  clientKey: (src?.clientKey ?? '').trim(),
+})
+
+const isDirty = computed(() => {
+  const formChanged =
+    JSON.stringify(toProfileInput()) !== JSON.stringify(toBaselineInput(props.profile))
+  if (editMode.value === 'text') {
+    return formChanged || configText.value !== baselineConfigText.value
+  }
+  return formChanged
 })
 
 const applyInputToForm = (inp: ProfileInput) => {
@@ -139,9 +172,15 @@ const hasAdvancedValues = computed(() =>
   ),
 )
 
-const syncTextFromForm = async () => {
+const syncTextFromForm = async (asBaseline = false) => {
+  const wasClean =
+    JSON.stringify(toProfileInput()) === JSON.stringify(toBaselineInput(props.profile))
   try {
-    configText.value = await formatProfileText(toProfileInput(), hasSavedPassword.value)
+    const formatted = await formatProfileText(toProfileInput(), hasSavedPassword.value)
+    configText.value = formatted
+    if (asBaseline || wasClean) {
+      baselineConfigText.value = formatted
+    }
     textParseError.value = ''
   } catch {
     // ignore transient formatting errors
@@ -178,35 +217,51 @@ const setEditMode = async (mode: EditMode) => {
   editMode.value = mode
 }
 
+let textDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let savedTimer: ReturnType<typeof setTimeout> | null = null
+
+const populateFromProfile = (src?: Profile | null) => {
+  if (textDebounceTimer) {
+    clearTimeout(textDebounceTimer)
+    textDebounceTimer = null
+  }
+  form.name = src?.name ?? ''
+  form.host = src?.host ?? ''
+  form.port = src?.port ?? DEFAULT_VPN_PORT
+  form.username = src?.username ?? ''
+  form.password = ''
+  form.realm = src?.realm ?? ''
+  form.trustedCert = src?.trustedCert ?? ''
+  form.auth = src?.auth || 'password'
+  form.routes = src?.routes || 'gateway'
+  form.extraRoutesText = (src?.extraRoutes ?? []).join('\n')
+  form.dns = src?.dns || 'split'
+  form.dnsDomainsText = (src?.dnsDomains ?? []).join(', ')
+  form.reconnect = src ? Boolean(src.reconnect) : true
+  form.userAgent = src?.userAgent ?? ''
+  form.legacyTls = Boolean(src?.legacyTls)
+  form.clientCert = src?.clientCert ?? ''
+  form.clientKey = src?.clientKey ?? ''
+  textWarnings.value = []
+  textParseError.value = ''
+  showAdvanced.value = hasAdvancedValues.value
+  void syncTextFromForm(true)
+}
+
+const reset = () => {
+  populateFromProfile(props.profile)
+  justSaved.value = false
+  emit('reset')
+}
+
 watch(
   () => props.profile,
   (src) => {
-    form.name = src?.name ?? ''
-    form.host = src?.host ?? ''
-    form.port = src?.port ?? DEFAULT_VPN_PORT
-    form.username = src?.username ?? ''
-    form.password = ''
-    form.realm = src?.realm ?? ''
-    form.trustedCert = src?.trustedCert ?? ''
-    form.auth = src?.auth || 'password'
-    form.routes = src?.routes || 'gateway'
-    form.extraRoutesText = (src?.extraRoutes ?? []).join('\n')
-    form.dns = src?.dns || 'split'
-    form.dnsDomainsText = (src?.dnsDomains ?? []).join(', ')
-    form.reconnect = src ? Boolean(src.reconnect) : true
-    form.userAgent = src?.userAgent ?? ''
-    form.legacyTls = Boolean(src?.legacyTls)
-    form.clientCert = src?.clientCert ?? ''
-    form.clientKey = src?.clientKey ?? ''
-    textWarnings.value = []
-    textParseError.value = ''
-    showAdvanced.value = hasAdvancedValues.value
-    void syncTextFromForm()
+    populateFromProfile(src)
   },
   { immediate: true },
 )
 
-let textDebounceTimer: ReturnType<typeof setTimeout> | null = null
 watch(configText, (raw) => {
   if (editMode.value !== 'text') return
   if (textDebounceTimer) clearTimeout(textDebounceTimer)
@@ -215,15 +270,33 @@ watch(configText, (raw) => {
   }, 200)
 })
 
-let savedTimer: ReturnType<typeof setTimeout> | null = null
 watch(
   () => props.saving,
   (now, before) => {
     if (!before || now || props.error || !isEdit.value) return
+    form.password = ''
+    void syncTextFromForm(true)
     justSaved.value = true
     if (savedTimer) clearTimeout(savedTimer)
     savedTimer = setTimeout(() => (justSaved.value = false), 2000)
   },
+)
+
+watch(
+  isDirty,
+  (dirty) => {
+    if (dirty) justSaved.value = false
+    emit('update:dirty', dirty)
+  },
+  { immediate: true },
+)
+
+watch(
+  justSaved,
+  (val) => {
+    emit('update:justSaved', val)
+  },
+  { immediate: true },
 )
 
 const submit = async () => {
@@ -233,10 +306,43 @@ const submit = async () => {
   }
   emit('save', toProfileInput())
 }
+
+const triggerSubmit = async () => {
+  if (formEl.value && typeof formEl.value.reportValidity === 'function') {
+    if (!formEl.value.reportValidity()) return
+  }
+  await submit()
+}
+
+const handleKeydown = (e: KeyboardEvent) => {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+    e.preventDefault()
+    if (props.saving || props.deleting) return
+    if (isEdit.value && !isDirty.value) return
+    void triggerSubmit()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  if (textDebounceTimer) clearTimeout(textDebounceTimer)
+  if (savedTimer) clearTimeout(savedTimer)
+})
+
+defineExpose({
+  isDirty,
+  justSaved,
+  submit: triggerSubmit,
+  reset,
+})
 </script>
 
 <template>
-  <form class="space-y-3.5" @submit.prevent="submit">
+  <form ref="formEl" class="space-y-3.5" @submit.prevent="submit">
     <div
       v-if="error || textParseError"
       role="alert"
@@ -543,32 +649,36 @@ const submit = async () => {
     </div>
 
     <!-- 底部操作栏 -->
-    <div class="flex items-center justify-between pt-1">
-      <DeleteProfileButton
-        v-if="isEdit && profile"
-        :profile-name="profile.name"
-        :disabled="deleting || saving || deleteDisabled"
-        :title="deleteDisabled ? '请先断开该连接' : undefined"
-        @confirm="emit('delete', profile.id)"
-      />
-      <span v-else />
-
-      <div class="flex items-center gap-2.5">
-        <span
-          v-if="justSaved"
-          class="inline-flex items-center gap-1 rounded-full bg-status-ok/14 px-2.5 py-1 text-caption font-medium text-status-ok"
-        >
-          <Check class="size-3.5" aria-hidden="true" />
-          已保存
-        </span>
-        <Button v-if="canCancel" type="button" variant="outline" @click="emit('cancel')">
-          取消
-        </Button>
-        <Button type="submit" :disabled="saving || deleting">
-          <Loader2 v-if="saving" class="size-3.5 animate-spin" aria-hidden="true" />
-          {{ isEdit ? '保存更改' : '创建连接' }}
-        </Button>
-      </div>
+    <div v-if="!hideActions" class="flex items-center justify-end gap-2.5 pt-1">
+      <span
+        v-if="justSaved && !isDirty"
+        class="inline-flex items-center gap-1 rounded-full bg-status-ok/14 px-2.5 py-1 text-caption font-medium text-status-ok"
+      >
+        <Check class="size-3.5" aria-hidden="true" />
+        已保存
+      </span>
+      <Button
+        v-if="isEdit && isDirty"
+        type="button"
+        variant="ghost"
+        data-testid="reset-profile-button"
+        :disabled="saving || deleting"
+        @click="reset"
+      >
+        <RotateCcw class="size-3.5" aria-hidden="true" />
+        还原
+      </Button>
+      <Button v-if="canCancel" type="button" variant="outline" @click="emit('cancel')">
+        取消
+      </Button>
+      <Button
+        type="submit"
+        data-testid="save-profile-button"
+        :disabled="saving || deleting || (isEdit && !isDirty)"
+      >
+        <Loader2 v-if="saving" class="size-3.5 animate-spin" aria-hidden="true" />
+        {{ isEdit ? '保存' : '创建连接' }}
+      </Button>
     </div>
   </form>
 </template>

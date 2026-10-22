@@ -85,10 +85,17 @@ export const useProfiles = createGlobalState(() => {
       return true
     } catch (err) {
       formError.value = errorMessage(err)
+      if (creating.value || activeTab.value !== 'config' || selectedId.value !== id) {
+        showError(err)
+      }
       return false
     } finally {
       deleting.value = false
     }
+  }
+
+  const clearFormError = () => {
+    formError.value = ''
   }
 
   const trustCert = async (id: string, sha256: string): Promise<boolean> => {
@@ -117,6 +124,7 @@ export const useProfiles = createGlobalState(() => {
     cancelCreate,
     save,
     remove,
+    clearFormError,
     trustCert,
   }
 })

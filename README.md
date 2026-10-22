@@ -18,6 +18,14 @@
 
 </div>
 
+<details>
+  <summary>点击查看桌面端界面截图</summary>
+  <img src="screenshot/Screenshot_1.png" alt="TunnelKit 连接状态（浅色主题）">
+  <img src="screenshot/Screenshot_2.png" alt="TunnelKit 连接状态（深色主题）">
+  <img src="screenshot/Screenshot_3.png" alt="TunnelKit 连接配置">
+  <img src="screenshot/Screenshot_4.png" alt="TunnelKit 实时连接日志">
+</details>
+
 ---
 
 ## 📦 下载

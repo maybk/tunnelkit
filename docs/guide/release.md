@@ -63,11 +63,14 @@ wails3 task windows:package:amd64
 wails3 task windows:package:arm64
 ```
 
-### Linux（`amd64`）
+### Linux（支持 `amd64` 与 `arm64`）
 
 ```bash
+# 编译当前宿主架构的 bin/tunnelkit 与 bin/tunnelkit-helper
 wails3 task linux:build
-wails3 task linux:package
+
+# 生成带依赖声明（libgtk-4-1 / libwebkitgtk-6.0-4 / iproute2）的 .deb 安装包 -> bin/tunnelkit.deb
+wails3 task linux:create:deb
 ```
 
 ## 自动化发布
@@ -75,17 +78,21 @@ wails3 task linux:package
 普通 CI 同时作为 Rolling 和正式发布的自动质量门禁：
 
 - `ci.yml` 在 `main` push 和 Pull Request 上运行，也可由 Release 与手动 Rolling 复用；仅具备 `contents: read` 只读权限。
+- `release-assets.yml` 按架构拆分为 7 个并行 Job（macOS 3 个包在 `macos-latest` 并行构建、Windows `amd64` 在 `windows-latest` 构建、Windows `arm64` 在原生 `windows-11-arm` 构建并运行测试套件、Linux `amd64` 在 `ubuntu-24.04` 构建并运行 `xvfb` 无头冒烟测试、Linux `arm64` 在原生 `ubuntu-24.04-arm` 构建并运行测试套件与 `xvfb` 无头冒烟测试）。
 - `rolling.yml` 只接受成功完成的 `main` push CI，并使用该次 CI 的精确提交 SHA；公开版本取自 `CHANGELOG.md` 顶部唯一的 `## [x.y.z] - 未发布`，标题为 `TunnelKit <version> Rolling`，资产使用 `tunnelkit-<version>-rolling-<12位SHA>-<platform>` 命名并附带 `SHA256SUMS.txt`。当待发布段落为空时自动跳过 Rolling。
 - `release.yml` 仅由 `vMAJOR.MINOR.PATCH` 标签触发，要求标签版本与 `build/config.yml` 及带日期的 `CHANGELOG.md` 版本段落一致，且标签提交已包含在 `main` 分支中。
-- 自动发布产物固定为 6 个平台包加 1 个 `SHA256SUMS.txt`（共 7 个文件）：
+- 自动发布产物固定为 9 个平台安装包加 1 个 `SHA256SUMS.txt`（共 10 个文件）：
   - `tunnelkit-<version>-macos-universal.dmg`
   - `tunnelkit-<version>-macos-arm64.dmg`
   - `tunnelkit-<version>-macos-amd64.dmg`
   - `tunnelkit-<version>-windows-amd64.zip`
   - `tunnelkit-<version>-windows-arm64.zip`
   - `tunnelkit-<version>-linux-amd64.tar.gz`
+  - `tunnelkit-<version>-linux-amd64.deb`
+  - `tunnelkit-<version>-linux-arm64.tar.gz`
+  - `tunnelkit-<version>-linux-arm64.deb`
   - `SHA256SUMS.txt`
-- workflow 先创建 Draft Release，上传并校验全部 7 个资产后才公开为 Latest；正式版成功公开后自动清理指向该提交或其祖先的 `rolling` 预发布与标签。
+- workflow 先创建 Draft Release，上传并校验全部 10 个资产后才公开为 Latest；正式版成功公开后自动清理指向该提交或其祖先的 `rolling` 预发布与标签。
 - 所有第三方 GitHub Actions 均锁定到完整 40 位 commit SHA，并由 Dependabot 按周分组更新。
 
 ## 发布新版本

@@ -154,16 +154,60 @@ for expected_asset in \
   '"tunnelkit-$APP_VERSION-macos-amd64.dmg"' \
   '"tunnelkit-$APP_VERSION-windows-amd64.zip"' \
   '"tunnelkit-$APP_VERSION-windows-arm64.zip"' \
-  '"tunnelkit-$APP_VERSION-linux-amd64.tar.gz"'; do
+  '"tunnelkit-$APP_VERSION-linux-amd64.tar.gz"' \
+  '"tunnelkit-$APP_VERSION-linux-amd64.deb"' \
+  '"tunnelkit-$APP_VERSION-linux-arm64.tar.gz"' \
+  '"tunnelkit-$APP_VERSION-linux-arm64.deb"'; do
   if ! grep -Fq "$expected_asset" <<<"$publish_job"; then
     echo "published releases must verify asset: $expected_asset"
     exit 1
   fi
 done
 
-if ! grep -Fq 'if [ "$asset_count" -ne 7 ]; then' <<<"$publish_job" ||
-  ! grep -Fq 'expected 7' <<<"$publish_job"; then
-  echo "published releases must contain all six platform archives plus SHA256SUMS.txt (7 total)"
+if ! grep -Fq 'if [ "$asset_count" -ne 10 ]; then' <<<"$publish_job" ||
+  ! grep -Fq 'expected 10' <<<"$publish_job"; then
+  echo "published releases must contain all nine platform packages plus SHA256SUMS.txt (10 total)"
+  exit 1
+fi
+
+nfpm_config="$repo_root/build/linux/nfpm/nfpm.yaml"
+for required_nfpm in \
+  '/usr/local/bin/tunnelkit' \
+  '/usr/local/bin/tunnelkit-helper' \
+  'libgtk-4-1' \
+  'libwebkitgtk-6.0-4' \
+  'iproute2'; do
+  if ! grep -Fq "$required_nfpm" "$nfpm_config"; then
+    echo "build/linux/nfpm/nfpm.yaml is missing required deb metadata: $required_nfpm"
+    exit 1
+  fi
+done
+
+for required_runner in \
+  'runs-on: macos-latest' \
+  'runs-on: windows-latest' \
+  'runs-on: windows-11-arm' \
+  'runs-on: ubuntu-24.04' \
+  'runs-on: ubuntu-24.04-arm' \
+  'xvfb-run' \
+  'go test ./...'; do
+  if ! grep -Fq "$required_runner" "$release_assets_workflow"; then
+    echo "release-assets.yml is missing required parallel runner or test step: $required_runner"
+    exit 1
+  fi
+done
+
+if grep -Fq 'pnpm --dir frontend install' "$release_assets_workflow" ||
+  ! grep -Fq 'pnpm install --frozen-lockfile --registry=https://registry.npmjs.org' "$repo_root/build/Taskfile.yml"; then
+  echo "release-assets.yml must delegate frontend dependency installation to build/Taskfile.yml to prevent concurrent pnpm install races"
+  exit 1
+fi
+
+linux_arm64_job="$(awk '/^  linux-arm64:/,/^  merge:/' "$release_assets_workflow")"
+build_line="$(grep -nF 'Build Linux arm64 tarball and deb package' <<<"$linux_arm64_job" | cut -d: -f1)"
+test_line="$(grep -nF 'Run native Linux arm64 analysis and test suite' <<<"$linux_arm64_job" | cut -d: -f1)"
+if [ -z "$build_line" ] || [ -z "$test_line" ] || [ "$build_line" -ge "$test_line" ]; then
+  echo "linux-arm64 must build frontend/dist and packages before running go vet / go test"
   exit 1
 fi
 

@@ -51,11 +51,14 @@ for required in \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-amd64.zip' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-arm64.zip' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-amd64.tar.gz' \
+  'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-amd64.deb' \
+  'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.tar.gz' \
+  'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.deb' \
   'SHA256SUMS.txt' \
   '--draft' \
   '--prerelease' \
   '--title "TunnelKit $ROLLING_VERSION Rolling"' \
-  'if [ "$asset_count" -ne 7 ]; then'; do
+  'if [ "$asset_count" -ne 10 ]; then'; do
   if ! grep -Fq -- "$required" "$rolling_workflow"; then
     echo "Rolling workflow is missing required contract: $required"
     exit 1
@@ -96,9 +99,14 @@ for required in \
   'wails3 task windows:build:amd64' \
   'wails3 task windows:build:arm64' \
   'wails3 task linux:build' \
-  'name: release-macos' \
-  'name: release-windows' \
-  'name: release-linux'; do
+  'wails3 task linux:create:deb' \
+  'name: release-macos-arm64' \
+  'name: release-macos-amd64' \
+  'name: release-macos-universal' \
+  'name: release-windows-amd64' \
+  'name: release-windows-arm64' \
+  'name: release-linux-amd64' \
+  'name: release-linux-arm64'; do
   if ! grep -Fq -- "$required" "$build_workflow"; then
     echo "reusable release build is missing required contract: $required"
     exit 1

@@ -30,6 +30,7 @@ contents:
 depends:
   - libgtk-4-1
   - libwebkitgtk-6.0-4
+  - iproute2
 
 # Distribution-specific overrides for different package formats
 overrides:

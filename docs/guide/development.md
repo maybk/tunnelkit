@@ -68,7 +68,7 @@ wails3 build
 wails3 package
 ```
 
-### 按架构独立构建与打包（macOS / Windows）
+### 按架构独立构建与打包（macOS / Windows / Linux）
 
 - **macOS（支持 `arm64`、`amd64` 独立包与 `universal` 通用包）**：
   ```bash
@@ -84,6 +84,12 @@ wails3 package
   wails3 task windows:build:arm64
   wails3 task windows:package:amd64
   wails3 task windows:package:arm64
+  ```
+
+- **Linux（支持 `amd64` 与 `arm64` 二进制及 `.deb` 安装包）**：
+  ```bash
+  wails3 task linux:build
+  wails3 task linux:create:deb
   ```
 
 ## 发布

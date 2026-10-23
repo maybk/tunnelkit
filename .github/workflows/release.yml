@@ -125,6 +125,9 @@ jobs:
             "tunnelkit-$APP_VERSION-windows-amd64.zip"
             "tunnelkit-$APP_VERSION-windows-arm64.zip"
             "tunnelkit-$APP_VERSION-linux-amd64.tar.gz"
+            "tunnelkit-$APP_VERSION-linux-amd64.deb"
+            "tunnelkit-$APP_VERSION-linux-arm64.tar.gz"
+            "tunnelkit-$APP_VERSION-linux-arm64.deb"
           )
           for asset in "${expected[@]}"; do
             test -s "release-files/$asset"
@@ -169,8 +172,8 @@ jobs:
           gh release upload "$tag" release-files/* --clobber
 
           asset_count="$(gh release view "$tag" --json assets --jq '.assets | length')"
-          if [ "$asset_count" -ne 7 ]; then
-            echo "Draft release contains $asset_count assets; expected 7" >&2
+          if [ "$asset_count" -ne 10 ]; then
+            echo "Draft release contains $asset_count assets; expected 10" >&2
             exit 1
           fi
 

@@ -20,10 +20,10 @@ permissions:
   contents: read
 
 jobs:
-  macos:
-    name: Build macOS DMGs (universal, arm64, amd64)
-    runs-on: macos-26
-    timeout-minutes: 45
+  macos-arm64:
+    name: Build macOS DMG (arm64)
+    runs-on: macos-latest
+    timeout-minutes: 30
     env:
       APP_VERSION: ${{ inputs.version }}
     steps:
@@ -58,10 +58,7 @@ jobs:
           test -n "$wails_version"
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
 
-      - name: Install frontend dependencies
-        run: pnpm --dir frontend install --frozen-lockfile --registry=https://registry.npmjs.org
-
-      - name: Build and verify macOS bundles and DMGs
+      - name: Build and verify macOS arm64 bundle and DMG
         shell: bash
         run: |
           set -euo pipefail
@@ -69,46 +66,32 @@ jobs:
 
           wails3 task common:update:build-assets
           wails3 task darwin:package:arm64
-          wails3 task darwin:package:amd64
-          wails3 task darwin:package:universal
 
-          verify_arch() {
-            local bundle_path="$1"
-            shift
-            for bin_name in tunnelkit tunnelkit-helper; do
-              local bin_path="$bundle_path/Contents/MacOS/$bin_name"
-              test -x "$bin_path"
-              local actual_archs
-              actual_archs="$(lipo -archs "$bin_path")"
-              for expected_arch in "$@"; do
-                if [[ " $actual_archs " != *" $expected_arch "* ]]; then
-                  echo "$bin_path is missing $expected_arch (actual: $actual_archs)" >&2
-                  exit 1
-                fi
-              done
-            done
-          }
-
-          verify_arch "bin/tunnelkit-darwin-arm64.app" arm64
-          verify_arch "bin/tunnelkit-darwin-amd64.app" x86_64
-          verify_arch "bin/tunnelkit.app" arm64 x86_64
+          for bin_name in tunnelkit tunnelkit-helper; do
+            bin_path="bin/tunnelkit-darwin-arm64.app/Contents/MacOS/$bin_name"
+            test -x "$bin_path"
+            actual_archs="$(lipo -archs "$bin_path")"
+            if [[ " $actual_archs " != *" arm64 "* ]]; then
+              echo "$bin_path is missing arm64 (actual: $actual_archs)" >&2
+              exit 1
+            fi
+          done
 
           bash scripts/package_macos_dmg.sh "bin/tunnelkit-darwin-arm64.app" "dist/tunnelkit-$APP_VERSION-macos-arm64.dmg"
-          bash scripts/package_macos_dmg.sh "bin/tunnelkit-darwin-amd64.app" "dist/tunnelkit-$APP_VERSION-macos-amd64.dmg"
-          bash scripts/package_macos_dmg.sh "bin/tunnelkit.app" "dist/tunnelkit-$APP_VERSION-macos-universal.dmg"
+          test -s "dist/tunnelkit-$APP_VERSION-macos-arm64.dmg"
 
-      - name: Upload macOS release assets
+      - name: Upload macOS arm64 release asset
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-macos
-          path: dist/tunnelkit-*-macos-*.dmg
+          name: release-macos-arm64
+          path: dist/tunnelkit-*-macos-arm64.dmg
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
 
-  windows:
-    name: Build Windows portable ZIPs (amd64, arm64)
-    runs-on: windows-latest
-    timeout-minutes: 45
+  macos-amd64:
+    name: Build macOS DMG (amd64)
+    runs-on: macos-latest
+    timeout-minutes: 30
     env:
       APP_VERSION: ${{ inputs.version }}
     steps:
@@ -143,57 +126,40 @@ jobs:
           test -n "$wails_version"
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
 
-      - name: Install frontend dependencies
-        run: pnpm --dir frontend install --frozen-lockfile --registry=https://registry.npmjs.org
-
-      - name: Prepare verified Wintun DLLs
-        shell: pwsh
-        run: ./scripts/prepare_windows_wintun.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE/bin"
-
-      - name: Build Windows amd64 and arm64 executables
-        shell: pwsh
+      - name: Build and verify macOS amd64 bundle and DMG
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
+          set -euo pipefail
+          mkdir -p dist
+
           wails3 task common:update:build-assets
-          wails3 task windows:build:amd64
-          wails3 task windows:build:arm64
+          wails3 task darwin:package:amd64
 
-      - name: Create portable archives
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          for bin_name in tunnelkit tunnelkit-helper; do
+            bin_path="bin/tunnelkit-darwin-amd64.app/Contents/MacOS/$bin_name"
+            test -x "$bin_path"
+            actual_archs="$(lipo -archs "$bin_path")"
+            if [[ " $actual_archs " != *" x86_64 "* ]]; then
+              echo "$bin_path is missing x86_64 (actual: $actual_archs)" >&2
+              exit 1
+            fi
+          done
 
-          foreach ($arch in @("amd64", "arm64")) {
-            $stageDir = Join-Path $env:RUNNER_TEMP "tunnelkit-windows-$arch"
-            if (Test-Path -LiteralPath $stageDir) {
-              Remove-Item -LiteralPath $stageDir -Recurse -Force
-            }
-            New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+          bash scripts/package_macos_dmg.sh "bin/tunnelkit-darwin-amd64.app" "dist/tunnelkit-$APP_VERSION-macos-amd64.dmg"
+          test -s "dist/tunnelkit-$APP_VERSION-macos-amd64.dmg"
 
-            Copy-Item -LiteralPath "bin/tunnelkit-windows-$arch.exe" -Destination (Join-Path $stageDir "tunnelkit.exe")
-            Copy-Item -LiteralPath "bin/tunnelkit-helper-windows-$arch.exe" -Destination (Join-Path $stageDir "tunnelkit-helper.exe")
-            Copy-Item -LiteralPath "bin/wintun-$arch.dll" -Destination (Join-Path $stageDir "wintun.dll")
-
-            $archive = "dist/tunnelkit-$env:APP_VERSION-windows-$arch.zip"
-            Compress-Archive -Path "$stageDir/*" -DestinationPath $archive -Force
-            if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
-              throw "Windows archive was not created: $archive"
-            }
-          }
-
-      - name: Upload Windows release assets
+      - name: Upload macOS amd64 release asset
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-windows
-          path: dist/tunnelkit-*-windows-*.zip
+          name: release-macos-amd64
+          path: dist/tunnelkit-*-macos-amd64.dmg
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
 
-  linux:
-    name: Build Linux amd64 tarball
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+  macos-universal:
+    name: Build macOS DMG (universal)
+    runs-on: macos-latest
+    timeout-minutes: 35
     env:
       APP_VERSION: ${{ inputs.version }}
     steps:
@@ -202,7 +168,267 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
 
-      - name: Install Linux GTK4 and WebKitGTK 6.0 headers
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Wails v3 CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails_version="$(awk '/github\.com\/wailsapp\/wails\/v3 / {print $2}' go.mod)"
+          test -n "$wails_version"
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
+
+      - name: Build and verify macOS universal bundle and DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          wails3 task common:update:build-assets
+          wails3 task darwin:package:universal
+
+          for bin_name in tunnelkit tunnelkit-helper; do
+            bin_path="bin/tunnelkit.app/Contents/MacOS/$bin_name"
+            test -x "$bin_path"
+            actual_archs="$(lipo -archs "$bin_path")"
+            for expected_arch in arm64 x86_64; do
+              if [[ " $actual_archs " != *" $expected_arch "* ]]; then
+                echo "$bin_path is missing $expected_arch (actual: $actual_archs)" >&2
+                exit 1
+              fi
+            done
+          done
+
+          bash scripts/package_macos_dmg.sh "bin/tunnelkit.app" "dist/tunnelkit-$APP_VERSION-macos-universal.dmg"
+          test -s "dist/tunnelkit-$APP_VERSION-macos-universal.dmg"
+
+      - name: Upload macOS universal release asset
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos-universal
+          path: dist/tunnelkit-*-macos-universal.dmg
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+  windows-amd64:
+    name: Build Windows portable ZIP (amd64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      APP_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Wails v3 CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails_version="$(awk '/github\.com\/wailsapp\/wails\/v3 / {print $2}' go.mod)"
+          test -n "$wails_version"
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
+
+      - name: Prepare verified Wintun DLLs
+        shell: pwsh
+        run: ./scripts/prepare_windows_wintun.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE/bin"
+
+      - name: Build Windows amd64 executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          wails3 task common:update:build-assets
+          wails3 task windows:build:amd64
+
+          foreach ($bin in @("bin/tunnelkit-windows-amd64.exe", "bin/tunnelkit-helper-windows-amd64.exe")) {
+            $meta = go version -m $bin | Out-String
+            if ($meta -notmatch "GOOS=windows" -or $meta -notmatch "GOARCH=amd64") {
+              throw "Unexpected target metadata for ${bin}:`n$meta"
+            }
+          }
+
+      - name: Run native Windows amd64 analysis and test suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ((go env GOARCH) -ne "amd64") {
+            throw "Expected native amd64 Go toolchain on windows-latest, got: $(go env GOARCH)"
+          }
+          go vet ./...
+          go test ./...
+
+      - name: Create Windows amd64 portable ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          $stageDir = Join-Path $env:RUNNER_TEMP "tunnelkit-windows-amd64"
+          if (Test-Path -LiteralPath $stageDir) {
+            Remove-Item -LiteralPath $stageDir -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+
+          Copy-Item -LiteralPath "bin/tunnelkit-windows-amd64.exe" -Destination (Join-Path $stageDir "tunnelkit.exe")
+          Copy-Item -LiteralPath "bin/tunnelkit-helper-windows-amd64.exe" -Destination (Join-Path $stageDir "tunnelkit-helper.exe")
+          Copy-Item -LiteralPath "bin/wintun-amd64.dll" -Destination (Join-Path $stageDir "wintun.dll")
+
+          $archive = "dist/tunnelkit-$env:APP_VERSION-windows-amd64.zip"
+          Compress-Archive -Path "$stageDir/*" -DestinationPath $archive -Force
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            throw "Windows archive was not created: $archive"
+          }
+
+      - name: Upload Windows amd64 release asset
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-amd64
+          path: dist/tunnelkit-*-windows-amd64.zip
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+  windows-arm64:
+    name: Build and test Windows portable ZIP (arm64)
+    runs-on: windows-11-arm
+    timeout-minutes: 35
+    env:
+      APP_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Wails v3 CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails_version="$(awk '/github\.com\/wailsapp\/wails\/v3 / {print $2}' go.mod)"
+          test -n "$wails_version"
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
+
+      - name: Prepare verified Wintun DLLs
+        shell: pwsh
+        run: ./scripts/prepare_windows_wintun.ps1 -OutputDirectory "$env:GITHUB_WORKSPACE/bin"
+
+      - name: Build Windows arm64 executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          wails3 task common:update:build-assets
+          wails3 task windows:build:arm64
+
+          foreach ($bin in @("bin/tunnelkit-windows-arm64.exe", "bin/tunnelkit-helper-windows-arm64.exe")) {
+            $meta = go version -m $bin | Out-String
+            if ($meta -notmatch "GOOS=windows" -or $meta -notmatch "GOARCH=arm64") {
+              throw "Unexpected target metadata for ${bin}:`n$meta"
+            }
+          }
+
+      - name: Run native Windows arm64 analysis and test suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ((go env GOARCH) -ne "arm64") {
+            throw "Expected native arm64 Go toolchain on windows-11-arm, got: $(go env GOARCH)"
+          }
+          go vet ./...
+          go test ./...
+
+      - name: Create Windows arm64 portable ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          $stageDir = Join-Path $env:RUNNER_TEMP "tunnelkit-windows-arm64"
+          if (Test-Path -LiteralPath $stageDir) {
+            Remove-Item -LiteralPath $stageDir -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+
+          Copy-Item -LiteralPath "bin/tunnelkit-windows-arm64.exe" -Destination (Join-Path $stageDir "tunnelkit.exe")
+          Copy-Item -LiteralPath "bin/tunnelkit-helper-windows-arm64.exe" -Destination (Join-Path $stageDir "tunnelkit-helper.exe")
+          Copy-Item -LiteralPath "bin/wintun-arm64.dll" -Destination (Join-Path $stageDir "wintun.dll")
+
+          $archive = "dist/tunnelkit-$env:APP_VERSION-windows-arm64.zip"
+          Compress-Archive -Path "$stageDir/*" -DestinationPath $archive -Force
+          if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+            throw "Windows archive was not created: $archive"
+          }
+
+      - name: Upload Windows arm64 release asset
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-arm64
+          path: dist/tunnelkit-*-windows-arm64.zip
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+  linux-amd64:
+    name: Build and smoke-test Linux packages (amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      APP_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Install Linux GTK4, WebKitGTK 6.0, and xvfb dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -210,7 +436,11 @@ jobs:
             pkg-config \
             libgtk-4-dev \
             libwebkitgtk-6.0-dev \
-            libx11-dev
+            libx11-dev \
+            iproute2 \
+            xvfb \
+            xauth \
+            dbus-x11
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -238,24 +468,245 @@ jobs:
           test -n "$wails_version"
           go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
 
-      - name: Install frontend dependencies
-        run: pnpm --dir frontend install --frozen-lockfile --registry=https://registry.npmjs.org
-
-      - name: Build and archive Linux amd64 release
+      - name: Build Linux amd64 tarball and deb package
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
+          wails3 task common:update:build-assets
           wails3 task linux:build
-          test -x bin/tunnelkit
-          test -x bin/tunnelkit-helper
-          tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz" tunnelkit tunnelkit-helper
-          test -s "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz"
+          wails3 task linux:create:deb
+          for bin_path in bin/tunnelkit bin/tunnelkit-helper; do
+            test -x "$bin_path"
+            meta="$(go version -m "$bin_path")"
+            grep -Fq "GOOS=linux" <<<"$meta"
+            grep -Fq "GOARCH=amd64" <<<"$meta"
+          done
+          test -s bin/tunnelkit.deb
 
-      - name: Upload Linux release asset
+          tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz" tunnelkit tunnelkit-helper
+          cp "bin/tunnelkit.deb" "dist/tunnelkit-$APP_VERSION-linux-amd64.deb"
+          test -s "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz"
+          test -s "dist/tunnelkit-$APP_VERSION-linux-amd64.deb"
+
+          deb_info="$(dpkg-deb -I "dist/tunnelkit-$APP_VERSION-linux-amd64.deb")"
+          printf '%s\n' "$deb_info"
+          if ! grep -Fq "Architecture: amd64" <<<"$deb_info"; then
+            echo "deb package has unexpected architecture" >&2
+            exit 1
+          fi
+          for required_dep in libgtk-4-1 libwebkitgtk-6.0-4 iproute2; do
+            if ! grep -Fq "$required_dep" <<<"$deb_info"; then
+              echo "deb package is missing dependency: $required_dep" >&2
+              exit 1
+            fi
+          done
+
+          deb_contents="$(dpkg-deb -c "dist/tunnelkit-$APP_VERSION-linux-amd64.deb")"
+          printf '%s\n' "$deb_contents"
+          for required_file in \
+            "/usr/local/bin/tunnelkit" \
+            "/usr/local/bin/tunnelkit-helper" \
+            "/usr/share/applications/tunnelkit.desktop" \
+            "/usr/share/icons/hicolor/128x128/apps/tunnelkit.png"; do
+            if ! grep -Fq "$required_file" <<<"$deb_contents"; then
+              echo "deb package is missing file: $required_file" >&2
+              exit 1
+            fi
+          done
+
+      - name: Smoke-test Linux binaries under xvfb
+        shell: bash
+        run: |
+          set -euo pipefail
+          for bin_path in bin/tunnelkit bin/tunnelkit-helper; do
+            ldd_out="$(ldd "$bin_path" 2>&1 || true)"
+            printf '=== ldd %s ===\n%s\n' "$bin_path" "$ldd_out"
+            if grep -Fq "not found" <<<"$ldd_out"; then
+              echo "Missing shared libraries for $bin_path" >&2
+              exit 1
+            fi
+          done
+
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          smoke_home="$(mktemp -d)"
+          set +e
+          HOME="$smoke_home" \
+          GSK_RENDERER=cairo \
+          LIBGL_ALWAYS_SOFTWARE=1 \
+          WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+          WEBKIT_DISABLE_DMABUF_RENDERER=1 \
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
+          NO_AT_BRIDGE=1 \
+          dbus-run-session -- xvfb-run -a -s "-screen 0 1280x800x24" \
+            timeout --signal=TERM --kill-after=3s 5s ./bin/tunnelkit
+          rc="$?"
+          set -e
+          rm -rf "$smoke_home"
+          if [ "$rc" -ne 124 ] && [ "$rc" -ne 143 ]; then
+            echo "Linux GUI smoke test exited early or crashed with code $rc" >&2
+            exit 1
+          fi
+
+      - name: Upload Linux amd64 release assets
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-linux
-          path: dist/tunnelkit-*-linux-amd64.tar.gz
+          name: release-linux-amd64
+          path: |
+            dist/tunnelkit-*-linux-amd64.tar.gz
+            dist/tunnelkit-*-linux-amd64.deb
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
+
+  linux-arm64:
+    name: Build and smoke-test Linux packages (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    env:
+      APP_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Install Linux GTK4, WebKitGTK 6.0, and xvfb dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            libx11-dev \
+            iproute2 \
+            xvfb \
+            xauth \
+            dbus-x11
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Wails v3 CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          wails_version="$(awk '/github\.com\/wailsapp\/wails\/v3 / {print $2}' go.mod)"
+          test -n "$wails_version"
+          go install "github.com/wailsapp/wails/v3/cmd/wails3@${wails_version}"
+
+      - name: Build Linux arm64 tarball and deb package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          wails3 task common:update:build-assets
+          wails3 task linux:build
+          wails3 task linux:create:deb
+          for bin_path in bin/tunnelkit bin/tunnelkit-helper; do
+            test -x "$bin_path"
+            meta="$(go version -m "$bin_path")"
+            grep -Fq "GOOS=linux" <<<"$meta"
+            grep -Fq "GOARCH=arm64" <<<"$meta"
+          done
+          test -s bin/tunnelkit.deb
+
+          tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-arm64.tar.gz" tunnelkit tunnelkit-helper
+          cp "bin/tunnelkit.deb" "dist/tunnelkit-$APP_VERSION-linux-arm64.deb"
+          test -s "dist/tunnelkit-$APP_VERSION-linux-arm64.tar.gz"
+          test -s "dist/tunnelkit-$APP_VERSION-linux-arm64.deb"
+
+          deb_info="$(dpkg-deb -I "dist/tunnelkit-$APP_VERSION-linux-arm64.deb")"
+          printf '%s\n' "$deb_info"
+          if ! grep -Fq "Architecture: arm64" <<<"$deb_info"; then
+            echo "deb package has unexpected architecture" >&2
+            exit 1
+          fi
+          for required_dep in libgtk-4-1 libwebkitgtk-6.0-4 iproute2; do
+            if ! grep -Fq "$required_dep" <<<"$deb_info"; then
+              echo "deb package is missing dependency: $required_dep" >&2
+              exit 1
+            fi
+          done
+
+          deb_contents="$(dpkg-deb -c "dist/tunnelkit-$APP_VERSION-linux-arm64.deb")"
+          printf '%s\n' "$deb_contents"
+          for required_file in \
+            "/usr/local/bin/tunnelkit" \
+            "/usr/local/bin/tunnelkit-helper" \
+            "/usr/share/applications/tunnelkit.desktop" \
+            "/usr/share/icons/hicolor/128x128/apps/tunnelkit.png"; do
+            if ! grep -Fq "$required_file" <<<"$deb_contents"; then
+              echo "deb package is missing file: $required_file" >&2
+              exit 1
+            fi
+          done
+
+      - name: Run native Linux arm64 analysis and test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$(go env GOARCH)" != "arm64" ]; then
+            echo "Expected native arm64 Go toolchain on ubuntu-24.04-arm, got: $(go env GOARCH)" >&2
+            exit 1
+          fi
+          go vet ./...
+          go test -race ./...
+
+      - name: Smoke-test Linux arm64 binaries under xvfb
+        shell: bash
+        run: |
+          set -euo pipefail
+          for bin_path in bin/tunnelkit bin/tunnelkit-helper; do
+            ldd_out="$(ldd "$bin_path" 2>&1 || true)"
+            printf '=== ldd %s ===\n%s\n' "$bin_path" "$ldd_out"
+            if grep -Fq "not found" <<<"$ldd_out"; then
+              echo "Missing shared libraries for $bin_path" >&2
+              exit 1
+            fi
+          done
+
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          smoke_home="$(mktemp -d)"
+          set +e
+          HOME="$smoke_home" \
+          GSK_RENDERER=cairo \
+          LIBGL_ALWAYS_SOFTWARE=1 \
+          WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+          WEBKIT_DISABLE_DMABUF_RENDERER=1 \
+          WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 \
+          NO_AT_BRIDGE=1 \
+          dbus-run-session -- xvfb-run -a -s "-screen 0 1280x800x24" \
+            timeout --signal=TERM --kill-after=3s 5s ./bin/tunnelkit
+          rc="$?"
+          set -e
+          rm -rf "$smoke_home"
+          if [ "$rc" -ne 124 ] && [ "$rc" -ne 143 ]; then
+            echo "Linux arm64 GUI smoke test exited early or crashed with code $rc" >&2
+            exit 1
+          fi
+
+      - name: Upload Linux arm64 release assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux-arm64
+          path: |
+            dist/tunnelkit-*-linux-arm64.tar.gz
+            dist/tunnelkit-*-linux-arm64.deb
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}

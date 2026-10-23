@@ -3,6 +3,7 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -44,8 +45,12 @@ func TestWriteFileAtomicAndPerm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat failed: %v", err)
 	}
-	if info.Mode().Perm() != 0600 {
-		t.Fatalf("expected perm 0600, got %o", info.Mode().Perm())
+	wantPerm := os.FileMode(0600)
+	if runtime.GOOS == "windows" {
+		wantPerm = 0666
+	}
+	if info.Mode().Perm() != wantPerm {
+		t.Fatalf("expected perm %04o, got %04o", wantPerm, info.Mode().Perm())
 	}
 }
 

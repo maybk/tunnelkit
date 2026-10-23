@@ -4,11 +4,13 @@ tasks:
   go:mod:tidy:
     summary: Runs `go mod tidy`
     internal: true
+    run: once
     cmds:
       - go mod tidy
 
   install:frontend:deps:
     summary: Install frontend dependencies
+    run: once
     cmds:
       - task: install:frontend:deps:{{.PACKAGE_MANAGER}}
 
@@ -41,6 +43,7 @@ tasks:
 
   install:frontend:deps:pnpm:
     dir: frontend
+    run: once
     sources:
       - package.json
       - pnpm-lock.yaml
@@ -50,7 +53,7 @@ tasks:
       - sh: pnpm --version
         msg: "pnpm not found"
     cmds:
-      - pnpm install
+      - pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
 
   install:frontend:deps:yarn:
     dir: frontend
@@ -69,6 +72,7 @@ tasks:
     label: build:frontend (DEV={{.DEV}} RUNNER={{.PACKAGE_MANAGER}})
     summary: Build the frontend project
     dir: frontend
+    run: once
     sources:
       - "**/*"
       - exclude: node_modules/**/*
@@ -130,6 +134,7 @@ tasks:
   generate:bindings:
     label: generate:bindings (BUILD_FLAGS={{.BUILD_FLAGS}})
     summary: Generates bindings for the frontend
+    run: once
     deps:
       - task: go:mod:tidy
     sources:
@@ -147,6 +152,7 @@ tasks:
   generate:icons:
     summary: Generates Windows `.ico` and Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms).
     dir: build
+    run: once
     sources:
       - "appicon.png"
       - "appicon.icon"
@@ -189,7 +195,16 @@ tasks:
     summary: Updates the build assets
     dir: build
     cmds:
+      - cp linux/nfpm/nfpm.yaml linux/nfpm/nfpm.yaml.bak
+      - cp linux/desktop linux/desktop.bak
       - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .
+      - mv linux/nfpm/nfpm.yaml.bak linux/nfpm/nfpm.yaml
+      - mv linux/desktop.bak linux/desktop
+      - cmd: |
+          ver="$(sed -n 's/^[[:space:]]*version:[[:space:]]*"\([^"]*\)".*/\1/p' config.yml | head -n 1)"
+          sed -i.bak "s/^version:.*/version: \"$ver\"/" linux/nfpm/nfpm.yaml
+          rm -f linux/nfpm/nfpm.yaml.bak
+        platforms: [linux, darwin]
 
   build:server:
     summary: Builds the application in server mode (no GUI, HTTP server only)

@@ -220,13 +220,16 @@ jobs:
             "tunnelkit-$BUILD_VERSION-windows-amd64.zip"
             "tunnelkit-$BUILD_VERSION-windows-arm64.zip"
             "tunnelkit-$BUILD_VERSION-linux-amd64.tar.gz"
+            "tunnelkit-$BUILD_VERSION-linux-amd64.deb"
+            "tunnelkit-$BUILD_VERSION-linux-arm64.tar.gz"
+            "tunnelkit-$BUILD_VERSION-linux-arm64.deb"
           )
           for asset in "${expected[@]}"; do
             test -s "release-files/$asset"
           done
           actual_count="$(find release-files -maxdepth 1 -type f | wc -l | tr -d '[:space:]')"
-          if [ "$actual_count" -ne 6 ]; then
-            echo "Rolling build contains $actual_count assets; expected 6" >&2
+          if [ "$actual_count" -ne 9 ]; then
+            echo "Rolling build contains $actual_count assets; expected 9" >&2
             exit 1
           fi
 
@@ -236,7 +239,10 @@ jobs:
             macos-amd64.dmg \
             windows-amd64.zip \
             windows-arm64.zip \
-            linux-amd64.tar.gz; do
+            linux-amd64.tar.gz \
+            linux-amd64.deb \
+            linux-arm64.tar.gz \
+            linux-arm64.deb; do
             mv "release-files/tunnelkit-$BUILD_VERSION-$suffix" \
               "release-files/tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-$suffix"
           done
@@ -248,6 +254,9 @@ jobs:
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-amd64.zip"
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-arm64.zip"
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-amd64.tar.gz"
+            "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-amd64.deb"
+            "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.tar.gz"
+            "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.deb"
           )
           for asset in "${renamed[@]}"; do
             test -s "release-files/$asset"
@@ -258,8 +267,8 @@ jobs:
           )
           test -s release-files/SHA256SUMS.txt
           local_asset_count="$(find release-files -maxdepth 1 -type f | wc -l | tr -d '[:space:]')"
-          if [ "$local_asset_count" -ne 7 ]; then
-            echo "Rolling release contains $local_asset_count local assets; expected 7" >&2
+          if [ "$local_asset_count" -ne 10 ]; then
+            echo "Rolling release contains $local_asset_count local assets; expected 10" >&2
             exit 1
           fi
 
@@ -319,14 +328,17 @@ jobs:
           gh release upload rolling release-files/*
 
           asset_count="$(gh release view rolling --json assets --jq '.assets | length')"
-          if [ "$asset_count" -ne 7 ]; then
-            echo "Draft Rolling release contains $asset_count assets; expected 7" >&2
+          if [ "$asset_count" -ne 10 ]; then
+            echo "Draft Rolling release contains $asset_count assets; expected 10" >&2
             exit 1
           fi
 
           expected_names="$(printf '%s\n' \
             SHA256SUMS.txt \
+            "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-amd64.deb" \
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-amd64.tar.gz" \
+            "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.deb" \
+            "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.tar.gz" \
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-macos-amd64.dmg" \
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-macos-arm64.dmg" \
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-macos-universal.dmg" \

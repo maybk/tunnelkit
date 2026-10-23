@@ -90,9 +90,9 @@ jobs:
             echo "Invalid application version in build/config.yml: ${config_version:-<missing>}" >&2
             exit 1
           fi
-          app_version="$config_version"
-          build_version="$config_version"
           rolling_version="$(bash scripts/extract_pending_version.sh CHANGELOG.md)"
+          app_version="${rolling_version}-pre"
+          build_version="${rolling_version}-pre"
 
           notes_error_file="$RUNNER_TEMP/pending-release-notes-error.log"
           set +e
@@ -302,34 +302,36 @@ jobs:
           set -euo pipefail
           release_notes_file="$RUNNER_TEMP/rolling-notes.md"
           test -s "$release_notes_file"
+          rolling_tag="v${ROLLING_VERSION}-pre"
 
-          if gh release view rolling >/dev/null 2>&1; then
-            gh release delete rolling --yes
-          fi
+          while IFS= read -r old_rel_tag; do
+            [ -n "$old_rel_tag" ] || continue
+            gh release delete "$old_rel_tag" --yes
+          done < <(gh release list --limit 100 --json tagName --jq '.[] | select(.tagName == "rolling" or (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-pre$"))) | .tagName')
 
-          remote_rolling="$(git ls-remote --tags origin refs/tags/rolling | awk 'NR == 1 { print $1 }')"
-          if [ -n "$remote_rolling" ]; then
+          while read -r remote_sha remote_ref; do
+            [ -n "$remote_ref" ] || continue
             git push \
-              --force-with-lease="refs/tags/rolling:$remote_rolling" \
+              --force-with-lease="$remote_ref:$remote_sha" \
               origin \
-              :refs/tags/rolling
-          fi
+              ":$remote_ref"
+          done < <(git ls-remote --refs --tags origin 'refs/tags/rolling' 'refs/tags/v*-pre' || true)
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a --force rolling -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"
-          git push origin refs/tags/rolling
+          git tag -a --force "$rolling_tag" -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"
+          git push origin "refs/tags/$rolling_tag"
 
-          gh release create rolling \
+          gh release create "$rolling_tag" \
             --verify-tag \
             --draft \
             --prerelease \
             --notes-file "$release_notes_file" \
             --title "TunnelKit $ROLLING_VERSION Rolling"
 
-          gh release upload rolling release-files/*
+          gh release upload "$rolling_tag" release-files/*
 
-          asset_count="$(gh release view rolling --json assets --jq '.assets | length')"
+          asset_count="$(gh release view "$rolling_tag" --json assets --jq '.assets | length')"
           if [ "$asset_count" -ne 10 ]; then
             echo "Draft Rolling release contains $asset_count assets; expected 10" >&2
             exit 1
@@ -346,24 +348,24 @@ jobs:
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-macos-universal.dmg" \
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-amd64.zip" \
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-arm64.zip" | sort)"
-          actual_names="$(gh release view rolling --json assets --jq '.assets[].name' | sort)"
+          actual_names="$(gh release view "$rolling_tag" --json assets --jq '.assets[].name' | sort)"
           if [ "$actual_names" != "$expected_names" ]; then
             echo "Draft Rolling release asset names do not match the verified local assets" >&2
             diff -u <(printf '%s\n' "$expected_names") <(printf '%s\n' "$actual_names") || true
             exit 1
           fi
 
-          draft_state="$(gh release view rolling --json isDraft --jq .isDraft)"
-          prerelease_state="$(gh release view rolling --json isPrerelease --jq .isPrerelease)"
+          draft_state="$(gh release view "$rolling_tag" --json isDraft --jq .isDraft)"
+          prerelease_state="$(gh release view "$rolling_tag" --json isPrerelease --jq .isPrerelease)"
           if [ "$draft_state" != true ] || [ "$prerelease_state" != true ]; then
             echo "Rolling must remain a draft prerelease until all assets are verified" >&2
             exit 1
           fi
 
-          gh release edit rolling --draft=false --prerelease
+          gh release edit "$rolling_tag" --draft=false --prerelease
 
-          draft_state="$(gh release view rolling --json isDraft --jq .isDraft)"
-          prerelease_state="$(gh release view rolling --json isPrerelease --jq .isPrerelease)"
+          draft_state="$(gh release view "$rolling_tag" --json isDraft --jq .isDraft)"
+          prerelease_state="$(gh release view "$rolling_tag" --json isPrerelease --jq .isPrerelease)"
           if [ "$draft_state" != false ] || [ "$prerelease_state" != true ]; then
             echo "Rolling was not published as a public prerelease" >&2
             exit 1

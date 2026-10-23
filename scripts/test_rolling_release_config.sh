@@ -57,7 +57,10 @@ for required in \
   'SHA256SUMS.txt' \
   '--draft' \
   '--prerelease' \
-  'git tag -a --force rolling -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"' \
+  'app_version="${rolling_version}-pre"' \
+  'build_version="${rolling_version}-pre"' \
+  'rolling_tag="v${ROLLING_VERSION}-pre"' \
+  'git tag -a --force "$rolling_tag" -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"' \
   '--title "TunnelKit $ROLLING_VERSION Rolling"' \
   'if [ "$asset_count" -ne 10 ]; then'; do
   if ! grep -Fq -- "$required" "$rolling_workflow"; then
@@ -141,8 +144,8 @@ for required in \
   'needs: publish' \
   'contents: write' \
   'git merge-base --is-ancestor "$rolling_commit" "$release_commit"' \
-  'gh release delete rolling' \
-  ':refs/tags/rolling' \
+  'gh release delete "$tag_name" --yes' \
+  'refs/tags/v*-pre' \
   'Rolling 不存在，无需清理' \
   'Rolling 指向正式版本之后的提交，保留'; do
   if ! grep -Fq -- "$required" <<<"$cleanup_job"; then

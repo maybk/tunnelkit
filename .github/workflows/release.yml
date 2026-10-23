@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '!*-*'
 
 permissions:
   contents: read
@@ -204,42 +205,49 @@ jobs:
           set -euo pipefail
 
           release_commit="$(git rev-parse HEAD)"
-          release_exists=false
-          if gh release view rolling >/dev/null 2>&1; then
-            release_exists=true
-          fi
+          git fetch origin --force --tags
+          remote_tags="$(git ls-remote --refs --tags origin 'refs/tags/rolling' 'refs/tags/v*-pre' || true)"
 
-          remote_rolling="$(git ls-remote --tags origin refs/tags/rolling | awk 'NR == 1 { print $1 }')"
-          if [ -z "$remote_rolling" ]; then
-            if [ "$release_exists" = true ]; then
-              gh release delete rolling --yes
-              echo "已删除无 tag 的 Rolling Release"
-            else
+          cleaned_orphan=false
+          while IFS= read -r old_rel_tag; do
+            [ -n "$old_rel_tag" ] || continue
+            if ! awk -v ref="refs/tags/$old_rel_tag" '$2 == ref { found=1 } END { exit !found }' <<<"$remote_tags"; then
+              gh release delete "$old_rel_tag" --yes
+              echo "已删除无 tag 的 Rolling Release: $old_rel_tag"
+              cleaned_orphan=true
+            fi
+          done < <(gh release list --limit 100 --json tagName --jq '.[] | select(.tagName == "rolling" or (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-pre$"))) | .tagName')
+
+          if [ -z "$remote_tags" ]; then
+            if [ "$cleaned_orphan" = false ]; then
               echo "Rolling 不存在，无需清理"
             fi
             exit 0
           fi
 
-          git fetch origin +refs/tags/rolling:refs/tags/rolling
-          rolling_commit="$(git rev-parse 'refs/tags/rolling^{commit}')"
-          if ! git merge-base --is-ancestor "$rolling_commit" "$release_commit"; then
-            echo "Rolling 指向正式版本之后的提交，保留"
-            exit 0
-          fi
+          while read -r remote_sha remote_ref; do
+            [ -n "$remote_ref" ] || continue
+            tag_name="${remote_ref#refs/tags/}"
+            rolling_commit="$(git rev-parse "${remote_ref}^{commit}")"
+            if ! git merge-base --is-ancestor "$rolling_commit" "$release_commit"; then
+              echo "Rolling 指向正式版本之后的提交，保留: $tag_name"
+              continue
+            fi
 
-          if [ "$release_exists" = true ]; then
-            gh release delete rolling --yes
-          fi
-          git push \
-            --force-with-lease="refs/tags/rolling:$remote_rolling" \
-            origin \
-            :refs/tags/rolling
+            if gh release view "$tag_name" >/dev/null 2>&1; then
+              gh release delete "$tag_name" --yes
+            fi
+            git push \
+              --force-with-lease="$remote_ref:$remote_sha" \
+              origin \
+              ":$remote_ref"
 
-          if gh release view rolling >/dev/null 2>&1; then
-            echo "Rolling Release 删除后仍然存在" >&2
-            exit 1
-          fi
-          if git ls-remote --exit-code --tags origin refs/tags/rolling >/dev/null 2>&1; then
-            echo "rolling tag 删除后仍然存在" >&2
-            exit 1
-          fi
+            if gh release view "$tag_name" >/dev/null 2>&1; then
+              echo "Rolling Release 删除后仍然存在: $tag_name" >&2
+              exit 1
+            fi
+            if git ls-remote --exit-code --refs --tags origin "$remote_ref" >/dev/null 2>&1; then
+              echo "rolling tag 删除后仍然存在: $tag_name" >&2
+              exit 1
+            fi
+          done <<<"$remote_tags"

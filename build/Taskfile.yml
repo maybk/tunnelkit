@@ -195,16 +195,30 @@ tasks:
     summary: Updates the build assets
     dir: build
     cmds:
+      - cmd: |
+          target_ver="${APP_VERSION:-$(sed -n 's/^[[:space:]]*version:[[:space:]]*"\([^"]*\)".*/\1/p' config.yml | head -n 1)}"
+          base_ver="${target_ver%%-*}"
+          sed -i.bak "s/^\([[:space:]]*version:[[:space:]]*\)\"[^\"]*\"/\1\"$base_ver\"/" config.yml
+          rm -f config.yml.bak
+        platforms: [linux, darwin]
+      - cmd: |
+          powershell -NoProfile -Command '$ver = $env:APP_VERSION; if ($ver) { $p = Join-Path $PWD "config.yml"; $base = ($ver -split "-")[0]; $c = [System.IO.File]::ReadAllText($p); $c = [regex]::Replace($c, "(?m)^(\s+version:\s+\x22)[^\x22]+(\x22)", "`${1}$base`${2}"); [System.IO.File]::WriteAllText($p, $c) }'
+        platforms: [windows]
       - cp linux/nfpm/nfpm.yaml linux/nfpm/nfpm.yaml.bak
       - cp linux/desktop linux/desktop.bak
       - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .
       - mv linux/nfpm/nfpm.yaml.bak linux/nfpm/nfpm.yaml
       - mv linux/desktop.bak linux/desktop
       - cmd: |
-          ver="$(sed -n 's/^[[:space:]]*version:[[:space:]]*"\([^"]*\)".*/\1/p' config.yml | head -n 1)"
-          sed -i.bak "s/^version:.*/version: \"$ver\"/" linux/nfpm/nfpm.yaml
-          rm -f linux/nfpm/nfpm.yaml.bak
+          target_ver="${APP_VERSION:-$(sed -n 's/^[[:space:]]*version:[[:space:]]*"\([^"]*\)".*/\1/p' config.yml | head -n 1)}"
+          deb_ver="${target_ver/-/\~}"
+          sed -i.bak "s/^\([[:space:]]*version:[[:space:]]*\)\"[^\"]*\"/\1\"$target_ver\"/" config.yml
+          sed -i.bak "s/^version:.*/version: \"$deb_ver\"/" linux/nfpm/nfpm.yaml
+          rm -f config.yml.bak linux/nfpm/nfpm.yaml.bak
         platforms: [linux, darwin]
+      - cmd: |
+          powershell -NoProfile -Command '$ver = $env:APP_VERSION; if ($ver) { $p = Join-Path $PWD "config.yml"; $c = [System.IO.File]::ReadAllText($p); $c = [regex]::Replace($c, "(?m)^(\s+version:\s+\x22)[^\x22]+(\x22)", "`${1}$ver`${2}"); [System.IO.File]::WriteAllText($p, $c) }'
+        platforms: [windows]
 
   build:server:
     summary: Builds the application in server mode (no GUI, HTTP server only)

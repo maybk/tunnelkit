@@ -2,8 +2,10 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
 	"image/png"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -319,5 +321,64 @@ func TestTrayControllerCoalescesConcurrentRefreshes(t *testing.T) {
 	}
 	if got := maxActive.Load(); got != 1 {
 		t.Fatalf("max concurrent rebuilds = %d, want 1", got)
+	}
+}
+
+func TestPlatformBuildMetadataUsesApplicationName(t *testing.T) {
+	configBytes, err := os.ReadFile("../../build/config.yml")
+	if err != nil {
+		t.Fatalf("read build/config.yml: %v", err)
+	}
+	configText := string(configBytes)
+	for _, want := range []string{
+		`productName: "TunnelKit"`,
+		`description: "TunnelKit"`,
+		`comments: "TunnelKit"`,
+	} {
+		if !strings.Contains(configText, want) {
+			t.Fatalf("build/config.yml must contain %s", want)
+		}
+	}
+
+	winInfoBytes, err := os.ReadFile("../../build/windows/info.json")
+	if err != nil {
+		t.Fatalf("read build/windows/info.json: %v", err)
+	}
+	var winInfo struct {
+		Info map[string]struct {
+			FileDescription string `json:"FileDescription"`
+			ProductName     string `json:"ProductName"`
+			Comments        string `json:"Comments"`
+		} `json:"info"`
+	}
+	if err := json.Unmarshal(winInfoBytes, &winInfo); err != nil {
+		t.Fatalf("unmarshal build/windows/info.json: %v", err)
+	}
+	if _, hasNeutral := winInfo.Info["0000"]; hasNeutral {
+		t.Fatal("build/windows/info.json must not use neutral language block 0000")
+	}
+	enUS, ok := winInfo.Info["0409"]
+	if !ok {
+		t.Fatal("build/windows/info.json must define 0409 language block")
+	}
+	if enUS.FileDescription != ApplicationName {
+		t.Fatalf("Windows FileDescription = %q, want %q", enUS.FileDescription, ApplicationName)
+	}
+	if enUS.ProductName != ApplicationName {
+		t.Fatalf("Windows ProductName = %q, want %q", enUS.ProductName, ApplicationName)
+	}
+
+	for _, plistPath := range []string{"../../build/darwin/Info.plist", "../../build/darwin/Info.dev.plist"} {
+		raw, err := os.ReadFile(plistPath)
+		if err != nil {
+			t.Fatalf("read %s: %v", plistPath, err)
+		}
+		text := string(raw)
+		if !strings.Contains(text, "<key>CFBundleDisplayName</key>") || !strings.Contains(text, "<string>TunnelKit</string>") {
+			t.Fatalf("%s must define CFBundleDisplayName = TunnelKit", plistPath)
+		}
+		if strings.Contains(text, "Cross-platform Fortinet SSL-VPN desktop client") {
+			t.Fatalf("%s must not contain long English tagline", plistPath)
+		}
 	}
 }

@@ -103,6 +103,10 @@ func Run(assets embed.FS) error {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
+		Linux: application.LinuxOptions{
+			ApplicationID: "com.tunnelkit.app",
+			ProgramName:   "tunnelkit",
+		},
 	})
 
 	mainWindow = createMainWindow(wailsApp)

@@ -16,7 +16,7 @@
   <Properties>
     <DisplayName>TunnelKit</DisplayName>
     <PublisherDisplayName>maybk</PublisherDisplayName>
-    <Description>Cross-platform Fortinet SSL-VPN desktop client</Description>
+    <Description>TunnelKit</Description>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   
@@ -32,7 +32,7 @@
     <Application Id="com.tunnelkit.app" Executable="tunnelkit" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="TunnelKit"
-        Description="Cross-platform Fortinet SSL-VPN desktop client"
+        Description="TunnelKit"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">

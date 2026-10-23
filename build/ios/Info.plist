@@ -7,7 +7,7 @@
 		<key>CFBundleExecutable</key>
 		<string>tunnelkit</string>
 		<key>CFBundleGetInfoString</key>
-		<string>Cross-platform Fortinet SSL-VPN desktop client</string>
+		<string>TunnelKit</string>
 		<key>CFBundleIdentifier</key>
 		<string>com.tunnelkit.app</string>
 		<key>CFBundleName</key>

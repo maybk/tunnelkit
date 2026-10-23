@@ -18,7 +18,7 @@
         PublisherName="CN=maybk"
         PublisherDisplayName="maybk"
         Version="0.1.0.0"
-        PackageDescription="Cross-platform Fortinet SSL-VPN desktop client">
+        PackageDescription="TunnelKit">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
@@ -26,7 +26,7 @@
         <Applications>
             <Application
                 Id="com.tunnelkit.app"
-                Description="Cross-platform Fortinet SSL-VPN desktop client"
+                Description="TunnelKit"
                 DisplayName="TunnelKit"
                 ExecutableName="tunnelkit"
                 EntryPoint="Windows.FullTrustApplication">
@@ -43,7 +43,7 @@
             <Framework>false</Framework>
             <DisplayName>TunnelKit</DisplayName>
             <PublisherDisplayName>maybk</PublisherDisplayName>
-            <Description>Cross-platform Fortinet SSL-VPN desktop client</Description>
+            <Description>TunnelKit</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>

@@ -3,13 +3,13 @@
 		"file_version": "0.1.0"
 	},
 	"info": {
-		"0000": {
+		"0409": {
 			"ProductVersion": "0.1.0",
 			"CompanyName": "maybk",
-			"FileDescription": "Cross-platform Fortinet SSL-VPN desktop client",
+			"FileDescription": "TunnelKit",
 			"LegalCopyright": "(c) 2026, maybk",
 			"ProductName": "TunnelKit",
-			"Comments": "Cross-platform Fortinet SSL-VPN desktop client"
+			"Comments": "TunnelKit"
 		}
 	}
 }

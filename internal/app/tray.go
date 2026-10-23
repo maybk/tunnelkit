@@ -131,6 +131,10 @@ func (t *trayController) init(
 		tray.SetIcon(icon)
 	}
 	tray.SetTooltip(ApplicationName)
+	if runtime.GOOS == "linux" {
+		// Wails v3 Linux StatusNotifierItem 暂未实现 setTooltip，其 D-Bus Title/Id/ToolTip 均取自 label（未设置时默认回退为 "Wails"）。
+		tray.SetLabel(ApplicationName)
+	}
 
 	showWindow := func() { showMainWindow(mainWindow, icons.appIcon) }
 	if runtime.GOOS != "darwin" {

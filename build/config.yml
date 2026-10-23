@@ -8,9 +8,9 @@ info:
   companyName: "maybk" # 开发者或组织名称
   productName: "TunnelKit" # 应用名称
   productIdentifier: "com.tunnelkit.app" # 应用唯一标识符（Bundle ID）
-  description: "Cross-platform Fortinet SSL-VPN desktop client" # 应用描述
+  description: "TunnelKit" # 应用描述（Windows PE FileDescription 进程显示名称）
   copyright: "(c) 2026, maybk" # 版权信息
-  comments: "Cross-platform Fortinet SSL-VPN desktop client" # 应用备注
+  comments: "TunnelKit" # 应用备注
   version: "0.2.0" # 应用版本
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension

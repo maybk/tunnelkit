@@ -20,7 +20,7 @@ TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自
 应用版本号统一在 `build/config.yml` 的 `info.version` 中维护：
 
 - 桌面进程启动时直接从内嵌的 `build/config.yml` 读取版本号暴露给前端与「关于」弹窗。
-- 跨平台发布打包时自动运行 `wails3 task common:update:build-assets`，将 `build/config.yml` 中的版本号同步至 macOS `Info.plist`、Windows `info.json` / `wails_tools.nsh` / `manifest` 等平台清单。
+- 跨平台发布打包时自动运行 `wails3 task common:update:build-assets`，将 `build/config.yml` 中的版本号同步至 macOS `Info.plist`、Windows `info.json` / `wails_tools.nsh` / `manifest`、Linux `nfpm.yaml` 等平台清单。
 
 ## 本地打包构建
 
@@ -78,7 +78,7 @@ wails3 task linux:create:deb
 普通 CI 同时作为 Rolling 和正式发布的自动质量门禁：
 
 - `ci.yml` 在 `main` push 和 Pull Request 上运行，也可由 Release 与手动 Rolling 复用；仅具备 `contents: read` 只读权限。
-- `release-assets.yml` 按架构拆分为 7 个并行 Job（macOS 3 个包在 `macos-latest` 并行构建、Windows `amd64` 在 `windows-latest` 构建、Windows `arm64` 在原生 `windows-11-arm` 构建并运行测试套件、Linux `amd64` 在 `ubuntu-24.04` 构建并运行 `xvfb` 无头冒烟测试、Linux `arm64` 在原生 `ubuntu-24.04-arm` 构建并运行测试套件与 `xvfb` 无头冒烟测试）。
+- `release-assets.yml` 按架构拆分为 7 个并行 Job：macOS 3 个包在 `macos-latest` 并行构建（其中 `macos-arm64` 运行原生 `darwin/arm64` 静态分析与竞态测试套件）、Windows `amd64` 与 `arm64` 分别在原生 `windows-latest` 与 `windows-11-arm` 构建并运行测试套件、Linux `amd64` 与 `arm64` 分别在原生 `ubuntu-24.04` 与 `ubuntu-24.04-arm` 构建并运行静态分析、竞态测试与 `xvfb` 无头 GUI 冒烟测试。
 - `rolling.yml` 只接受成功完成的 `main` push CI，并使用该次 CI 的精确提交 SHA；公开版本取自 `CHANGELOG.md` 顶部唯一的 `## [x.y.z] - 未发布`，标题为 `TunnelKit <version> Rolling`，资产使用 `tunnelkit-<version>-rolling-<12位SHA>-<platform>` 命名并附带 `SHA256SUMS.txt`。当待发布段落为空时自动跳过 Rolling。
 - `release.yml` 仅由 `vMAJOR.MINOR.PATCH` 标签触发，要求标签版本与 `build/config.yml` 及带日期的 `CHANGELOG.md` 版本段落一致，且标签提交已包含在 `main` 分支中。
 - 自动发布产物固定为 9 个平台安装包加 1 个 `SHA256SUMS.txt`（共 10 个文件）：

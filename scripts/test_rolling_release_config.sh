@@ -57,6 +57,7 @@ for required in \
   'SHA256SUMS.txt' \
   '--draft' \
   '--prerelease' \
+  'git tag -a --force rolling -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"' \
   '--title "TunnelKit $ROLLING_VERSION Rolling"' \
   'if [ "$asset_count" -ne 10 ]; then'; do
   if ! grep -Fq -- "$required" "$rolling_workflow"; then

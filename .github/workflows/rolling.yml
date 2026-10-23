@@ -315,7 +315,9 @@ jobs:
               :refs/tags/rolling
           fi
 
-          git tag --force rolling "$SOURCE_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a --force rolling -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"
           git push origin refs/tags/rolling
 
           gh release create rolling \

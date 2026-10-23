@@ -203,6 +203,38 @@ if grep -Fq 'pnpm --dir frontend install' "$release_assets_workflow" ||
   exit 1
 fi
 
+macos_arm64_job="$(awk '/^  macos-arm64:/,/^  macos-amd64:/' "$release_assets_workflow")"
+macos_arm64_build_line="$(grep -nF 'Build and verify macOS arm64 bundle and DMG' <<<"$macos_arm64_job" | cut -d: -f1)"
+macos_arm64_test_line="$(grep -nF 'Run native macOS arm64 analysis and test suite' <<<"$macos_arm64_job" | cut -d: -f1)"
+if [ -z "$macos_arm64_build_line" ] || [ -z "$macos_arm64_test_line" ] || [ "$macos_arm64_build_line" -ge "$macos_arm64_test_line" ]; then
+  echo "macos-arm64 must build frontend/dist and bundle before running go vet / go test"
+  exit 1
+fi
+
+win_amd64_job="$(awk '/^  windows-amd64:/,/^  windows-arm64:/' "$release_assets_workflow")"
+win_amd64_build_line="$(grep -nF 'Build Windows amd64 executables' <<<"$win_amd64_job" | cut -d: -f1)"
+win_amd64_test_line="$(grep -nF 'Run native Windows amd64 analysis and test suite' <<<"$win_amd64_job" | cut -d: -f1)"
+if [ -z "$win_amd64_build_line" ] || [ -z "$win_amd64_test_line" ] || [ "$win_amd64_build_line" -ge "$win_amd64_test_line" ]; then
+  echo "windows-amd64 must build frontend/dist and executables before running go vet / go test"
+  exit 1
+fi
+
+win_arm64_job="$(awk '/^  windows-arm64:/,/^  linux-amd64:/' "$release_assets_workflow")"
+win_arm64_build_line="$(grep -nF 'Build Windows arm64 executables' <<<"$win_arm64_job" | cut -d: -f1)"
+win_arm64_test_line="$(grep -nF 'Run native Windows arm64 analysis and test suite' <<<"$win_arm64_job" | cut -d: -f1)"
+if [ -z "$win_arm64_build_line" ] || [ -z "$win_arm64_test_line" ] || [ "$win_arm64_build_line" -ge "$win_arm64_test_line" ]; then
+  echo "windows-arm64 must build frontend/dist and executables before running go vet / go test"
+  exit 1
+fi
+
+linux_amd64_job="$(awk '/^  linux-amd64:/,/^  linux-arm64:/' "$release_assets_workflow")"
+amd64_build_line="$(grep -nF 'Build Linux amd64 tarball and deb package' <<<"$linux_amd64_job" | cut -d: -f1)"
+amd64_test_line="$(grep -nF 'Run native Linux amd64 analysis and test suite' <<<"$linux_amd64_job" | cut -d: -f1)"
+if [ -z "$amd64_build_line" ] || [ -z "$amd64_test_line" ] || [ "$amd64_build_line" -ge "$amd64_test_line" ]; then
+  echo "linux-amd64 must build frontend/dist and packages before running go vet / go test"
+  exit 1
+fi
+
 linux_arm64_job="$(awk '/^  linux-arm64:/,/^  merge:/' "$release_assets_workflow")"
 build_line="$(grep -nF 'Build Linux arm64 tarball and deb package' <<<"$linux_arm64_job" | cut -d: -f1)"
 test_line="$(grep -nF 'Run native Linux arm64 analysis and test suite' <<<"$linux_arm64_job" | cut -d: -f1)"

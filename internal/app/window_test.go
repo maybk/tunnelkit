@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image/png"
 	"os"
 	"strings"
@@ -331,9 +332,9 @@ func TestPlatformBuildMetadataUsesApplicationName(t *testing.T) {
 	}
 	configText := string(configBytes)
 	for _, want := range []string{
-		`productName: "TunnelKit"`,
-		`description: "TunnelKit"`,
-		`comments: "TunnelKit"`,
+		fmt.Sprintf("productName: %q", ApplicationName),
+		fmt.Sprintf("description: %q", ApplicationName),
+		fmt.Sprintf("comments: %q", ApplicationName),
 	} {
 		if !strings.Contains(configText, want) {
 			t.Fatalf("build/config.yml must contain %s", want)
@@ -368,17 +369,51 @@ func TestPlatformBuildMetadataUsesApplicationName(t *testing.T) {
 		t.Fatalf("Windows ProductName = %q, want %q", enUS.ProductName, ApplicationName)
 	}
 
+	wantPlistString := "<string>" + ApplicationName + "</string>"
 	for _, plistPath := range []string{"../../build/darwin/Info.plist", "../../build/darwin/Info.dev.plist"} {
 		raw, err := os.ReadFile(plistPath)
 		if err != nil {
 			t.Fatalf("read %s: %v", plistPath, err)
 		}
 		text := string(raw)
-		if !strings.Contains(text, "<key>CFBundleDisplayName</key>") || !strings.Contains(text, "<string>TunnelKit</string>") {
-			t.Fatalf("%s must define CFBundleDisplayName = TunnelKit", plistPath)
+		if !strings.Contains(text, "<key>CFBundleDisplayName</key>") || !strings.Contains(text, wantPlistString) {
+			t.Fatalf("%s must define CFBundleDisplayName = %s", plistPath, ApplicationName)
 		}
 		if strings.Contains(text, "Cross-platform Fortinet SSL-VPN desktop client") {
 			t.Fatalf("%s must not contain long English tagline", plistPath)
 		}
+	}
+
+	linuxTaskfileBytes, err := os.ReadFile("../../build/linux/Taskfile.yml")
+	if err != nil {
+		t.Fatalf("read build/linux/Taskfile.yml: %v", err)
+	}
+	linuxTaskfileText := string(linuxTaskfileBytes)
+	wantDesktopNameFlag := fmt.Sprintf("-name %q", ApplicationName)
+	if !strings.Contains(linuxTaskfileText, wantDesktopNameFlag) {
+		t.Fatalf("build/linux/Taskfile.yml must pass %s to wails3 generate .desktop", wantDesktopNameFlag)
+	}
+	if !strings.Contains(linuxTaskfileText, `-comment "Fortinet SSL-VPN client"`) {
+		t.Fatal(`build/linux/Taskfile.yml must pass -comment "Fortinet SSL-VPN client" to wails3 generate .desktop`)
+	}
+
+	linuxDesktopBytes, err := os.ReadFile("../../build/linux/desktop")
+	if err != nil {
+		t.Fatalf("read build/linux/desktop: %v", err)
+	}
+	linuxDesktopText := string(linuxDesktopBytes)
+	if !strings.Contains(linuxDesktopText, "Name="+ApplicationName) {
+		t.Fatalf("build/linux/desktop must define Name=%s", ApplicationName)
+	}
+	if !strings.Contains(linuxDesktopText, "Comment=Fortinet SSL-VPN client") {
+		t.Fatal("build/linux/desktop must define Comment=Fortinet SSL-VPN client")
+	}
+
+	nfpmBytes, err := os.ReadFile("../../build/linux/nfpm/nfpm.yaml")
+	if err != nil {
+		t.Fatalf("read build/linux/nfpm/nfpm.yaml: %v", err)
+	}
+	if !strings.Contains(string(nfpmBytes), `description: "Fortinet SSL-VPN client"`) {
+		t.Fatal(`build/linux/nfpm/nfpm.yaml must define description: "Fortinet SSL-VPN client"`)
 	}
 }

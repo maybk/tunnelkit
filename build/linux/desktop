@@ -1,7 +1,7 @@
 [Desktop Entry]
 Version=1.0
 Name=TunnelKit
-Comment=TunnelKit
+Comment=Fortinet SSL-VPN client
 # The Exec line includes %u to pass the URL to the application
 Exec=/usr/local/bin/tunnelkit %u
 Terminal=false

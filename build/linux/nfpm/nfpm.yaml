@@ -10,7 +10,7 @@ version: "0.1.0"
 section: "default"
 priority: "extra"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "TunnelKit"
+description: "Fortinet SSL-VPN client"
 vendor: "maybk"
 homepage: "https://github.com/maybk/tunnelkit"
 license: "MIT"

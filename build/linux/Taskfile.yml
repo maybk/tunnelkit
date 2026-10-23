@@ -179,7 +179,7 @@ tasks:
     dir: build
     cmds:
       - mkdir -p {{.ROOT_DIR}}/build/linux/appimage
-      - wails3 generate .desktop -name "TunnelKit" -exec "{{.EXEC}}" -icon "{{.ICON}}" -outputfile "{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop" -categories "{{.CATEGORIES}}" -keywords "vpn;sslvpn;fortinet;tunnelkit;"
+      - wails3 generate .desktop -name "TunnelKit" -comment "Fortinet SSL-VPN client" -exec "{{.EXEC}}" -icon "{{.ICON}}" -outputfile "{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop" -categories "{{.CATEGORIES}}" -keywords "vpn;sslvpn;fortinet;tunnelkit;"
       - printf 'StartupWMClass=%s\n' "{{.APP_NAME}}" >> "{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop"
     vars:
       APP_NAME: '{{.APP_NAME}}'

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -16,16 +17,19 @@ import (
 	"tunnelkit/internal/api"
 	"tunnelkit/internal/profile"
 	"tunnelkit/internal/storage"
+	"tunnelkit/internal/update"
 	"tunnelkit/internal/vpn"
 )
 
 const (
-	ApplicationName = "TunnelKit"
-	EventVPNState   = "vpn:state"
+	ApplicationName     = "TunnelKit"
+	EventVPNState       = "vpn:state"
+	EventUpdateProgress = "update:progress"
 )
 
 func init() {
 	application.RegisterEvent[vpn.State](EventVPNState)
+	application.RegisterEvent[update.Progress](EventUpdateProgress)
 }
 
 func loadVersion(assets fs.FS) (string, error) {
@@ -77,19 +81,28 @@ func Run(assets embed.FS) error {
 		return fmt.Errorf("初始化数据目录失败: %w", err)
 	}
 
+	update.CleanupOldArtifacts()
+
 	profileStore := profile.NewStore(rootDir)
 	vpnService := vpn.NewService(rootDir, profileStore, vpn.NewDefaultLauncher())
 
-	var mainWindow application.Window
+	var (
+		mainWindow application.Window
+		wailsApp   *application.App
+	)
 	tray := &trayController{}
-	wailsApp := application.New(application.Options{
+	systemAPI := newSystemAPI(version, vpnService, func() *application.App {
+		return wailsApp
+	})
+
+	wailsApp = application.New(application.Options{
 		Name:        ApplicationName,
 		Description: "Fortinet SSL-VPN 桌面客户端",
 		Icon:        icons.appIcon,
 		Services: []application.Service{
 			application.NewService(api.NewProfileAPI(profileStore, vpnService, tray.refresh)),
 			application.NewService(api.NewVPNAPI(vpnService)),
-			application.NewService(api.NewSystemAPI(version)),
+			application.NewService(systemAPI),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(frontendFS),
@@ -140,4 +153,38 @@ func Run(assets embed.FS) error {
 	})
 
 	return wailsApp.Run()
+}
+
+func newSystemAPI(version string, vpnService *vpn.Service, getApp func() *application.App) *api.SystemAPI {
+	return api.NewSystemAPI(
+		version,
+		update.WithPreUpdateHook(func(ctx context.Context) error {
+			switch vpnService.State().Status {
+			case vpn.StatusConnecting:
+				vpnService.Cancel()
+			case vpn.StatusConnected:
+				return vpnService.Disconnect(ctx)
+			}
+			return nil
+		}),
+		update.WithProgressListener(func(p update.Progress) {
+			if wailsApp := getApp(); wailsApp != nil {
+				wailsApp.Event.Emit(EventUpdateProgress, p)
+			}
+		}),
+		update.WithRestartHandler(func(restartFn func() error) error {
+			if restartFn != nil {
+				if err := restartFn(); err != nil {
+					return err
+				}
+			}
+			if wailsApp := getApp(); wailsApp != nil {
+				go func() {
+					time.Sleep(150 * time.Millisecond)
+					wailsApp.Quit()
+				}()
+			}
+			return nil
+		}),
+	)
 }

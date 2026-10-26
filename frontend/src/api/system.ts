@@ -1,9 +1,15 @@
-import { Browser } from '@wailsio/runtime'
+import { Browser, Events } from '@wailsio/runtime'
 import { SystemAPI } from '../../bindings/tunnelkit/internal/api'
 import type * as api from '../../bindings/tunnelkit/internal/api'
+import type * as updateModels from '../../bindings/tunnelkit/internal/update/models'
 
 export type SystemInfo = api.SystemInfo
-export type UpdateInfo = api.UpdateInfo
+export type UpdateInfo = Omit<api.UpdateInfo, 'canSelfUpdate'> & {
+  canSelfUpdate?: boolean
+}
+export type UpdateProgress = updateModels.Progress
+
+export const UPDATE_PROGRESS_EVENT = 'update:progress'
 
 export const GITHUB_REPO_SLUG = 'maybk/tunnelkit'
 export const GITHUB_REPO_LABEL = `github.com/${GITHUB_REPO_SLUG}`
@@ -20,6 +26,15 @@ export const isValidReleaseUrl = (url: string | undefined | null): url is string
 export const getSystemInfo = (): Promise<SystemInfo> => SystemAPI.Info()
 
 export const checkSystemUpdate = (): Promise<UpdateInfo> => SystemAPI.CheckUpdate()
+
+export const applySystemUpdate = (): Promise<void> => SystemAPI.ApplyUpdate()
+
+export const subscribeUpdateProgress = (cb: (progress: UpdateProgress) => void): (() => void) =>
+  Events.On(UPDATE_PROGRESS_EVENT, (event) => {
+    if (event?.data) {
+      cb(event.data as UpdateProgress)
+    }
+  })
 
 export const openGitHubRepo = async (): Promise<void> => {
   await Browser.OpenURL(GITHUB_REPO_URL)

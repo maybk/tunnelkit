@@ -55,6 +55,7 @@ ManifestDPIAware true
 !define MUI_UNICON "..\icon.ico"
 # !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
 !define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}"
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
@@ -65,6 +66,7 @@ ManifestDPIAware true
 
 !insertmacro MUI_UNPAGE_INSTFILES # Uninstalling page
 
+!insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
 
 ## The following two statements can be used to sign the installer and the uninstaller. The path to the binaries are provided in %1
@@ -87,12 +89,23 @@ FunctionEnd
 Section
     !insertmacro wails.setShellContext
 
+    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}" /T'
+    nsExec::ExecToLog 'taskkill /F /IM "tunnelkit-helper.exe" /T'
+    Sleep 300
+
     !insertmacro wails.webview2runtime
 
     SetOutPath $INSTDIR
+    Delete "$INSTDIR\*.old"
     
     !insertmacro wails.files
-    File "..\..\..\bin\tunnelkit-helper.exe"
+    !ifdef ARG_WAILS_HELPER_BINARY
+        File "/oname=tunnelkit-helper.exe" "${ARG_WAILS_HELPER_BINARY}"
+    !else if /FileExists "..\..\..\bin\tunnelkit-helper-windows-${ARCH}.exe"
+        File "/oname=tunnelkit-helper.exe" "..\..\..\bin\tunnelkit-helper-windows-${ARCH}.exe"
+    !else
+        File "..\..\..\bin\tunnelkit-helper.exe"
+    !endif
     !if /FileExists "..\..\..\bin\wintun-${ARCH}.dll"
         File "/oname=wintun.dll" "..\..\..\bin\wintun-${ARCH}.dll"
     !else if /FileExists "..\..\..\bin\wintun.dll"
@@ -110,6 +123,10 @@ SectionEnd
 
 Section "uninstall" 
     !insertmacro wails.setShellContext
+
+    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}" /T'
+    nsExec::ExecToLog 'taskkill /F /IM "tunnelkit-helper.exe" /T'
+    Sleep 300
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 

@@ -9,6 +9,11 @@ import type {} from "../github.com/wailsapp/wails/v3/internal/eventdata.js";
 import "../github.com/wailsapp/wails/v3/internal/eventcreate.js";
 
 /**
+ * Name of the custom event "update:progress".
+ */
+export const UpdateProgress = "update:progress";
+
+/**
  * Name of the custom event "vpn:state".
  */
 export const VpnState = "vpn:state";

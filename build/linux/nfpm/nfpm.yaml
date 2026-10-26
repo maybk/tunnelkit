@@ -39,6 +39,7 @@ overrides:
     depends:
       - gtk4
       - webkitgtk6.0
+      - iproute
 
   # Arch Linux packages
   archlinux:

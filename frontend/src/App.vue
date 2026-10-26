@@ -32,6 +32,8 @@ const {
   checking,
   updateInfo,
   checkingUpdate,
+  applyingUpdate,
+  updateProgress,
   updateDialogOpen,
   updateFeedback,
   hasUpdate,
@@ -92,9 +94,18 @@ const handleOpenRelease = async (url: string) => {
   }
 }
 
+const handleApplyUpdate = async () => {
+  try {
+    await system.applyUpdate()
+  } catch (err) {
+    notice.showError(err)
+  }
+}
+
 onMounted(async () => {
   desktopWindow.startWatching()
   vpn.startWatching()
+  system.startWatching()
   const results = await Promise.allSettled([
     system.refreshSystem(),
     profiles.loadProfiles(),
@@ -120,6 +131,7 @@ onBeforeUnmount(() => {
   }
   desktopWindow.stopWatching()
   vpn.stopWatching()
+  system.stopWatching()
 })
 
 const withSelected = (fn: (id: string) => unknown) => {
@@ -281,6 +293,9 @@ const trustAndReconnect = (sha256: string) =>
       v-model:open="updateDialogOpen"
       :update-info="updateInfo"
       :opening="openingRelease"
+      :applying="applyingUpdate"
+      :progress="updateProgress"
+      @apply-update="handleApplyUpdate"
       @open-release="handleOpenRelease"
       @dismiss-version="system.dismissUpdate"
     />

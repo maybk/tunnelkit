@@ -159,7 +159,6 @@ tasks:
 
   create:nsis:installer:
     summary: Creates an NSIS installer
-    dir: build/windows/nsis
     preconditions:
       - sh: '[ "{{.INSTALL_SCOPE}}" = "user" ] || [ "{{.INSTALL_SCOPE}}" = "machine" ]'
         msg: "INSTALL_SCOPE must be 'user' or 'machine', got '{{.INSTALL_SCOPE}}'"
@@ -167,13 +166,30 @@ tasks:
       - task: build
         vars:
           ARCH: '{{.ARCH}}'
+          OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-windows-{{.ARCH}}.exe"
+          HELPER_OUTPUT: "{{.BIN_DIR}}/tunnelkit-helper-windows-{{.ARCH}}.exe"
+      - task: generate:nsis:installer
+        vars:
+          ARCH: '{{.ARCH}}'
+          INSTALL_SCOPE: '{{.INSTALL_SCOPE}}'
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+      INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "machine"}}'
+
+  generate:nsis:installer:
+    summary: Packages existing Windows executables into an NSIS installer
+    dir: build/windows/nsis
+    preconditions:
+      - sh: '[ "{{.INSTALL_SCOPE}}" = "user" ] || [ "{{.INSTALL_SCOPE}}" = "machine" ]'
+        msg: "INSTALL_SCOPE must be 'user' or 'machine', got '{{.INSTALL_SCOPE}}'"
+    cmds:
       # Create the Microsoft WebView2 bootstrapper if it doesn't exist
       - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
       - |
         {{if eq OS "windows"}}
-        makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
+        makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}-windows-{{.ARCH}}.exe" -DARG_WAILS_HELPER_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\tunnelkit-helper-windows-{{.ARCH}}.exe" project.nsi
         {{else}}
-        makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" project.nsi
+        makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}-windows-{{.ARCH}}.exe" -DARG_WAILS_HELPER_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/tunnelkit-helper-windows-{{.ARCH}}.exe" project.nsi
         {{end}}
     vars:
       ARCH: '{{.ARCH | default ARCH}}'

@@ -48,12 +48,16 @@ for required in \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-macos-universal.dmg' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-macos-arm64.dmg' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-macos-amd64.dmg' \
+  'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-amd64-setup.exe' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-amd64.zip' \
+  'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-arm64-setup.exe' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-arm64.zip' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-amd64.tar.gz' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-amd64.deb' \
+  'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-amd64.rpm' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.tar.gz' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.deb' \
+  'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.rpm' \
   'SHA256SUMS.txt' \
   '--draft' \
   '--prerelease' \
@@ -62,7 +66,7 @@ for required in \
   'rolling_tag="v${ROLLING_VERSION}-pre"' \
   'git tag -a --force "$rolling_tag" -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"' \
   '--title "TunnelKit $ROLLING_VERSION Rolling"' \
-  'if [ "$asset_count" -ne 10 ]; then'; do
+  'if [ "$asset_count" -ne 14 ]; then'; do
   if ! grep -Fq -- "$required" "$rolling_workflow"; then
     echo "Rolling workflow is missing required contract: $required"
     exit 1
@@ -102,8 +106,12 @@ for required in \
   'wails3 task darwin:package:universal' \
   'wails3 task windows:build:amd64' \
   'wails3 task windows:build:arm64' \
+  'wails3 task windows:generate:nsis:installer ARCH=amd64' \
+  'wails3 task windows:generate:nsis:installer ARCH=arm64' \
   'wails3 task linux:build' \
   'wails3 task linux:create:deb' \
+  'wails3 task linux:generate:rpm ARCH=amd64' \
+  'wails3 task linux:generate:rpm ARCH=arm64' \
   'name: release-macos-arm64' \
   'name: release-macos-amd64' \
   'name: release-macos-universal' \

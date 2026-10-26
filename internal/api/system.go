@@ -19,7 +19,10 @@ type SystemInfo struct {
 // UpdateInfo 表示版本更新检查结果。
 type UpdateInfo = update.Info
 
-// SystemAPI 暴露只读系统、组件就绪与版本更新检查接口。
+// UpdateProgress 表示应用内自更新的实时进度。
+type UpdateProgress = update.Progress
+
+// SystemAPI 暴露只读系统、组件就绪与版本更新检查及自更新接口。
 type SystemAPI struct {
 	version string
 	updater *update.Checker
@@ -45,4 +48,9 @@ func (a *SystemAPI) Info(_ context.Context) SystemInfo {
 // CheckUpdate 检查 GitHub Releases 最新正式版本（优先使用加速源，失败时自动回退官方直连源）。
 func (a *SystemAPI) CheckUpdate(ctx context.Context) (UpdateInfo, error) {
 	return a.updater.Check(ctx)
+}
+
+// ApplyUpdate 下载、校验 SHA-256、原地替换最新正式版安装包并自动重启应用。
+func (a *SystemAPI) ApplyUpdate(ctx context.Context) error {
+	return a.updater.ApplyAndRestart(ctx)
 }

@@ -4,9 +4,15 @@
 
 ## [0.2.2] - 未发布
 
+### 新增
+
+- 支持 macOS、Windows 与 Linux 应用内一键更新并自动重启。
+- 提供 Windows（`amd64` / `arm64`）`-setup.exe` 安装程序与 Linux（`amd64` / `arm64`）`.rpm` 安装包。
+- 支持通过 Homebrew Cask（macOS / Linux）、Scoop 与 WinGet（Windows）安装及更新。
+
 ### 变更
 
-- 补充 Linux `.deb` 安装包与桌面入口文件的功能描述信息。
+- 补充 Linux 安装包与便携包的桌面入口描述及应用图标。
 
 ## [0.2.1] - 2026-10-23
 

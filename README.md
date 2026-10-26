@@ -28,14 +28,41 @@
 
 ---
 
-## 📦 下载
+## 📦 下载与安装
 
-macOS DMG（`Universal` / `arm64` / `amd64`）、Windows 便携版 ZIP（`amd64` / `arm64`）、Linux 安装包（`amd64` / `arm64`，提供 `.deb` 与 `.tar.gz`）与 `SHA256SUMS.txt` 校验文件可从 [GitHub Releases](https://github.com/maybk/tunnelkit/releases) 下载。
+### 包管理器安装
 
-macOS App 如果提示无法验证开发者，可执行：
+**Homebrew（macOS / Linux）**
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/TunnelKit.app"
+brew install --cask maybk/tap/tunnelkit
+```
+
+**Scoop（Windows）**
+
+```powershell
+scoop bucket add maybk https://github.com/maybk/homebrew-tap
+scoop install maybk/tunnelkit
+```
+
+**WinGet（Windows）**
+
+```powershell
+winget install maybk.TunnelKit
+```
+
+### 手动下载
+
+各平台安装包与 `SHA256SUMS.txt` 校验文件可从 [GitHub Releases](https://github.com/maybk/tunnelkit/releases) 下载，已安装客户端支持在应用内直接检测并一键更新：
+
+- **macOS**：`Universal` / `arm64` / `amd64`（`.dmg`）
+- **Windows**：`amd64` / `arm64`（`-setup.exe` 安装程序、`.zip` 便携包）
+- **Linux**：`amd64` / `arm64`（`.deb`、`.rpm`、`.tar.gz`）
+
+macOS 手动安装 `.dmg` 后若提示无法验证开发者，可执行：
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/tunnelkit.app"
 ```
 
 ## ✨ 功能特性
@@ -64,8 +91,8 @@ xattr -dr com.apple.quarantine "/Applications/TunnelKit.app"
 ## 🖥️ 支持平台
 
 - **macOS** - 最低支持 macOS 12.0（Monterey），提供 `Universal`、`arm64`（Apple Silicon）与 `amd64`（Intel）安装包
-- **Windows** - 支持 Windows 10 / 11，提供 `amd64`（x64）与 `arm64` 便携包
-- **Linux** - 支持基于 `GTK4` + `WebKitGTK 6.0` 的主流发行版（`amd64` / `arm64`，提供 `.deb` 与 `.tar.gz` 安装包）
+- **Windows** - 支持 Windows 10 / 11，提供 `amd64`（x64）与 `arm64` 安装程序及便携包
+- **Linux** - 支持基于 `GTK4` + `WebKitGTK 6.0` 的主流发行版（`amd64` / `arm64`，提供 `.deb`、`.rpm` 与 `.tar.gz` 安装包）
 
 ## 🚀 快速开始
 

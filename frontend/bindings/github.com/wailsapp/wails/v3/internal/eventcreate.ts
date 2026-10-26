@@ -8,15 +8,20 @@ import { Create as $Create } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as update$0 from "../../../../../tunnelkit/internal/update/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as vpn$0 from "../../../../../tunnelkit/internal/vpn/models.js";
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
-        "vpn:state": $$createType0,
+        "update:progress": $$createType0,
+        "vpn:state": $$createType1,
     }));
 }
 
 // Private type creation functions
-const $$createType0 = vpn$0.State.createFrom;
+const $$createType0 = update$0.Progress.createFrom;
+const $$createType1 = vpn$0.State.createFrom;
 
 configure();

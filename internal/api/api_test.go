@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -151,16 +153,50 @@ func TestProfileAPICrudTextAndActiveProtection(t *testing.T) {
 }
 
 func TestSystemAPIInfoAndCheckUpdate(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	payload := []byte("fake-update-binary")
+	sumBytes := sha256.Sum256(payload)
+	sum := hex.EncodeToString(sumBytes[:])
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".zip") {
+			_, _ = w.Write(payload)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"tag_name":"v0.1.1","html_url":"https://github.com/maybk/tunnelkit/releases/tag/v0.1.1"}`))
+		_, _ = w.Write([]byte(`{
+			"tag_name":"v0.1.1",
+			"html_url":"https://github.com/maybk/tunnelkit/releases/tag/v0.1.1",
+			"assets":[{
+				"name":"tunnelkit-0.1.1-windows-amd64.zip",
+				"browser_download_url":"` + srv.URL + `/maybk/tunnelkit/releases/download/v0.1.1/tunnelkit-0.1.1-windows-amd64.zip",
+				"size":18,
+				"digest":"sha256:` + sum + `"
+			}]
+		}`))
 	}))
 	defer srv.Close()
 
+	var preHookCalled, restarted atomic.Bool
 	sysAPI := NewSystemAPI(
 		"0.1.0",
 		update.WithHTTPClient(srv.Client()),
 		update.WithReleaseURLs(srv.URL),
+		update.WithProxyPrefix(""),
+		update.WithPlatform("windows", "amd64"),
+		update.WithAssetURLValidator(func(rawURL, _, _ string) bool {
+			return strings.HasPrefix(rawURL, srv.URL+"/")
+		}),
+		update.WithPreUpdateHook(func(context.Context) error {
+			preHookCalled.Store(true)
+			return nil
+		}),
+		update.WithApplier(func(_ context.Context, _ string, _ update.ProgressFunc) (func() error, error) {
+			return func() error {
+				restarted.Store(true)
+				return nil
+			}, nil
+		}),
 	)
 	info := sysAPI.Info(context.Background())
 	if info.AppVersion != "0.1.0" {
@@ -174,7 +210,14 @@ func TestSystemAPIInfoAndCheckUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckUpdate failed: %v", err)
 	}
-	if !upd.HasUpdate || upd.LatestVersion != "0.1.1" {
+	if !upd.HasUpdate || upd.LatestVersion != "0.1.1" || !upd.CanSelfUpdate {
 		t.Fatalf("unexpected UpdateInfo: %+v", upd)
+	}
+
+	if err := sysAPI.ApplyUpdate(context.Background()); err != nil {
+		t.Fatalf("ApplyUpdate failed: %v", err)
+	}
+	if !preHookCalled.Load() || !restarted.Load() {
+		t.Fatalf("expected preHookCalled=true and restarted=true, got pre=%v restart=%v", preHookCalled.Load(), restarted.Load())
 	}
 }

@@ -152,21 +152,25 @@ for expected_asset in \
   '"tunnelkit-$APP_VERSION-macos-universal.dmg"' \
   '"tunnelkit-$APP_VERSION-macos-arm64.dmg"' \
   '"tunnelkit-$APP_VERSION-macos-amd64.dmg"' \
+  '"tunnelkit-$APP_VERSION-windows-amd64-setup.exe"' \
   '"tunnelkit-$APP_VERSION-windows-amd64.zip"' \
+  '"tunnelkit-$APP_VERSION-windows-arm64-setup.exe"' \
   '"tunnelkit-$APP_VERSION-windows-arm64.zip"' \
   '"tunnelkit-$APP_VERSION-linux-amd64.tar.gz"' \
   '"tunnelkit-$APP_VERSION-linux-amd64.deb"' \
+  '"tunnelkit-$APP_VERSION-linux-amd64.rpm"' \
   '"tunnelkit-$APP_VERSION-linux-arm64.tar.gz"' \
-  '"tunnelkit-$APP_VERSION-linux-arm64.deb"'; do
+  '"tunnelkit-$APP_VERSION-linux-arm64.deb"' \
+  '"tunnelkit-$APP_VERSION-linux-arm64.rpm"'; do
   if ! grep -Fq "$expected_asset" <<<"$publish_job"; then
     echo "published releases must verify asset: $expected_asset"
     exit 1
   fi
 done
 
-if ! grep -Fq 'if [ "$asset_count" -ne 10 ]; then' <<<"$publish_job" ||
-  ! grep -Fq 'expected 10' <<<"$publish_job"; then
-  echo "published releases must contain all nine platform packages plus SHA256SUMS.txt (10 total)"
+if ! grep -Fq 'if [ "$asset_count" -ne 14 ]; then' <<<"$publish_job" ||
+  ! grep -Fq 'expected 14' <<<"$publish_job"; then
+  echo "published releases must contain all thirteen platform packages plus SHA256SUMS.txt (14 total)"
   exit 1
 fi
 
@@ -176,9 +180,10 @@ for required_nfpm in \
   '/usr/local/bin/tunnelkit-helper' \
   'libgtk-4-1' \
   'libwebkitgtk-6.0-4' \
-  'iproute2'; do
+  'iproute2' \
+  'iproute'; do
   if ! grep -Fq "$required_nfpm" "$nfpm_config"; then
-    echo "build/linux/nfpm/nfpm.yaml is missing required deb metadata: $required_nfpm"
+    echo "build/linux/nfpm/nfpm.yaml is missing required deb/rpm metadata: $required_nfpm"
     exit 1
   fi
 done

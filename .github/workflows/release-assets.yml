@@ -324,11 +324,31 @@ jobs:
             throw "Windows archive was not created: $archive"
           }
 
+      - name: Create Windows amd64 NSIS setup installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            $nsisDir = "${env:ProgramFiles(x86)}\NSIS"
+            if (-not (Test-Path -LiteralPath (Join-Path $nsisDir "makensis.exe"))) {
+              choco install nsis -y --no-progress
+            }
+            $env:PATH = "$nsisDir;$env:PATH"
+          }
+          wails3 task windows:generate:nsis:installer ARCH=amd64
+          $installer = "dist/tunnelkit-$env:APP_VERSION-windows-amd64-setup.exe"
+          Copy-Item -LiteralPath "bin/tunnelkit-amd64-installer.exe" -Destination $installer -Force
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Windows installer was not created: $installer"
+          }
+
       - name: Upload Windows amd64 release asset
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows-amd64
-          path: dist/tunnelkit-*-windows-amd64.zip
+          path: |
+            dist/tunnelkit-*-windows-amd64.zip
+            dist/tunnelkit-*-windows-amd64-setup.exe
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
 
@@ -419,11 +439,31 @@ jobs:
             throw "Windows archive was not created: $archive"
           }
 
+      - name: Create Windows arm64 NSIS setup installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            $nsisDir = "${env:ProgramFiles(x86)}\NSIS"
+            if (-not (Test-Path -LiteralPath (Join-Path $nsisDir "makensis.exe"))) {
+              choco install nsis -y --no-progress
+            }
+            $env:PATH = "$nsisDir;$env:PATH"
+          }
+          wails3 task windows:generate:nsis:installer ARCH=arm64
+          $installer = "dist/tunnelkit-$env:APP_VERSION-windows-arm64-setup.exe"
+          Copy-Item -LiteralPath "bin/tunnelkit-arm64-installer.exe" -Destination $installer -Force
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Windows installer was not created: $installer"
+          }
+
       - name: Upload Windows arm64 release asset
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows-arm64
-          path: dist/tunnelkit-*-windows-arm64.zip
+          path: |
+            dist/tunnelkit-*-windows-arm64.zip
+            dist/tunnelkit-*-windows-arm64-setup.exe
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
 
@@ -487,6 +527,7 @@ jobs:
           wails3 task common:update:build-assets
           wails3 task linux:build
           wails3 task linux:create:deb
+          wails3 task linux:generate:rpm ARCH=amd64
           for bin_path in bin/tunnelkit bin/tunnelkit-helper; do
             test -x "$bin_path"
             meta="$(go version -m "$bin_path")"
@@ -494,11 +535,16 @@ jobs:
             grep -Fq "GOARCH=amd64" <<<"$meta"
           done
           test -s bin/tunnelkit.deb
+          test -s bin/tunnelkit.rpm
 
-          tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz" tunnelkit tunnelkit-helper
+          cp build/linux/tunnelkit.desktop bin/tunnelkit.desktop
+          cp build/appicon.png bin/tunnelkit.png
+          tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz" tunnelkit tunnelkit-helper tunnelkit.desktop tunnelkit.png
           cp "bin/tunnelkit.deb" "dist/tunnelkit-$APP_VERSION-linux-amd64.deb"
+          cp "bin/tunnelkit.rpm" "dist/tunnelkit-$APP_VERSION-linux-amd64.rpm"
           test -s "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz"
           test -s "dist/tunnelkit-$APP_VERSION-linux-amd64.deb"
+          test -s "dist/tunnelkit-$APP_VERSION-linux-amd64.rpm"
 
           deb_info="$(dpkg-deb -I "dist/tunnelkit-$APP_VERSION-linux-amd64.deb")"
           printf '%s\n' "$deb_info"
@@ -577,6 +623,7 @@ jobs:
           path: |
             dist/tunnelkit-*-linux-amd64.tar.gz
             dist/tunnelkit-*-linux-amd64.deb
+            dist/tunnelkit-*-linux-amd64.rpm
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
 
@@ -640,6 +687,7 @@ jobs:
           wails3 task common:update:build-assets
           wails3 task linux:build
           wails3 task linux:create:deb
+          wails3 task linux:generate:rpm ARCH=arm64
           for bin_path in bin/tunnelkit bin/tunnelkit-helper; do
             test -x "$bin_path"
             meta="$(go version -m "$bin_path")"
@@ -647,11 +695,16 @@ jobs:
             grep -Fq "GOARCH=arm64" <<<"$meta"
           done
           test -s bin/tunnelkit.deb
+          test -s bin/tunnelkit.rpm
 
-          tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-arm64.tar.gz" tunnelkit tunnelkit-helper
+          cp build/linux/tunnelkit.desktop bin/tunnelkit.desktop
+          cp build/appicon.png bin/tunnelkit.png
+          tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-arm64.tar.gz" tunnelkit tunnelkit-helper tunnelkit.desktop tunnelkit.png
           cp "bin/tunnelkit.deb" "dist/tunnelkit-$APP_VERSION-linux-arm64.deb"
+          cp "bin/tunnelkit.rpm" "dist/tunnelkit-$APP_VERSION-linux-arm64.rpm"
           test -s "dist/tunnelkit-$APP_VERSION-linux-arm64.tar.gz"
           test -s "dist/tunnelkit-$APP_VERSION-linux-arm64.deb"
+          test -s "dist/tunnelkit-$APP_VERSION-linux-arm64.rpm"
 
           deb_info="$(dpkg-deb -I "dist/tunnelkit-$APP_VERSION-linux-arm64.deb")"
           printf '%s\n' "$deb_info"
@@ -730,5 +783,6 @@ jobs:
           path: |
             dist/tunnelkit-*-linux-arm64.tar.gz
             dist/tunnelkit-*-linux-arm64.deb
+            dist/tunnelkit-*-linux-arm64.rpm
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}

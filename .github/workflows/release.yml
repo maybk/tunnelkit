@@ -123,12 +123,16 @@ jobs:
             "tunnelkit-$APP_VERSION-macos-universal.dmg"
             "tunnelkit-$APP_VERSION-macos-arm64.dmg"
             "tunnelkit-$APP_VERSION-macos-amd64.dmg"
+            "tunnelkit-$APP_VERSION-windows-amd64-setup.exe"
             "tunnelkit-$APP_VERSION-windows-amd64.zip"
+            "tunnelkit-$APP_VERSION-windows-arm64-setup.exe"
             "tunnelkit-$APP_VERSION-windows-arm64.zip"
             "tunnelkit-$APP_VERSION-linux-amd64.tar.gz"
             "tunnelkit-$APP_VERSION-linux-amd64.deb"
+            "tunnelkit-$APP_VERSION-linux-amd64.rpm"
             "tunnelkit-$APP_VERSION-linux-arm64.tar.gz"
             "tunnelkit-$APP_VERSION-linux-arm64.deb"
+            "tunnelkit-$APP_VERSION-linux-arm64.rpm"
           )
           for asset in "${expected[@]}"; do
             test -s "release-files/$asset"
@@ -139,6 +143,10 @@ jobs:
             cd release-files
             sha256sum "${expected[@]}" > SHA256SUMS.txt
           )
+          bash scripts/render_package_manifests.sh "$APP_VERSION" release-files/SHA256SUMS.txt "$RUNNER_TEMP/manifests"
+          ruby -c "$RUNNER_TEMP/manifests/Casks/tunnelkit.rb" >/dev/null
+          python3 -m json.tool "$RUNNER_TEMP/manifests/bucket/tunnelkit.json" >/dev/null
+          test -s "$RUNNER_TEMP/manifests/winget/manifests/m/maybk/TunnelKit/$APP_VERSION/maybk.TunnelKit.installer.yaml"
 
       - name: Prepare release notes
         shell: bash
@@ -173,8 +181,8 @@ jobs:
           gh release upload "$tag" release-files/* --clobber
 
           asset_count="$(gh release view "$tag" --json assets --jq '.assets | length')"
-          if [ "$asset_count" -ne 10 ]; then
-            echo "Draft release contains $asset_count assets; expected 10" >&2
+          if [ "$asset_count" -ne 14 ]; then
+            echo "Draft release contains $asset_count assets; expected 14" >&2
             exit 1
           fi
 
@@ -229,7 +237,7 @@ jobs:
             [ -n "$remote_ref" ] || continue
             tag_name="${remote_ref#refs/tags/}"
             rolling_commit="$(git rev-parse "${remote_ref}^{commit}")"
-            if ! git merge-base --is-ancestor "$rolling_commit" "$release_commit"; then
+            if [ "$tag_name" != "${GITHUB_REF_NAME}-pre" ] && ! git merge-base --is-ancestor "$rolling_commit" "$release_commit"; then
               echo "Rolling 指向正式版本之后的提交，保留: $tag_name"
               continue
             fi

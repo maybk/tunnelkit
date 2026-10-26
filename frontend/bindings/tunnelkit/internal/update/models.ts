@@ -13,6 +13,11 @@ export class Info {
     "latestVersion": string;
     "hasUpdate": boolean;
     "releaseUrl"?: string;
+    "assetName"?: string;
+    "assetUrl"?: string;
+    "assetSize"?: number;
+    "assetSha256"?: string;
+    "canSelfUpdate": boolean;
 
     /** Creates a new Info instance. */
     constructor($$source: Partial<Info> = {}) {
@@ -25,6 +30,9 @@ export class Info {
         if (!("hasUpdate" in $$source)) {
             this["hasUpdate"] = false;
         }
+        if (!("canSelfUpdate" in $$source)) {
+            this["canSelfUpdate"] = false;
+        }
 
         Object.assign(this, $$source);
     }
@@ -35,5 +43,45 @@ export class Info {
     static createFrom($$source: any = {}): Info {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new Info($$parsedSource as Partial<Info>);
+    }
+}
+
+/**
+ * Progress 表示应用内自更新的实时阶段与进度。
+ */
+export class Progress {
+    "stage": string;
+    "downloadedBytes": number;
+    "totalBytes": number;
+    "percent": number;
+    "message": string;
+
+    /** Creates a new Progress instance. */
+    constructor($$source: Partial<Progress> = {}) {
+        if (!("stage" in $$source)) {
+            this["stage"] = "";
+        }
+        if (!("downloadedBytes" in $$source)) {
+            this["downloadedBytes"] = 0;
+        }
+        if (!("totalBytes" in $$source)) {
+            this["totalBytes"] = 0;
+        }
+        if (!("percent" in $$source)) {
+            this["percent"] = 0;
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Progress instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Progress {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Progress($$parsedSource as Partial<Progress>);
     }
 }

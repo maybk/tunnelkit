@@ -36,8 +36,8 @@ for required_cask in \
   'on_macos do' \
   'app "tunnelkit.app"' \
   'postflight_steps do' \
-  'system_command "/usr/bin/xattr"' \
-  'args: ["-rd", "com.apple.quarantine", "{{appdir}}/tunnelkit.app"]' \
+  'run "/usr/bin/xattr"' \
+  'args:           ["-rd", "com.apple.quarantine", "{{appdir}}/tunnelkit.app"]' \
   'on_linux do' \
   'binary "tunnelkit"' \
   'binary "tunnelkit-helper"' \

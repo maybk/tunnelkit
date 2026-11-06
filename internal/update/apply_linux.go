@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"tunnelkit/internal/privilege"
 )
 
 func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc) (func() error, error) {
@@ -46,6 +48,9 @@ func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc
 		}
 	}
 
+	if err := privilege.Ensure(ctx, filepath.Join(targetDir, "tunnelkit-helper")); err != nil {
+		return nil, fmt.Errorf("应用已替换，辅助组件升级未完成: %w", err)
+	}
 	restart := func() error {
 		return exec.Command(selfExe).Start()
 	}
@@ -58,32 +63,32 @@ func replaceLinuxFilesElevated(ctx context.Context, stageDir, targetDir string) 
 	dstApp := filepath.Join(targetDir, "tunnelkit")
 	dstHelper := filepath.Join(targetDir, "tunnelkit-helper")
 
-	installArgs := []string{
-		"-m", "0755",
-		srcApp,
-		srcHelper,
-		targetDir,
+	installBin, err := exec.LookPath("install")
+	if err != nil {
+		return err
 	}
-	if installBin, err := exec.LookPath("install"); err == nil {
-		if pkexecPath, pkErr := exec.LookPath("pkexec"); pkErr == nil {
-			args := append([]string{installBin}, installArgs...)
-			out, runErr := exec.CommandContext(ctx, pkexecPath, args...).CombinedOutput()
-			if runErr == nil {
-				return nil
-			}
-			text := strings.ToLower(strings.TrimSpace(string(out)))
-			if strings.Contains(text, "dismissed") || strings.Contains(text, "cancel") {
-				return errors.New("已取消管理员授权，更新未安装")
-			}
-		}
-		if sudoPath, sudoErr := exec.LookPath("sudo"); sudoErr == nil {
-			args := append([]string{"-n", installBin}, installArgs...)
-			if out, runErr := exec.CommandContext(ctx, sudoPath, args...).CombinedOutput(); runErr == nil {
-				return nil
-			} else {
-				return fmt.Errorf("需要管理员权限更新 %s 与 %s: %s (%w)", dstApp, dstHelper, strings.TrimSpace(string(out)), runErr)
-			}
-		}
+	shBin, err := exec.LookPath("sh")
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("无权限写入 %s，请使用包管理器或管理员权限更新", targetDir)
+	script := `"$1" -m 0755 "$2" "$4" && "$1" -m 0755 "$3" "$4" && "$4/tunnelkit-helper" install`
+	args := []string{shBin, "-c", script, "sh", installBin, srcApp, srcHelper, targetDir}
+	if pkexec, err := exec.LookPath("pkexec"); err == nil {
+		out, err := exec.CommandContext(ctx, pkexec, args...).CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("管理员更新失败: %s (%w)", strings.TrimSpace(string(out)), err)
+	}
+	if sudo, err := exec.LookPath("sudo"); err == nil {
+		out, err := exec.CommandContext(ctx, sudo, append([]string{"-n"}, args...)...).CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		return fmt.Errorf("管理员更新失败: %s (%w)", strings.TrimSpace(string(out)), err)
+	}
+	return fmt.Errorf("无权限写入 %s 与 %s，请使用包管理器更新", dstApp, dstHelper)
 }

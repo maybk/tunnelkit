@@ -66,7 +66,7 @@ func MapError(fe *fortivpn.Error) *Error {
 	case fortivpn.CodeNetcfgFailed:
 		return &Error{
 			Message: "配置系统网络失败",
-			Hint:    "路由或 DNS 变更已自动回滚，请在「日志」中查看详细原因。",
+			Hint:    "系统网络配置或恢复未完成，恢复记录会保留以便重试；请在「日志」中查看详细原因。",
 		}
 	case fortivpn.CodeInvalidConfig:
 		return &Error{

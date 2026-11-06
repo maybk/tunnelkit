@@ -24,8 +24,14 @@ func BuildTLSConfig(host string, trustedCerts []string, clientCert *fortivpn.Cli
 	}
 
 	var certs []tls.Certificate
-	if clientCert != nil && clientCert.CertPath != "" && clientCert.KeyPath != "" {
-		kp, err := tls.LoadX509KeyPair(clientCert.CertPath, clientCert.KeyPath)
+	if clientCert != nil {
+		var kp tls.Certificate
+		var err error
+		if !clientCert.CertPEM.IsEmpty() && !clientCert.KeyPEM.IsEmpty() {
+			kp, err = tls.X509KeyPair([]byte(clientCert.CertPEM.Reveal()), []byte(clientCert.KeyPEM.Reveal()))
+		} else {
+			kp, err = tls.LoadX509KeyPair(clientCert.CertPath, clientCert.KeyPath)
+		}
 		if err != nil {
 			return nil, fortivpn.WrapError(fortivpn.CodeInvalidConfig, "failed to load client certificate", err)
 		}

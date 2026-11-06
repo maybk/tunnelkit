@@ -15,6 +15,7 @@ Vue 前端 -> Wails bindings -> internal/api -> internal/vpn -> internal/helperc
 | `internal/api` | 暴露给前端的 Wails 服务适配层 | 负责参数转发、配置文本双向转换与状态拼装 |
 | [`internal/vpn`](../../internal/vpn/README.md) | 桌面端连接状态机、交互式挑战桥接、连接切换与网络异常恢复 | 通过 `helperclient` 控制后台辅助进程 |
 | [`internal/helper`](../../internal/helper/README.md) | 单会话特权辅助服务、脱敏日志落盘与网络恢复看门狗 | 仅响应通过本机身份与一次性令牌校验的连接 |
+| [`internal/privilege`](../../internal/privilege/README.md) | 受保护辅助组件安装、完整性与权限校验、授权调用、平台服务与系统运行路径 | 供 helper、helperclient、update 复用，不依赖 VPN 或 GUI |
 | `internal/profile` | 配置增删改查、字段校验与密码加密存储 | 不感知运行期隧道会话 |
 | `internal/storage` | `~/.tunnelkit` 目录布局与原子文件写入 | 不依赖上层业务模型 |
 | `internal/update` | GitHub Releases 版本更新检查、多源降级与语义化版本比较 | 零业务耦合，严格校验发布页跳转地址 |
@@ -42,6 +43,7 @@ tunnelkit/
 │   ├── ipc/                   # 本地 IPC 帧协议与调用方身份校验
 │   ├── helper/                # 特权辅助服务端与脱敏日志器
 │   ├── helperclient/          # 辅助进程按需拉起与客户端封装
+│   ├── privilege/             # 特权组件安装、校验、授权与受保护运行目录
 │   ├── profile/               # 配置模型、校验器、持久化与密码库
 │   ├── storage/               # 数据目录路径与原子写入
 │   ├── update/                # 版本更新检查、多源回退与版本比较

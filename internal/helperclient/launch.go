@@ -11,17 +11,21 @@ import (
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/ipc"
+	"tunnelkit/internal/privilege"
 )
 
 var (
 	// ErrElevationCancelled is returned when the user cancels the OS administrator/UAC prompt.
-	ErrElevationCancelled = errors.New("elevation cancelled by user")
+	ErrElevationCancelled = privilege.ErrCancelled
 
 	// ErrProtocolMismatch is returned when a running helper speaks a different IPC protocol version.
 	ErrProtocolMismatch = errors.New("helper protocol version mismatch")
 
 	// ErrHelperMissing is returned when the tunnelkit-helper binary cannot be found.
 	ErrHelperMissing = errors.New("tunnelkit-helper binary not found")
+
+	// ErrRecoveryPending means a failed launch may still own an active helper.
+	ErrRecoveryPending = errors.New("helper cleanup is unconfirmed; recovery ticket retained")
 )
 
 // Ticket stores the connection metadata needed to re-attach to a running helper
@@ -37,13 +41,13 @@ type Ticket struct {
 
 // LaunchRequest describes how to spawn and initialize a new helper session.
 type LaunchRequest struct {
-	HelperPath  string
-	Endpoint    string
-	LogPath     string
-	JournalPath string
-	Config      fortivpn.Config
-	ProfileID   string
-	ProfileName string
+	HelperPath   string
+	Config       fortivpn.Config
+	ProfileID    string
+	ProfileName  string
+	RecoveryOnly bool
+	// OnReady persists the recovery ticket synchronously before start is sent.
+	OnReady func(Ticket) error
 }
 
 // LocateHelper finds the tunnelkit-helper executable next to the running GUI
@@ -113,6 +117,11 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 		return nil, Ticket{}, fmt.Errorf("%w: %s", ErrHelperMissing, helperPath)
 	}
 
+	prepared, err := prepareClientCertificate(req.Config)
+	if err != nil {
+		return nil, Ticket{}, err
+	}
+	req.Config = prepared
 	token, err := ipc.GenerateToken()
 	if err != nil {
 		return nil, Ticket{}, fmt.Errorf("generate session token: %w", err)
@@ -124,42 +133,30 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 		return nil, Ticket{}, err
 	}
 
-	endpoint := req.Endpoint
-	if endpoint == "" {
-		endpoint, err = defaultEndpoint()
-		if err != nil {
-			return nil, Ticket{}, err
-		}
-	}
-
-	// Remove any leftover unix socket before launching a new single-session helper.
-	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-		_ = os.Remove(endpoint)
-	}
-
-	if err := launchElevated(ctx, helperPath, endpoint, ownerID, tokenHash, req.LogPath, req.JournalPath); err != nil {
+	endpoint, err := defaultEndpoint()
+	if err != nil {
 		return nil, Ticket{}, err
 	}
 
-	conn, err := dialWithRetry(ctx, endpoint, 10*time.Second)
+	exited, err := launchElevated(ctx, helperPath, endpoint, ownerID, tokenHash)
 	if err != nil {
-		return nil, Ticket{}, fmt.Errorf("connect to helper IPC: %w", err)
+		return nil, Ticket{}, err
+	}
+
+	conn, err := dialWithProcess(ctx, endpoint, 10*time.Second, exited)
+	if err != nil {
+		cleanupLaunch(endpoint, token)
+		return nil, Ticket{}, fmt.Errorf("辅助组件未能就绪，请确认系统支持安装的特权组件: %w", err)
 	}
 
 	client, _, err := handshakeAndServe(ctx, conn, token)
 	if err != nil {
 		_ = conn.Close()
+		cleanupLaunch(endpoint, token)
 		return nil, Ticket{}, err
 	}
 
-	if err := client.Start(ctx, req.Config); err != nil {
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
-		_ = client.Stop(stopCtx)
-		stopCancel()
-		_ = client.Close()
-		return nil, Ticket{}, err
-	}
-
+	client.processExit = exited
 	ticket := Ticket{
 		Endpoint:    endpoint,
 		Token:       token,
@@ -168,6 +165,27 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 		ProfileName: req.ProfileName,
 		StartedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
+	if req.OnReady != nil {
+		if err := req.OnReady(ticket); err != nil {
+			_ = client.Close()
+			_ = cleanupLaunch(endpoint, token)
+			return nil, Ticket{}, err
+		}
+	}
+	var startErr error
+	if req.RecoveryOnly {
+		startErr = client.RecoverNetwork(ctx)
+	} else {
+		startErr = client.Start(ctx, req.Config)
+	}
+	if err := startErr; err != nil {
+		_ = client.Close()
+		if cleanupErr := cleanupLaunch(endpoint, token); cleanupErr != nil {
+			return nil, ticket, fmt.Errorf("%w: %v", ErrRecoveryPending, cleanupErr)
+		}
+		return nil, Ticket{}, err
+	}
+
 	return client, ticket, nil
 }
 
@@ -193,6 +211,10 @@ func Attach(ctx context.Context, t Ticket) (*Client, *fortivpn.Event, error) {
 }
 
 func dialWithRetry(ctx context.Context, endpoint string, maxWait time.Duration) (*ipc.Conn, error) {
+	return dialWithProcess(ctx, endpoint, maxWait, nil)
+}
+
+func dialWithProcess(ctx context.Context, endpoint string, maxWait time.Duration, exited <-chan error) (*ipc.Conn, error) {
 	deadline := time.Now().Add(maxWait)
 	var lastErr error
 	for {
@@ -202,6 +224,14 @@ func dialWithRetry(ctx context.Context, endpoint string, maxWait time.Duration) 
 		if err == nil {
 			return conn, nil
 		}
+		select {
+		case processErr := <-exited:
+			if processErr == nil {
+				processErr = errors.New("辅助组件在就绪前退出")
+			}
+			return nil, processErr
+		default:
+		}
 		lastErr = err
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -209,6 +239,72 @@ func dialWithRetry(ctx context.Context, endpoint string, maxWait time.Duration) 
 		if time.Now().After(deadline) {
 			return nil, lastErr
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+func installedHelperPath(ctx context.Context, source string) (string, error) {
+	if source == "" {
+		var ok bool
+		source, ok = LocateHelper()
+		if !ok {
+			return "", ErrHelperMissing
+		}
+	}
+	if err := privilege.Ensure(ctx, source); err != nil {
+		return "", err
+	}
+	return privilege.ExecutablePath()
+}
+
+func buildServeArgs(ownerFlag, endpoint, ownerID, tokenSHA256 string) []string {
+	return []string{
+		"serve",
+		"--endpoint", endpoint,
+		ownerFlag, ownerID,
+		"--token-sha256", tokenSHA256,
+	}
+}
+
+// cleanupLaunch cooperatively stops an authenticated helper after cancellation.
+// The helper also exits through its short hello watchdog if no socket is ready.
+func cleanupLaunch(endpoint, token string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, err := dialWithRetry(ctx, endpoint, 2*time.Second)
+	if err != nil {
+		if ipc.EndpointUnavailable(err) {
+			return nil
+		}
+		return err
+	}
+	defer conn.Close()
+	client, _, err := handshakeAndServe(ctx, conn, token)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	if err := client.Stop(ctx); err != nil {
+		return err
+	}
+	for {
+		select {
+		case message, ok := <-client.Events():
+			if !ok {
+				return nil
+			}
+			if message.Event != nil && message.Event.Phase == fortivpn.PhaseDisconnected {
+				if message.Event.Err != nil {
+					return message.Event.Err
+				}
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }

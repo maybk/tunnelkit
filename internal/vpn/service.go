@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"tunnelkit/fortivpn"
@@ -18,6 +17,7 @@ var (
 	ErrBusy           = errors.New("正在处理上一个连接操作，请稍候")
 	ErrInvalidProfile = errors.New("配置 ID 无效")
 	ErrNoActivePrompt = errors.New("当前没有待响应的验证提示")
+	ErrClosed         = errors.New("VPN 服务正在关闭")
 )
 
 // Conn 抽象与运行中 helper 的 IPC 连接（便于单测注入假实现）。
@@ -28,7 +28,7 @@ type Conn interface {
 	Close() error
 }
 
-// Launcher 抽象提权启动与重新接入 helper 的能力。
+// Launcher 抽象启动与重新接入 helper；实现须在发送 start 前同步调用 OnReady 保存恢复票据。
 type Launcher interface {
 	Launch(ctx context.Context, req helperclient.LaunchRequest) (Conn, helperclient.Ticket, error)
 	Attach(ctx context.Context, t helperclient.Ticket) (Conn, *fortivpn.Event, error)
@@ -62,12 +62,15 @@ type Service struct {
 	launcher     Launcher
 	readyTimeout time.Duration
 
-	opRunning atomic.Bool
+	opRunning    bool
+	closing      bool
+	shutdownGate chan struct{}
 	// emitMu 串行化“写状态 + 通知监听者”，保证前端与菜单栏收到的状态顺序与发生顺序一致。
 	emitMu            sync.Mutex
 	mu                sync.RWMutex
 	state             State
 	conn              Conn
+	waitHelper        func(context.Context) error
 	streamDone        <-chan struct{}
 	opDone            chan struct{}
 	cancelConnect     context.CancelFunc
@@ -88,6 +91,7 @@ func NewService(rootDir string, profiles *profile.Store, launcher Launcher) *Ser
 		tickets:      NewTicketStore(rootDir),
 		launcher:     launcher,
 		readyTimeout: 60 * time.Second,
+		shutdownGate: make(chan struct{}, 1),
 		state:        State{Status: StatusDisconnected, Phase: fortivpn.PhaseDisconnected},
 	}
 }
@@ -173,15 +177,22 @@ func (s *Service) RemoveLog(profileID string) error {
 }
 
 func (s *Service) begin() (func(), error) {
-	if !s.opRunning.CompareAndSwap(false, true) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing {
+		return nil, ErrClosed
+	}
+	if s.opRunning {
 		return nil, ErrBusy
 	}
 	done := make(chan struct{})
-	s.mu.Lock()
+	s.opRunning = true
 	s.opDone = done
-	s.mu.Unlock()
 	return func() {
-		s.opRunning.Store(false)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.opRunning = false
+		s.opDone = nil
 		close(done)
 	}, nil
 }

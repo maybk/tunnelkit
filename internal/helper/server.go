@@ -13,6 +13,7 @@ import (
 	"tunnelkit/fortivpn"
 	"tunnelkit/fortivpn/engine"
 	"tunnelkit/internal/ipc"
+	"tunnelkit/internal/privilege"
 )
 
 // Options configures a single-session tunnelkit-helper execution.
@@ -26,12 +27,17 @@ type Options struct {
 	HelloTimeout  time.Duration
 	PromptTimeout time.Duration
 	ExitGrace     time.Duration
+	ClientGrace   time.Duration
 	EngineOptions []engine.Option
+	streamLogs    bool
 }
 
 func (o Options) withDefaults(defaultExitGrace time.Duration) Options {
 	if o.HelloTimeout <= 0 {
-		o.HelloTimeout = 60 * time.Second
+		o.HelloTimeout = 15 * time.Second
+	}
+	if o.ClientGrace <= 0 {
+		o.ClientGrace = 30 * time.Second
 	}
 	if o.ExitGrace <= 0 {
 		o.ExitGrace = defaultExitGrace
@@ -43,16 +49,30 @@ func (o Options) withDefaults(defaultExitGrace time.Duration) Options {
 }
 
 // Serve runs the single-session privileged helper lifecycle:
-//  1. Roll back any stale journal entries via engine.Recover.
-//  2. Listen on Endpoint restricted to OwnerID.
-//  3. Require a valid hello handshake within HelloTimeout (default 60s).
-//  4. Accept a single start command, execute engine.Run, stream Events/Prompts,
-//     and exit after the VPN session terminates.
+//  1. Validate the kernel caller identity and fixed endpoint, acquire the system lock.
+//  2. Listen on Endpoint restricted to OwnerID and require hello within 15 seconds.
+//  3. After authentication and start, recover the protected journal, run the engine,
+//     stream redacted logs/events/prompts, and exit when the session terminates.
 func Serve(ctx context.Context, opts Options) error {
 	opts = opts.withDefaults(500 * time.Millisecond)
-	if opts.JournalPath != "" {
-		_ = engine.Recover(ctx, opts.JournalPath)
+	if err := privilege.ValidateEndpoint(opts.OwnerID, opts.Endpoint); err != nil {
+		return err
 	}
+	lock, err := privilege.AcquireSession()
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := privilege.PrepareEndpoint(opts.OwnerID); err != nil {
+		return err
+	}
+	journal, err := privilege.JournalPath(opts.OwnerID)
+	if err != nil {
+		return err
+	}
+	opts.JournalPath = journal
+	opts.LogPath = ""
+	opts.streamLogs = true
 
 	ln, err := ipc.Listen(opts.Endpoint, opts.OwnerID)
 	if err != nil {
@@ -81,18 +101,20 @@ func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *s
 	defer cancelRun()
 
 	state := newSessionState(opts.PromptTimeout)
+	if opts.streamLogs {
+		logger = NewLogger(sessionLogWriter{state})
+	}
 
 	var (
-		helloReceived atomic.Bool
-		started       atomic.Bool
-		engineCancel  atomic.Pointer[context.CancelFunc]
-		engineDone    = make(chan error, 1)
-		wg            sync.WaitGroup
+		started      atomic.Bool
+		engineCancel atomic.Pointer[context.CancelFunc]
+		engineDone   = make(chan error, 1)
+		wg           sync.WaitGroup
 	)
 
-	// Initial 60s watchdog if no client ever completes hello.
+	// A successful hello alone must not leave an idle privileged process behind.
 	helloTimer := time.AfterFunc(opts.HelloTimeout, func() {
-		if !helloReceived.Load() {
+		if !started.Load() {
 			cancelRun()
 			_ = ln.Close()
 		}
@@ -104,6 +126,16 @@ func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *s
 		<-runCtx.Done()
 		_ = ln.Close()
 		state.CloseClient()
+	}()
+
+	var leaseMu sync.Mutex
+	var orphanTimer *time.Timer
+	defer func() {
+		leaseMu.Lock()
+		if orphanTimer != nil {
+			orphanTimer.Stop()
+		}
+		leaseMu.Unlock()
 	}()
 
 	handleClient := func(conn *ipc.Conn) {
@@ -131,13 +163,33 @@ func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *s
 			return
 		}
 
-		helloReceived.Store(true)
-		helloTimer.Stop()
-
 		if err := state.AttachClient(conn, env.ID, opts.Version); err != nil {
 			return
 		}
-		defer state.ClearClient(conn)
+		leaseMu.Lock()
+		if orphanTimer != nil {
+			orphanTimer.Stop()
+			orphanTimer = nil
+		}
+		leaseMu.Unlock()
+		defer func() {
+			if !state.ClearClient(conn) || !started.Load() {
+				return
+			}
+			leaseMu.Lock()
+			defer leaseMu.Unlock()
+			if orphanTimer != nil {
+				orphanTimer.Stop()
+			}
+			orphanTimer = time.AfterFunc(opts.ClientGrace, func() {
+				leaseMu.Lock()
+				defer leaseMu.Unlock()
+				if !state.HasClient() {
+					cancelRun()
+					_ = ln.Close()
+				}
+			})
+		}()
 
 		for {
 			msg, err := conn.ReadEnvelope()
@@ -145,22 +197,35 @@ func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *s
 				return
 			}
 			switch msg.Type {
-			case ipc.TypeStart:
+			case ipc.TypeStart, ipc.TypeRecover:
+				recoveryOnly := msg.Type == ipc.TypeRecover
+				var startData ipc.StartData
+				if recoveryOnly {
+					if _, err := ipc.DecodeStrict[ipc.StopData](msg.Data); err != nil {
+						_ = conn.Send(ipc.TypeResult, msg.ID, ipc.ResultData{ID: msg.ID, Error: "invalid recovery request"})
+						continue
+					}
+				} else {
+					var err error
+					startData, err = ipc.DecodeStrict[ipc.StartData](msg.Data)
+					if err != nil {
+						_ = conn.Send(ipc.TypeResult, msg.ID, ipc.ResultData{ID: msg.ID, Error: err.Error()})
+						continue
+					}
+					if cert := startData.Config.ClientCert; cert != nil && (cert.CertPath != "" || cert.KeyPath != "") {
+						_ = conn.Send(ipc.TypeResult, msg.ID, ipc.ResultData{ID: msg.ID, Error: "client certificate files must be read by the desktop process"})
+						continue
+					}
+					if err := startData.Config.Validate(); err != nil {
+						_ = conn.Send(ipc.TypeResult, msg.ID, ipc.ResultData{ID: msg.ID, Error: err.Error()})
+						continue
+					}
+				}
 				if !started.CompareAndSwap(false, true) {
 					_ = conn.Send(ipc.TypeResult, msg.ID, ipc.ResultData{ID: msg.ID, Error: "session already started"})
 					continue
 				}
-				startData, err := ipc.DecodeStrict[ipc.StartData](msg.Data)
-				if err != nil {
-					started.Store(false)
-					_ = conn.Send(ipc.TypeResult, msg.ID, ipc.ResultData{ID: msg.ID, Error: err.Error()})
-					continue
-				}
-				if err := startData.Config.Validate(); err != nil {
-					started.Store(false)
-					_ = conn.Send(ipc.TypeResult, msg.ID, ipc.ResultData{ID: msg.ID, Error: err.Error()})
-					continue
-				}
+				helloTimer.Stop()
 				_ = conn.Send(ipc.TypeResult, msg.ID, ipc.ResultData{ID: msg.ID})
 
 				eCtx, eCancel := context.WithCancel(runCtx)
@@ -176,7 +241,17 @@ func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *s
 				engOpts = append(engOpts, opts.EngineOptions...)
 
 				go func(cfg fortivpn.Config) {
-					err := engine.Run(eCtx, cfg, state, engOpts...)
+					var err error
+					if opts.JournalPath != "" {
+						err = engine.Recover(eCtx, opts.JournalPath)
+					}
+					if err == nil && recoveryOnly {
+						state.OnEvent(fortivpn.Event{Phase: fortivpn.PhaseDisconnected})
+					} else if err == nil {
+						err = engine.Run(eCtx, cfg, state, engOpts...)
+					} else {
+						state.OnEvent(fortivpn.Event{Phase: fortivpn.PhaseDisconnected, Err: fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "恢复网络配置失败", err)})
+					}
 					_ = ln.Close()
 					engineDone <- err
 					time.Sleep(opts.ExitGrace)

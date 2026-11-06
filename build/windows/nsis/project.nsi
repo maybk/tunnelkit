@@ -82,6 +82,16 @@ OutFile "..\..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the i
 !endif
 ShowInstDetails show # This will always show the installation details.
 
+# Never terminate a privileged VPN helper before it restores host networking.
+!macro tunnelkit.requireHelperStopped
+    nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -Command "if (Get-Process -Name 'tunnelkit-helper' -ErrorAction SilentlyContinue) { exit 1 }"`
+    Pop $0
+    ${If} $0 != 0
+        MessageBox MB_ICONSTOP "请先断开 VPN 并退出 TunnelKit，再重试安装或卸载。"
+        Abort
+    ${EndIf}
+!macroend
+
 Function .onInit
    !insertmacro wails.checkArchitecture
 FunctionEnd
@@ -89,8 +99,9 @@ FunctionEnd
 Section
     !insertmacro wails.setShellContext
 
-    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}" /T'
-    nsExec::ExecToLog 'taskkill /F /IM "tunnelkit-helper.exe" /T'
+    !insertmacro tunnelkit.requireHelperStopped
+    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}"'
+    Pop $0
     Sleep 300
 
     !insertmacro wails.webview2runtime
@@ -112,6 +123,13 @@ Section
         File "..\..\..\bin\wintun.dll"
     !endif
 
+    nsExec::ExecToLog '"$INSTDIR\tunnelkit-helper.exe" install-service'
+    Pop $0
+    ${If} $0 != 0
+        MessageBox MB_ICONSTOP "无法安装 TunnelKit 特权辅助服务，请确认已授予管理员权限。"
+        Abort
+    ${EndIf}
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
@@ -124,8 +142,15 @@ SectionEnd
 Section "uninstall" 
     !insertmacro wails.setShellContext
 
-    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}" /T'
-    nsExec::ExecToLog 'taskkill /F /IM "tunnelkit-helper.exe" /T'
+    nsExec::ExecToLog '"$INSTDIR\tunnelkit-helper.exe" uninstall-service'
+    Pop $0
+    ${If} $0 != 0
+        MessageBox MB_ICONSTOP "无法停止并卸载 TunnelKit 特权辅助服务，请先断开 VPN 后重试。"
+        Abort
+    ${EndIf}
+    !insertmacro tunnelkit.requireHelperStopped
+    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}"'
+    Pop $0
     Sleep 300
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath

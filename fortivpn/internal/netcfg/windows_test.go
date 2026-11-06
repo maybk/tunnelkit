@@ -4,6 +4,7 @@ package netcfg
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 type fakeWindowsOps struct {
 	calls           []string
 	hostRouteExists bool
+	deleteErr       error
 	appliedRoutes   []netip.Prefix
 }
 
@@ -57,7 +59,7 @@ func (f *fakeWindowsOps) addHostRoute(_ winipcfg.LUID, prefix netip.Prefix, _ ne
 
 func (f *fakeWindowsOps) deleteHostRoute(_ winipcfg.LUID, prefix netip.Prefix, _ netip.Addr) error {
 	f.calls = append(f.calls, "deleteHostRoute:"+prefix.String())
-	return nil
+	return f.deleteErr
 }
 
 func (f *fakeWindowsOps) applyDNS(_ context.Context, _ winipcfg.LUID, _ DNSPlan, journal *Journal) error {
@@ -157,5 +159,21 @@ func TestWindowsRouteFlushPrecedesIPv4AddressAssignment(t *testing.T) {
 	}
 	if _, err := os.Stat(jPath); !os.IsNotExist(err) {
 		t.Errorf("expected journal file to be removed on Close, err = %v", err)
+	}
+}
+
+func TestWindowsCloseRetainsPendingRecoveryOnFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "journal.json")
+	journal := NewJournal(path)
+	if err := journal.Record(JournalEntry{Kind: KindHostRoute, Gateway: "198.51.100.10", NextHop: "192.0.2.1", LUID: 123}); err != nil {
+		t.Fatal(err)
+	}
+	applied := &windowsApplied{journal: journal, ops: &fakeWindowsOps{deleteErr: errors.New("system operation unavailable")}}
+	if err := applied.Close(context.Background()); err == nil {
+		t.Fatal("expected cleanup error")
+	}
+	pending, err := LoadJournal(path)
+	if err != nil || len(pending.Entries()) != 1 {
+		t.Fatalf("lost pending recovery: %v", err)
 	}
 }

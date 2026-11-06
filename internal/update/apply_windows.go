@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"tunnelkit/internal/privilege"
 )
 
 func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc) (func() error, error) {
@@ -50,6 +52,9 @@ func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc
 		}
 	}
 
+	if err := privilege.Ensure(ctx, filepath.Join(targetDir, "tunnelkit-helper.exe")); err != nil {
+		return nil, fmt.Errorf("应用已替换，辅助组件升级未完成: %w", err)
+	}
 	targetExe := filepath.Join(targetDir, "tunnelkit.exe")
 	restart := func() error {
 		return exec.Command(targetExe).Start()
@@ -72,6 +77,7 @@ func replaceWindowsFilesElevated(ctx context.Context, stageDir, targetDir string
 		lines = append(lines, fmt.Sprintf(`if exist "%s" move /y "%s" "%s" >nul`, dst, dst, old))
 		lines = append(lines, fmt.Sprintf(`copy /y "%s" "%s" >nul || (echo fail > "%s" & exit /b 1)`, src, dst, errSentinel))
 	}
+	lines = append(lines, fmt.Sprintf(`"%s" install-service >nul 2>&1 || (echo fail > "%s" & exit /b 1)`, filepath.Join(targetDir, "tunnelkit-helper.exe"), errSentinel))
 	lines = append(lines, fmt.Sprintf(`echo ok > "%s"`, okSentinel))
 	content := strings.Join(lines, "\r\n") + "\r\n"
 	if err := os.WriteFile(scriptPath, []byte(content), 0o700); err != nil {

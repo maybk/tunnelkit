@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 )
 
@@ -59,9 +60,11 @@ func LoadJournal(path string) (*Journal, error) {
 	if len(data) == 0 {
 		return j, nil
 	}
-	if err := json.Unmarshal(data, &j.list); err != nil {
+	entries, err := decodeJournal(data)
+	if err != nil {
 		return nil, err
 	}
+	j.list = entries
 	return j, nil
 }
 
@@ -78,8 +81,13 @@ func (j *Journal) Record(entry JournalEntry) error {
 			return nil
 		}
 	}
+	previous := j.list
 	j.list = append(j.list, entry)
-	return j.flushLocked()
+	if err := j.flushLocked(); err != nil {
+		j.list = previous
+		return err
+	}
+	return nil
 }
 
 // Remove deletes a specific entry (e.g. when a pre-existing host route was not
@@ -90,7 +98,8 @@ func (j *Journal) Remove(entry JournalEntry) error {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	filtered := j.list[:0]
+	previous := j.list
+	filtered := make([]JournalEntry, 0, len(j.list))
 	changed := false
 	for _, existing := range j.list {
 		if existing == entry {
@@ -99,11 +108,15 @@ func (j *Journal) Remove(entry JournalEntry) error {
 		}
 		filtered = append(filtered, existing)
 	}
-	j.list = filtered
 	if !changed {
 		return nil
 	}
-	return j.flushLocked()
+	j.list = filtered
+	if err := j.flushLocked(); err != nil {
+		j.list = previous
+		return err
+	}
+	return nil
 }
 
 // Entries returns a copy of the recorded entries in reverse order (LIFO rollback order).
@@ -127,13 +140,12 @@ func (j *Journal) Clear() error {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if j.path != "" {
+		if err := os.Remove(j.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
 	j.list = nil
-	if j.path == "" {
-		return nil
-	}
-	if err := os.Remove(j.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
 	return nil
 }
 
@@ -149,9 +161,35 @@ func (j *Journal) flushLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := j.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	file, err := os.CreateTemp(dir, ".netcfg-journal-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, j.path)
+	temp := file.Name()
+	defer os.Remove(temp)
+	defer file.Close()
+	if err := file.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temp, j.path); err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" {
+		parent, err := os.Open(dir)
+		if err != nil {
+			return err
+		}
+		defer parent.Close()
+		return parent.Sync()
+	}
+	return nil
 }

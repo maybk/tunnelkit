@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -38,7 +37,6 @@ func TestHelperEndToEndWithOTPAndReattach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
-	logPath := filepath.Join(t.TempDir(), "last.log")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -47,7 +45,7 @@ func TestHelperEndToEndWithOTPAndReattach(t *testing.T) {
 	go func() {
 		serveDone <- ServeListener(ctx, ln, Options{
 			TokenSHA256: ipc.HashToken(token),
-			LogPath:     logPath,
+			streamLogs:  true,
 			Version:     "0.2.0-test",
 			ExitGrace:   50 * time.Millisecond,
 			EngineOptions: []engine.Option{
@@ -93,11 +91,15 @@ func TestHelperEndToEndWithOTPAndReattach(t *testing.T) {
 
 	// 3. Wait for OTP Prompt and answer it
 	var sawConnected bool
+	var sawLog bool
 	for !sawConnected {
 		select {
 		case msg, ok := <-cli1.Events():
 			if !ok {
 				t.Fatal("cli1 Events closed unexpectedly before PhaseConnected")
+			}
+			if msg.LogLine != "" {
+				sawLog = true
 			}
 			if msg.Prompt != nil {
 				if err := cli1.Answer(ctx, msg.Prompt.ID, "888999", false); err != nil {
@@ -110,6 +112,10 @@ func TestHelperEndToEndWithOTPAndReattach(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal("timed out waiting for PhaseConnected")
 		}
+	}
+
+	if !sawLog {
+		t.Fatal("expected helper session logs over IPC")
 	}
 
 	// 4. Simulate GUI restart: attach a second client and verify Snapshot is PhaseConnected
@@ -181,4 +187,89 @@ func stringContains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestSessionBuffersLogsUntilDesktopReattaches(t *testing.T) {
+	state := newSessionState(time.Second)
+	writer := sessionLogWriter{state}
+	text := "Connecting to gateway.\nSession state restored.\n"
+	if _, err := writer.Write([]byte(text)); err != nil {
+		t.Fatal(err)
+	}
+	server, client := net.Pipe()
+	defer server.Close()
+	done := make(chan error, 1)
+	go func() {
+		conn := ipc.NewConn(server)
+		hello, err := conn.ReadEnvelope()
+		if err != nil {
+			done <- err
+			return
+		}
+		done <- state.AttachClient(conn, hello.ID, "test")
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cli, _, err := helperclient.ConnectDial(ctx, ipc.NewConn(client), "synthetic-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cli.Close()
+	select {
+	case msg := <-cli.Events():
+		if msg.LogLine != text {
+			t.Fatalf("log backlog: %q", msg.LogLine)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHelperRecoversWithoutVPNConfigAndExits(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	token, err := ipc.GenerateToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- ServeListener(ctx, ln, Options{TokenSHA256: ipc.HashToken(token), ExitGrace: time.Millisecond})
+	}()
+	raw, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli, _, err := helperclient.ConnectDial(ctx, ipc.NewConn(raw), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cli.Close()
+	if err := cli.RecoverNetwork(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case msg := <-cli.Events():
+		if msg.Event == nil || msg.Event.Phase != fortivpn.PhaseDisconnected || msg.Event.Err != nil {
+			t.Fatalf("recovery unexpectedly started a VPN or failed: %+v", msg)
+		}
+	case <-ctx.Done():
+		t.Fatal("network-only recovery did not finish")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("network-only helper did not exit")
+	}
 }

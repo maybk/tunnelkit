@@ -11,6 +11,6 @@ func defaultEndpoint() (string, error) {
 	return "", errors.New("helper launch is not supported on this platform")
 }
 
-func launchElevated(_ context.Context, _, _, _, _, _, _ string) error {
-	return errors.New("helper launch is not supported on this platform")
+func launchElevated(_ context.Context, _, _, _, _ string) (<-chan error, error) {
+	return nil, errors.New("helper launch is not supported on this platform")
 }

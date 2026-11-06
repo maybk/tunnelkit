@@ -274,8 +274,10 @@ func (a *darwinApplied) Close(ctx context.Context) error {
 	if err := rollbackJournalEntries(ctx, a.run, a.journal); err != nil {
 		errs = append(errs, err)
 	}
-	if err := a.journal.Clear(); err != nil {
-		errs = append(errs, err)
+	if len(errs) == 0 {
+		if err := a.journal.Clear(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -289,8 +291,10 @@ func recoverWithRunner(ctx context.Context, journalPath string, run cmdRunner) e
 	if err := rollbackJournalEntries(ctx, run, journal); err != nil {
 		errs = append(errs, err)
 	}
-	if err := journal.Clear(); err != nil {
-		errs = append(errs, err)
+	if len(errs) == 0 {
+		if err := journal.Clear(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }

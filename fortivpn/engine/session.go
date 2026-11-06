@@ -95,9 +95,7 @@ func (s *session) run(ctx context.Context) error {
 
 	for {
 		if ctx.Err() != nil {
-			s.teardown(client, cookie)
-			s.emit(fortivpn.Event{Phase: fortivpn.PhaseDisconnected})
-			return nil
+			return s.failAndCleanup(client, cookie, nil)
 		}
 
 		if cookie == "" {
@@ -185,9 +183,7 @@ func (s *session) run(ctx context.Context) error {
 			}
 			s.lastInfo = info
 			lnk.gracefulClose(disconnectTimeout)
-			s.teardown(client, cookie)
-			s.emit(fortivpn.Event{Phase: fortivpn.PhaseDisconnected})
-			return nil
+			return s.failAndCleanup(client, cookie, nil)
 		}
 
 		s.emit(fortivpn.Event{Phase: fortivpn.PhaseConfiguring})
@@ -226,9 +222,7 @@ func (s *session) run(ctx context.Context) error {
 			s.emit(fortivpn.Event{Phase: fortivpn.PhaseDisconnecting})
 			s.log.Info("Cancelling threads...")
 			lnk.gracefulClose(disconnectTimeout)
-			s.teardown(client, cookie)
-			s.emit(fortivpn.Event{Phase: fortivpn.PhaseDisconnected})
-			return nil
+			return s.failAndCleanup(client, cookie, nil)
 		}
 
 		lnk.close()
@@ -456,24 +450,26 @@ func (s *session) buildDesiredAndInfo(
 	return desired, info, nil
 }
 
-func (s *session) failAndCleanup(client *sslvpn.Client, cookie string, err error) error {
-	if errors.Is(err, context.Canceled) {
+func (s *session) failAndCleanup(client *sslvpn.Client, cookie string, cause error) error {
+	if errors.Is(cause, context.Canceled) {
 		s.log.Info("Session cancelled.")
-		s.teardown(client, cookie)
+		cause = nil
+	}
+	if cleanupErr := s.teardown(client, cookie); cleanupErr != nil {
+		cause = fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "Network cleanup incomplete", errors.Join(cause, cleanupErr))
+	}
+	if cause == nil {
 		s.emit(fortivpn.Event{Phase: fortivpn.PhaseDisconnected})
 		return nil
 	}
-	fe := asFortiError(fortivpn.CodeGatewayUnreachable, err)
+	fe := asFortiError(fortivpn.CodeGatewayUnreachable, cause)
 	s.log.Error("Session failed.", "code", fe.Code, "error", fe.Error())
-	s.teardown(client, cookie)
-	s.emit(fortivpn.Event{
-		Phase: fortivpn.PhaseDisconnected,
-		Err:   fe,
-	})
+	s.emit(fortivpn.Event{Phase: fortivpn.PhaseDisconnected, Err: fe})
 	return fe
 }
 
-func (s *session) teardown(client *sslvpn.Client, cookie string) {
+func (s *session) teardown(client *sslvpn.Client, cookie string) error {
+	var cleanupErrors []error
 	s.activeLink.Store(nil)
 
 	s.mu.Lock()
@@ -485,18 +481,30 @@ func (s *session) teardown(client *sslvpn.Client, cookie string) {
 
 	if applied != nil {
 		s.log.Info("Restoring routes...")
-		_ = applied.Close(context.Background())
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		if err := applied.Close(cleanupCtx); err != nil {
+			cleanupErrors = append(cleanupErrors, err)
+		}
+		cancel()
 	}
 
 	if dev != nil {
-		_ = dev.Close()
+		if err := dev.Close(); err != nil {
+			cleanupErrors = append(cleanupErrors, err)
+		}
 		s.devWg.Wait()
 	}
 
 	if cookie != "" && client != nil {
-		_ = client.Logout(context.Background(), cookie)
-		s.log.Info("Logged out.")
+		logoutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := client.Logout(logoutCtx, cookie); err == nil {
+			s.log.Info("Logged out.")
+		} else {
+			s.log.Warn("Gateway logout did not complete.")
+		}
+		cancel()
 	}
+	return errors.Join(cleanupErrors...)
 }
 
 func (s *session) snapshotStats() fortivpn.Stats {

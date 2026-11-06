@@ -1,11 +1,15 @@
 package vpn
 
 import (
+	"context"
+	"log/slog"
+	"os"
 	"sync"
 	"time"
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/helperclient"
+	"tunnelkit/internal/storage"
 )
 
 func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-chan *Error, <-chan struct{}) {
@@ -15,6 +19,9 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 	s.mu.Lock()
 	oldConn := s.conn
 	s.conn = conn
+	if process, ok := conn.(interface{ WaitForExit(context.Context) error }); ok {
+		s.waitHelper = process.WaitForExit
+	}
 	s.streamDone = doneCh
 	s.mu.Unlock()
 
@@ -32,6 +39,12 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 	go func() {
 		defer close(doneCh)
 
+		logFile, logErr := os.OpenFile(storage.LogPath(s.rootDir, ticket.ProfileID), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+		if logErr != nil {
+			slog.Warn("无法打开连接日志", "error", logErr)
+		} else {
+			defer logFile.Close()
+		}
 		var sawDisconnected bool
 		for msg := range conn.Events() {
 			s.mu.RLock()
@@ -42,6 +55,16 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 				continue
 			}
 
+			if msg.LogLine != "" {
+				if logFile != nil {
+					if _, err := logFile.WriteString(msg.LogLine); err != nil {
+						slog.Warn("写入连接日志失败", "error", err)
+						_ = logFile.Close()
+						logFile = nil
+					}
+				}
+				continue
+			}
 			if msg.Prompt != nil {
 				if cur.Status == StatusDisconnecting {
 					continue
@@ -92,7 +115,9 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 
 			case fortivpn.PhaseDisconnected:
 				sawDisconnected = true
-				_ = s.tickets.Clear()
+				if ev.Err == nil || ev.Err.Code != fortivpn.CodeNetcfgFailed {
+					_ = s.tickets.Clear()
+				}
 				s.mu.Lock()
 				if s.conn == conn {
 					s.conn = nil
@@ -134,16 +159,15 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 		cur := s.state
 		s.mu.Unlock()
 
-		if !sawDisconnected && isCurrent && cur.Status != StatusDisconnected && cur.Status != StatusDisconnecting {
-			_ = s.tickets.Clear()
+		if !sawDisconnected && isCurrent {
 			dropErr := &Error{
 				Message: "连接已意外断开",
-				Hint:    "隧道后台服务已退出，请在「日志」中查看详细输出。",
+				Hint:    "隧道控制通道已断开，恢复票据已保留；请重试断开或连接，并查看日志。",
 			}
 			if cur.Status == StatusConnecting {
 				dropErr = &Error{
 					Message: "连接未能建立",
-					Hint:    "隧道后台服务已退出，请在「日志」中查看详细输出。",
+					Hint:    "隧道控制通道已断开，恢复票据已保留；请重试断开或连接，并查看日志。",
 				}
 			}
 			s.setState(State{
@@ -160,16 +184,4 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 	}()
 
 	return readyCh, doneCh
-}
-
-func (s *Service) waitStreamDone(doneCh <-chan struct{}, timeout time.Duration) {
-	if doneCh == nil {
-		return
-	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-doneCh:
-	case <-timer.C:
-	}
 }

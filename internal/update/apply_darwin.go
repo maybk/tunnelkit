@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"tunnelkit/internal/privilege"
 )
 
 func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc) (func() error, error) {
@@ -56,6 +58,9 @@ func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc
 		return nil, err
 	}
 
+	if err := privilege.Ensure(ctx, filepath.Join(bundlePath, "Contents", "MacOS", "tunnelkit-helper")); err != nil {
+		return nil, fmt.Errorf("应用已替换，辅助组件升级未完成: %w", err)
+	}
 	restart := func() error {
 		return exec.Command("/usr/bin/open", "-n", bundlePath).Start()
 	}
@@ -109,18 +114,21 @@ func replaceMacAppBundle(ctx context.Context, srcAppPath, dstAppPath string) err
 }
 
 func replaceMacAppBundleElevated(ctx context.Context, srcAppPath, dstAppPath, backupPath string) error {
+	helperPath := filepath.Join(dstAppPath, "Contents", "MacOS", "tunnelkit-helper")
 	shellCmd := strings.Join([]string{
+		"set -eu",
 		"/bin/rm -rf " + darwinShellQuote(backupPath),
 		"/bin/mv " + darwinShellQuote(dstAppPath) + " " + darwinShellQuote(backupPath),
 		"if /usr/bin/ditto " + darwinShellQuote(srcAppPath) + " " + darwinShellQuote(dstAppPath) + "; then",
 		"  /usr/bin/xattr -dr com.apple.quarantine " + darwinShellQuote(dstAppPath) + " || true;",
+		"  " + darwinShellQuote(helperPath) + " install;",
 		"  /bin/rm -rf " + darwinShellQuote(backupPath) + ";",
 		"else",
 		"  /bin/rm -rf " + darwinShellQuote(dstAppPath) + ";",
 		"  /bin/mv " + darwinShellQuote(backupPath) + " " + darwinShellQuote(dstAppPath) + ";",
 		"  exit 1;",
 		"fi",
-	}, " && ")
+	}, "\n")
 
 	escaped := strings.ReplaceAll(shellCmd, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)

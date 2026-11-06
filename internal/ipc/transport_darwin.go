@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -81,8 +82,10 @@ func Listen(endpoint string, ownerUID string) (net.Listener, error) {
 
 type darwinListener struct {
 	net.Listener
-	endpoint string
-	ownerUID uint32
+	endpoint  string
+	ownerUID  uint32
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (l *darwinListener) Accept() (net.Conn, error) {
@@ -105,9 +108,8 @@ func (l *darwinListener) Accept() (net.Conn, error) {
 }
 
 func (l *darwinListener) Close() error {
-	err := l.Listener.Close()
-	_ = os.Remove(l.endpoint)
-	return err
+	l.closeOnce.Do(func() { l.closeErr = l.Listener.Close(); _ = os.Remove(l.endpoint) })
+	return l.closeErr
 }
 
 func verifyPeerUID(conn *net.UnixConn, expectedUID uint32) error {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -95,6 +96,16 @@ func Run(assets embed.FS) error {
 		return wailsApp
 	})
 
+	quitter := &quitGuard{
+		stop: vpnService.Shutdown,
+		quit: func() { wailsApp.Quit() },
+		onError: func(err error) {
+			slog.Error("退出前清理 VPN 失败", "error", err)
+			showMainWindow(mainWindow, icons.appIcon)
+			wailsApp.Dialog.Error().SetTitle("无法退出 TunnelKit").SetMessage("尚未确认隧道和辅助进程已完成清理。应用保持运行，请稍后重试退出，或查看连接日志。").AttachToWindow(mainWindow).Show()
+		},
+	}
+
 	wailsApp = application.New(application.Options{
 		Name:        ApplicationName,
 		Description: "Fortinet SSL-VPN 桌面客户端",
@@ -106,6 +117,15 @@ func Run(assets embed.FS) error {
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(frontendFS),
+		},
+		KeyBindings: map[string]func(application.Window){
+			"CmdOrCtrl+q": func(application.Window) { wailsApp.Quit() },
+		},
+		ShouldQuit: quitter.shouldQuit,
+		OnShutdown: func() {
+			if err := shutdownVPN(vpnService); err != nil {
+				slog.Error("关闭时保留未清理 VPN 会话", "error", err)
+			}
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.tunnelkit.app",
@@ -155,17 +175,20 @@ func Run(assets embed.FS) error {
 	return wailsApp.Run()
 }
 
+func shutdownVPN(vpnService *vpn.Service) error {
+	if vpnService == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return vpnService.Shutdown(ctx)
+}
+
 func newSystemAPI(version string, vpnService *vpn.Service, getApp func() *application.App) *api.SystemAPI {
 	return api.NewSystemAPI(
 		version,
 		update.WithPreUpdateHook(func(ctx context.Context) error {
-			switch vpnService.State().Status {
-			case vpn.StatusConnecting:
-				vpnService.Cancel()
-			case vpn.StatusConnected:
-				return vpnService.Disconnect(ctx)
-			}
-			return nil
+			return vpnService.Disconnect(ctx)
 		}),
 		update.WithProgressListener(func(p update.Progress) {
 			if wailsApp := getApp(); wailsApp != nil {

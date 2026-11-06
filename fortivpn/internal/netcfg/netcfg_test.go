@@ -126,3 +126,53 @@ func TestJournalPersistenceAndLIFO(t *testing.T) {
 		t.Errorf("expected journal file to be removed, stat err = %v", err)
 	}
 }
+
+func TestRecoveryJournalRecognizesPlatformResources(t *testing.T) {
+	data := []byte(`[
+  {"kind":"host_route","gateway":"198.51.100.10","nextHop":"192.0.2.1","iface":"en0"},
+  {"kind":"darwin_dns_key","key":"State:/Network/Service/TunnelKit/DNS"},
+  {"kind":"windows_nrpt","key":"TunnelKit-"},
+  {"kind":"linux_dns","iface":"forti0","key":"resolvectl"}
+ ]`)
+	if err := ValidateJournalData(data); err != nil {
+		t.Fatalf("valid platform recovery data: %v", err)
+	}
+}
+
+func TestJournalWriteFailureDoesNotCommitInMemory(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("isolated write failure"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entry := JournalEntry{Kind: KindHostRoute, Gateway: "198.51.100.10", Iface: "en0"}
+	j := NewJournal(filepath.Join(blocker, "journal.json"))
+	if err := j.Record(entry); err == nil {
+		t.Fatal("expected journal write failure")
+	}
+	if len(j.Entries()) != 0 {
+		t.Fatal("failed record was committed in memory and would bypass the next write")
+	}
+	j.path = filepath.Join(dir, "journal.json")
+	if err := j.Record(entry); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadJournal(j.path)
+	if err != nil || len(loaded.Entries()) != 1 {
+		t.Fatalf("record retry was not persisted: %v", err)
+	}
+	j.path = filepath.Join(blocker, "journal.json")
+	if err := j.Remove(entry); err == nil {
+		t.Fatal("expected journal remove failure")
+	}
+	if len(j.Entries()) != 1 {
+		t.Fatal("failed removal discarded the in-memory recovery entry")
+	}
+	j.path = dir
+	if err := j.Clear(); err == nil {
+		t.Fatal("expected journal clear failure")
+	}
+	if len(j.Entries()) != 1 {
+		t.Fatal("failed clear discarded the in-memory recovery entry")
+	}
+}

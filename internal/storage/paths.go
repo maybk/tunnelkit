@@ -57,13 +57,3 @@ func SessionPath(rootDir string) string {
 func TicketPath(rootDir string) string {
 	return SessionPath(rootDir)
 }
-
-// HelperSocketPath 返回 macOS / Linux 下 helper 的 Unix domain socket 路径。
-func HelperSocketPath(rootDir string) string {
-	return filepath.Join(RunDir(rootDir), "helper.sock")
-}
-
-// JournalPath 返回网络配置回滚日志文件路径。
-func JournalPath(rootDir string) string {
-	return filepath.Join(RunDir(rootDir), "netcfg-journal.json")
-}

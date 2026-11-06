@@ -51,10 +51,12 @@ const (
 	DNSOff   DNSMode = "off"
 )
 
-// ClientCert configures optional TLS client certificate authentication using PEM files.
+// ClientCert configures TLS client authentication using files or in-memory PEM.
 type ClientCert struct {
 	CertPath string `json:"certPath"`
 	KeyPath  string `json:"keyPath"`
+	CertPEM  Secret `json:"certPEM,omitempty"`
+	KeyPEM   Secret `json:"keyPEM,omitempty"`
 }
 
 // Reconnect configures automatic reconnection on transient link failures.
@@ -125,10 +127,10 @@ func (c Config) Normalized() Config {
 	if c.ClientCert != nil {
 		certPath := strings.TrimSpace(c.ClientCert.CertPath)
 		keyPath := strings.TrimSpace(c.ClientCert.KeyPath)
-		if certPath == "" && keyPath == "" {
+		if certPath == "" && keyPath == "" && c.ClientCert.CertPEM.IsEmpty() && c.ClientCert.KeyPEM.IsEmpty() {
 			c.ClientCert = nil
 		} else {
-			c.ClientCert = &ClientCert{CertPath: certPath, KeyPath: keyPath}
+			c.ClientCert = &ClientCert{CertPath: certPath, KeyPath: keyPath, CertPEM: c.ClientCert.CertPEM, KeyPEM: c.ClientCert.KeyPEM}
 		}
 	}
 
@@ -227,7 +229,15 @@ func (c Config) validate(requirePassword bool) error {
 	}
 
 	if n.ClientCert != nil {
-		if n.ClientCert.CertPath == "" || n.ClientCert.KeyPath == "" {
+		material := !n.ClientCert.CertPEM.IsEmpty() || !n.ClientCert.KeyPEM.IsEmpty()
+		if material {
+			if n.ClientCert.CertPEM.IsEmpty() || n.ClientCert.KeyPEM.IsEmpty() || n.ClientCert.CertPath != "" || n.ClientCert.KeyPath != "" {
+				return NewFieldError("clientCert", "provide either a PEM pair or certificate/key paths")
+			}
+			if len(n.ClientCert.CertPEM) > 128<<10 || len(n.ClientCert.KeyPEM) > 128<<10 {
+				return NewFieldError("clientCert", "client certificate material is too large")
+			}
+		} else if n.ClientCert.CertPath == "" || n.ClientCert.KeyPath == "" {
 			return NewFieldError("clientCert", "both client certificate and key paths are required")
 		}
 		if strings.ContainsAny(n.ClientCert.CertPath, "\r\n") || strings.ContainsAny(n.ClientCert.KeyPath, "\r\n") {

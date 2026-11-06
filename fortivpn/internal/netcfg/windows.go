@@ -63,8 +63,10 @@ func Recover(ctx context.Context, journalPath string) error {
 	if err := rollbackWindowsJournal(ctx, journal); err != nil {
 		errs = append(errs, err)
 	}
-	if err := journal.Clear(); err != nil {
-		errs = append(errs, err)
+	if len(errs) == 0 {
+		if err := journal.Clear(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -393,8 +395,10 @@ func (a *windowsApplied) Close(ctx context.Context) error {
 	if err := rollbackWindowsJournalWithOps(ctx, a.journal, a.adapterOps()); err != nil {
 		errs = append(errs, err)
 	}
-	if err := a.journal.Clear(); err != nil {
-		errs = append(errs, err)
+	if len(errs) == 0 {
+		if err := a.journal.Clear(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }

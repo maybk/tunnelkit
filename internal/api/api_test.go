@@ -55,6 +55,7 @@ func (f *fakeLauncher) Answer(_ context.Context, _, _ string, _ bool) error {
 	return nil
 }
 func (f *fakeLauncher) Stop(_ context.Context) error {
+	f.eventsCh <- helperclient.Message{Event: &fortivpn.Event{Phase: fortivpn.PhaseDisconnected}}
 	close(f.eventsCh)
 	return nil
 }

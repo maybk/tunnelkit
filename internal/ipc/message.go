@@ -18,7 +18,7 @@ import (
 
 const (
 	// ProtocolVersion is incremented whenever the helper <-> GUI wire schema changes.
-	ProtocolVersion = 1
+	ProtocolVersion = 2
 
 	// MaxFrameSize bounds a single IPC JSON message to 1 MiB.
 	MaxFrameSize = 1 << 20
@@ -31,10 +31,12 @@ const (
 	TypeHello   MessageType = "hello"
 	TypeWelcome MessageType = "welcome"
 	TypeStart   MessageType = "start"
+	TypeRecover MessageType = "recover"
 	TypeAnswer  MessageType = "answer"
 	TypeStop    MessageType = "stop"
 	TypeEvent   MessageType = "event"
 	TypePrompt  MessageType = "prompt"
+	TypeLog     MessageType = "log"
 	TypeResult  MessageType = "result"
 )
 
@@ -57,6 +59,11 @@ type WelcomeData struct {
 	Version  string          `json:"version"`
 	PID      int             `json:"pid"`
 	Snapshot *fortivpn.Event `json:"snapshot,omitempty"`
+}
+
+// LogData carries a bounded, already-redacted helper log line.
+type LogData struct {
+	Line string `json:"line"`
 }
 
 // StartData instructs the helper to begin the VPN session with Config.

@@ -3,11 +3,12 @@ package vpn
 import (
 	"context"
 	"errors"
-	"runtime"
+	"os"
 	"time"
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/helperclient"
+	"tunnelkit/internal/ipc"
 	"tunnelkit/internal/storage"
 )
 
@@ -55,8 +56,10 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 		cancel()
 	}()
 
-	if err := s.disconnectIfActive(opCtx, profileID); err != nil {
+	if restored, err := s.disconnectIfActive(opCtx, profileID); err != nil {
 		return err
+	} else if restored {
+		return nil
 	}
 	if opCtx.Err() != nil {
 		return nil
@@ -103,20 +106,24 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 		return nil
 	}
 
-	var endpoint string
-	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-		endpoint = storage.HelperSocketPath(s.rootDir)
-	}
-
+	ticketSaved := false
 	conn, ticket, err := s.launcher.Launch(opCtx, helperclient.LaunchRequest{
-		Endpoint:    endpoint,
-		LogPath:     logPath,
-		JournalPath: storage.JournalPath(s.rootDir),
 		Config:      cfg,
 		ProfileID:   prof.ID,
 		ProfileName: prof.Name,
+		OnReady: func(ticket helperclient.Ticket) error {
+			if err := s.tickets.Save(ticket); err != nil {
+				return err
+			}
+			ticketSaved = true
+			return nil
+		},
 	})
 	if err != nil {
+		if errors.Is(err, helperclient.ErrRecoveryPending) {
+			s.failConnect(prof.ID, prof.Name, &Error{Message: "无法确认辅助会话已退出", Hint: "恢复票据已保留，请重试断开或退出。"})
+			return err
+		}
 		if errors.Is(err, helperclient.ErrElevationCancelled) || opCtx.Err() != nil {
 			return cancelled()
 		}
@@ -150,45 +157,62 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 		ticket.StartedAt = time.Now().Format(time.RFC3339)
 	}
 
-	if err := s.tickets.Save(ticket); err != nil {
+	if err := func() error {
+		if ticketSaved {
+			return nil
+		}
+		return s.tickets.Save(ticket)
+	}(); err != nil {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		_ = conn.Stop(stopCtx)
 		stopCancel()
 		_ = conn.Close()
-		s.failConnect(prof.ID, prof.Name, &Error{Message: "保存连接状态失败，已中止连接", Hint: err.Error()})
+		s.failConnect(prof.ID, prof.Name, &Error{Message: "保存连接状态失败，已请求中止连接", Hint: err.Error()})
 		return err
 	}
 
-	readyCh, streamDone := s.startEventStream(conn, ticket)
+	readyCh, _ := s.startEventStream(conn, ticket)
 
 	timer := time.NewTimer(s.readyTimeout)
 	defer timer.Stop()
 
 	select {
 	case vpnErr := <-readyCh:
-		if vpnErr != nil {
-			if opCtx.Err() != nil {
-				return cancelled()
+		if opCtx.Err() != nil {
+			priorError := s.State().Error
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 12*time.Second)
+			err := s.disconnectLocked(stopCtx)
+			stopCancel()
+			if err != nil {
+				return err
 			}
+			if priorError != nil {
+				s.failConnect(prof.ID, prof.Name, priorError)
+				return errors.New(priorError.Message)
+			}
+			return cancelled()
+		}
+		if vpnErr != nil {
 			return errors.New(vpnErr.Message)
 		}
 		return nil
 
 	case <-opCtx.Done():
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_ = conn.Stop(stopCtx)
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 12*time.Second)
+		err := s.disconnectLocked(stopCtx)
 		stopCancel()
-		s.waitStreamDone(streamDone, 2*time.Second)
-		s.detachConn()
+		if err != nil {
+			return err
+		}
 		return cancelled()
 
 	case <-timer.C:
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_ = conn.Stop(stopCtx)
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 12*time.Second)
+		err := s.disconnectLocked(stopCtx)
 		stopCancel()
-		s.waitStreamDone(streamDone, 2*time.Second)
-		s.detachConn()
-		_ = s.tickets.Clear()
+		if err != nil {
+			return err
+		}
 		timeoutErr := &Error{
 			Message: "连接超时",
 			Hint:    "等待网关建立隧道超时，请检查网关状态或查看连接日志。",
@@ -198,7 +222,7 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 	}
 }
 
-func (s *Service) disconnectIfActive(ctx context.Context, targetProfileID string) error {
+func (s *Service) disconnectIfActive(ctx context.Context, targetProfileID string) (bool, error) {
 	s.mu.RLock()
 	activeConn := s.conn
 	curState := s.state
@@ -206,28 +230,30 @@ func (s *Service) disconnectIfActive(ctx context.Context, targetProfileID string
 
 	if activeConn != nil {
 		if curState.ProfileID == targetProfileID {
-			return ErrAlreadyConnected
+			return false, ErrAlreadyConnected
 		}
-		return s.disconnectLocked(ctx)
+		return false, s.disconnectLocked(ctx)
 	}
 
 	if oldTicket, loadErr := s.tickets.Load(); loadErr == nil {
 		if oldConn, snap, attachErr := s.launcher.Attach(ctx, oldTicket); attachErr == nil {
 			if snap != nil && snap.Phase == fortivpn.PhaseDisconnected {
-				_ = oldConn.Close()
-				_ = s.tickets.Clear()
-				return nil
+				return false, s.finishSession(ctx, oldConn, snap, oldTicket)
 			}
 			if oldTicket.ProfileID == targetProfileID {
-				_ = oldConn.Close()
-				return ErrAlreadyConnected
+				s.adoptSession(oldConn, snap, oldTicket)
+				return true, nil
 			}
-			_, _ = s.startEventStream(oldConn, oldTicket)
-			return s.disconnectLocked(ctx)
+			s.adoptSession(oldConn, snap, oldTicket)
+			return false, s.disconnectLocked(ctx)
+		} else if !ipc.EndpointUnavailable(attachErr) {
+			return false, attachErr
 		}
-		_ = s.tickets.Clear()
+		return false, s.recoverNetwork(ctx, oldTicket)
+	} else if !errors.Is(loadErr, os.ErrNotExist) {
+		return false, loadErr
 	}
-	return nil
+	return false, s.waitForHelper(ctx)
 }
 
 func (s *Service) failConnect(profileID, profileName string, vpnErr *Error) {

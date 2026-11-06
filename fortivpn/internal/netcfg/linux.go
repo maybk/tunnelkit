@@ -235,8 +235,10 @@ func (a *linuxApplied) Close(ctx context.Context) error {
 	if err := rollbackLinuxJournalEntries(ctx, a.run, a.journal); err != nil {
 		errs = append(errs, err)
 	}
-	if err := a.journal.Clear(); err != nil {
-		errs = append(errs, err)
+	if len(errs) == 0 {
+		if err := a.journal.Clear(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -250,8 +252,10 @@ func recoverLinuxWithRunner(ctx context.Context, journalPath string, run cmdRunn
 	if err := rollbackLinuxJournalEntries(ctx, run, journal); err != nil {
 		errs = append(errs, err)
 	}
-	if err := journal.Clear(); err != nil {
-		errs = append(errs, err)
+	if len(errs) == 0 {
+		if err := journal.Clear(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }

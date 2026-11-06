@@ -16,16 +16,18 @@ import (
 
 // Message represents an asynchronous notification from the helper.
 type Message struct {
-	Event  *fortivpn.Event
-	Prompt *fortivpn.Prompt
+	Event   *fortivpn.Event
+	Prompt  *fortivpn.Prompt
+	LogLine string
 }
 
 // Client is an authenticated IPC client connected to a running tunnelkit-helper.
 type Client struct {
-	conn     *ipc.Conn
-	pid      int
-	version  string
-	eventsCh chan Message
+	conn        *ipc.Conn
+	pid         int
+	version     string
+	processExit <-chan error
+	eventsCh    chan Message
 
 	seq       atomic.Uint64
 	mu        sync.Mutex
@@ -39,8 +41,17 @@ func ConnectDial(ctx context.Context, conn *ipc.Conn, token string) (*Client, *f
 	return handshakeAndServe(ctx, conn, token)
 }
 
-func handshakeAndServe(_ context.Context, conn *ipc.Conn, token string) (*Client, *fortivpn.Event, error) {
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+func handshakeAndServe(ctx context.Context, conn *ipc.Conn, token string) (*Client, *fortivpn.Event, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
+		deadline = parent
+	}
+	_ = conn.SetDeadline(deadline)
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
 	if err := conn.Send(ipc.TypeHello, 1, ipc.HelloData{
 		Protocol: ipc.ProtocolVersion,
 		Token:    token,
@@ -96,6 +107,11 @@ func (c *Client) Events() <-chan Message {
 // Start sends the start command with cfg to the helper.
 func (c *Client) Start(ctx context.Context, cfg fortivpn.Config) error {
 	return c.call(ctx, ipc.TypeStart, ipc.StartData{Config: cfg})
+}
+
+// RecoverNetwork restores pending host network changes without connecting to a gateway.
+func (c *Client) RecoverNetwork(ctx context.Context) error {
+	return c.call(ctx, ipc.TypeRecover, ipc.StopData{})
 }
 
 // Answer submits the user's OTP/FTM/SAML response (or cancellation) to the helper.
@@ -185,6 +201,11 @@ func (c *Client) readLoop() {
 			if err == nil {
 				c.pushMessage(Message{Prompt: &p})
 			}
+		case ipc.TypeLog:
+			entry, err := ipc.DecodeStrict[ipc.LogData](env.Data)
+			if err == nil && len(entry.Line) <= 16<<10 {
+				c.pushMessage(Message{LogLine: entry.Line})
+			}
 		case ipc.TypeResult:
 			res, err := ipc.DecodeStrict[ipc.ResultData](env.Data)
 			if err == nil {
@@ -193,14 +214,13 @@ func (c *Client) readLoop() {
 					id = res.ID
 				}
 				c.mu.Lock()
-				ch, ok := c.pending[id]
-				c.mu.Unlock()
-				if ok {
+				if ch, ok := c.pending[id]; ok {
 					select {
 					case ch <- res:
 					default:
 					}
 				}
+				c.mu.Unlock()
 			}
 		}
 	}

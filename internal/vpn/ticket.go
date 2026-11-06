@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"tunnelkit/internal/helperclient"
@@ -54,18 +53,4 @@ func (s *TicketStore) Clear() error {
 		return nil
 	}
 	return err
-}
-
-// CleanLegacyArtifacts 清理从旧版本升级时可能遗留在 run/ 目录下的 *.conf 临时文件。
-func (s *TicketStore) CleanLegacyArtifacts() {
-	runDir := storage.RunDir(s.rootDir)
-	entries, err := os.ReadDir(runDir)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".conf") {
-			_ = os.Remove(filepath.Join(runDir, entry.Name()))
-		}
-	}
 }

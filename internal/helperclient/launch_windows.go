@@ -7,71 +7,67 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"path/filepath"
-	"strings"
+	"time"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
+
+	"tunnelkit/internal/privilege"
 )
 
 func defaultEndpoint() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
 		return "", err
 	}
-	return `\\.\pipe\TunnelKit-` + hex.EncodeToString(b[:]), nil
+	return `\\.\pipe\TunnelKit-` + hex.EncodeToString(id[:]), nil
 }
 
-func launchElevated(
-	_ context.Context,
-	helperPath string,
-	endpoint string,
-	ownerID string,
-	tokenSHA256 string,
-	logPath string,
-	journalPath string,
-) error {
-	args := []string{
-		"serve",
-		"--endpoint", winQuoteArg(endpoint),
-		"--sid", winQuoteArg(ownerID),
-		"--token-sha256", winQuoteArg(tokenSHA256),
+func openHelperService(access uint32) (*mgr.Service, error) {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return nil, err
 	}
-	if logPath != "" {
-		args = append(args, "--log", winQuoteArg(logPath))
+	defer windows.CloseServiceHandle(scm)
+	name, err := windows.UTF16PtrFromString(privilege.WindowsServiceName)
+	if err != nil {
+		return nil, err
 	}
-	if journalPath != "" {
-		args = append(args, "--journal", winQuoteArg(journalPath))
+	handle, err := windows.OpenService(scm, name, access)
+	if err != nil {
+		return nil, err
 	}
-	paramStr := strings.Join(args, " ")
+	return &mgr.Service{Name: privilege.WindowsServiceName, Handle: handle}, nil
+}
 
-	verbPtr, err := windows.UTF16PtrFromString("runas")
-	if err != nil {
-		return err
+func launchElevated(ctx context.Context, source, endpoint, owner, tokenHash string) (<-chan error, error) {
+	if _, err := installedHelperPath(ctx, source); err != nil {
+		return nil, err
 	}
-	filePtr, err := windows.UTF16PtrFromString(helperPath)
+	s, err := openHelperService(windows.SERVICE_QUERY_STATUS | windows.SERVICE_START)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	paramPtr, err := windows.UTF16PtrFromString(paramStr)
-	if err != nil {
-		return err
-	}
-	dirPtr, err := windows.UTF16PtrFromString(filepath.Dir(helperPath))
-	if err != nil {
-		return err
-	}
-
-	err = windows.ShellExecute(0, verbPtr, filePtr, paramPtr, dirPtr, windows.SW_HIDE)
-	if err != nil {
-		if errors.Is(err, windows.ERROR_CANCELLED) {
-			return ErrElevationCancelled
+	defer s.Close()
+	ticker := time.NewTicker(40 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		status, err := s.Query()
+		if err != nil {
+			return nil, err
 		}
-		return fmt.Errorf("Windows UAC elevation failed: %w", err)
+		if status.State == svc.Stopped {
+			break
+		}
+		if status.State != svc.StopPending {
+			return nil, errors.New("辅助组件已有活动会话，请先断开该会话")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
 	}
-	return nil
-}
-
-func winQuoteArg(s string) string {
-	return windows.EscapeArg(s)
+	return nil, s.Start(buildServeArgs("--owner", endpoint, owner, tokenHash)...)
 }

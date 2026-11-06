@@ -4,6 +4,7 @@ package netcfg
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -166,5 +167,23 @@ func TestLinuxPreExistingHostRouteAndResolvconfFallback(t *testing.T) {
 	}
 	if hostRouteDeleted {
 		t.Fatal("expected pre-existing Linux host route (File exists) NOT to be deleted on Close")
+	}
+}
+
+func TestRecoveryRetainsJournalWhenSystemCommandFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "journal.json")
+	journal := NewJournal(path)
+	if err := journal.Record(JournalEntry{Kind: KindHostRoute, Gateway: "198.51.100.10", NextHop: "192.0.2.1", Iface: "en0"}); err != nil {
+		t.Fatal(err)
+	}
+	run := func(context.Context, string, string, ...string) (string, error) {
+		return "", errors.New("system network operation unavailable")
+	}
+	if err := recoverLinuxWithRunner(context.Background(), path, run); err == nil {
+		t.Fatal("expected recovery error")
+	}
+	remaining, err := LoadJournal(path)
+	if err != nil || len(remaining.Entries()) != 1 {
+		t.Fatalf("lost pending recovery: %v", err)
 	}
 }

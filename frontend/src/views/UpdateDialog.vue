@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowRight, Download, ExternalLink, Loader2 } from 'lucide-vue-next'
+import { ArrowRight, Download, ExternalLink, Loader2 } from '@lucide/vue'
 import type { UpdateInfo, UpdateProgress } from '@/api/system'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'

@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   User,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import type { Profile } from '@/api/profile'
 import type { VpnState } from '@/api/vpn'
 import { profileStatus } from '@/lib/status'

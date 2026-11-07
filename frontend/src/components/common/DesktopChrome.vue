@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Copy, Minus, Square, X } from 'lucide-vue-next'
+import { Copy, Minus, Square, X } from '@lucide/vue'
 import {
   windowCaptionRegionStyle,
   windowControlRegionStyle,

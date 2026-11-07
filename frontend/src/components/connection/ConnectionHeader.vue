@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowLeftRight, Globe, Loader2, User } from 'lucide-vue-next'
+import { ArrowLeftRight, Globe, Loader2, User } from '@lucide/vue'
 import type { Profile } from '@/api/profile'
 import type { VpnState } from '@/api/vpn'
 import { profileStatus } from '@/lib/status'

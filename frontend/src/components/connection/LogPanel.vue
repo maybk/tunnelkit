@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, watch } from 'vue'
-import { RefreshCw, Terminal, Trash2 } from 'lucide-vue-next'
+import { RefreshCw, Terminal, Trash2 } from '@lucide/vue'
 import type { VpnLogView } from '@/api/vpn'
 import { formatClockTime } from '@/lib/format'
 import CopyButton from '@/components/common/CopyButton.vue'

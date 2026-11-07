@@ -9,7 +9,7 @@ import {
   Loader2,
   RotateCcw,
   SlidersHorizontal,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import {
   formatProfileText,
   parseProfileText,

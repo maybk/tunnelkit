@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Activity, Check, Loader2, RotateCcw, ScrollText, SlidersHorizontal } from 'lucide-vue-next'
+import { Activity, Check, Loader2, RotateCcw, ScrollText, SlidersHorizontal } from '@lucide/vue'
 import type { Profile, ProfileInput } from '@/api/profile'
 import type { VpnLogView, VpnState } from '@/api/vpn'
 import type { DetailTab } from '@/stores/useProfiles'

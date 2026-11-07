@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertCircle, ShieldCheck } from 'lucide-vue-next'
+import { AlertCircle, ShieldCheck } from '@lucide/vue'
 import type { VpnError } from '@/api/vpn'
 import CopyButton from '@/components/common/CopyButton.vue'
 import { Button } from '@/components/ui/button'

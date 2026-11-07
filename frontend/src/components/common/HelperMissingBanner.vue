@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RefreshCw, ShieldAlert } from 'lucide-vue-next'
+import { RefreshCw, ShieldAlert } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import CopyButton from './CopyButton.vue'
 

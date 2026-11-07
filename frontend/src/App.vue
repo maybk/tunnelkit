@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Info } from 'lucide-vue-next'
+import { Info } from '@lucide/vue'
 import { windowCaptionRegionStyle, windowInteractiveRegionStyle } from '@/api/window'
 import { useDesktopWindow } from '@/stores/useDesktopWindow'
 import { useNotice } from '@/stores/useNotice'

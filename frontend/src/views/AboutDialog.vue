@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, ExternalLink, RefreshCw, Sparkles } from 'lucide-vue-next'
+import { Check, ExternalLink, RefreshCw, Sparkles } from '@lucide/vue'
 import { GITHUB_REPO_LABEL, GITHUB_REPO_URL, type SystemInfo, type UpdateInfo } from '@/api/system'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { Button } from '@/components/ui/button'

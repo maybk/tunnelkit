@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Browser } from '@wailsio/runtime'
-import { ExternalLink, KeyRound, Loader2, Smartphone } from 'lucide-vue-next'
+import { ExternalLink, KeyRound, Loader2, Smartphone } from '@lucide/vue'
 import type { VpnPrompt } from '@/api/vpn'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'

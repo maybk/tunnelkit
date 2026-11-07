@@ -1,29 +1,27 @@
-# fortivpn
+# Fortinet SSL-VPN 协议内核 (`fortivpn`)
 
-`fortivpn` 是独立的纯 Go Fortinet SSL-VPN 协议内核与命令行客户端，零外部业务耦合，不依赖 `tunnelkit/internal/**` 或 Wails。
+纯 Go 实现的跨平台 Fortinet SSL-VPN 协议内核与命令行客户端，提供公共配置模型、结构化事件与错误契约及会话引擎，零外部业务耦合。
 
-## 目录与职责
+## 目录结构
 
-- [config.go](config.go) / [configtext.go](configtext.go)：`Config` 配置模型、校验与 `key = value` 文本双向序列化。
-- [event.go](event.go) / [errors.go](errors.go)：会话阶段事件（`Phase`）、交互式挑战请求（`Prompt`）与结构化错误定义。
-- [engine/engine.go](engine/engine.go) / [engine/session.go](engine/session.go) / [engine/netcfg.go](engine/netcfg.go) / [engine/pump.go](engine/pump.go)：单次连接与自动重连编排、网络配置规划与下发、双向数据包转发及流量统计。
-- [internal/sslvpn/](internal/sslvpn/README.md)：HTTPS 控制面认证、2FA / SAML、隧道 XML 解析、裸 TLS 连接劫持与 `0x5050` 6 字节帧编解码。
-- [internal/ppp/](internal/ppp/README.md)：PPP 数据面协商（LCP、IPCP）与 LCP Echo 保活。
-- [internal/netdev/](internal/netdev/README.md)：跨平台虚拟 TUN 网卡（macOS `utun`、Windows Wintun、Linux `/dev/net/tun`）。
-- [internal/netcfg/](internal/netcfg/README.md)：宿主路由、分流 DNS 与异常恢复日志（`journal.json`）。
-- [fortitest/](fortitest/)：内存假 FortiGate 网关与内存虚拟网卡，支撑无特权端到端集成测试。
-- [cmd/fortivpn/main.go](cmd/fortivpn/main.go)：独立命令行客户端入口。
+- `doc.go`：包级说明与架构边界定义。
+- `config.go`：内核配置模型、敏感凭据包装类型与合法性校验。
+- `configtext.go`：`key = value` 兼容配置文本与结构化 `Config` 的双向解析与序列化。
+- `event.go`：会话阶段枚举、隧道信息、流量统计、交互挑战与事件模型。
+- `errors.go`：结构化错误码与 `*fortivpn.Error` 包装及分类判断辅助。
+- `engine/`：SSL-VPN 会话生命周期编排、自动重连、宿主网络配置与双向数据包转发引擎。
+- `fortitest/`：进程内内存假 FortiGate 网关与内存虚拟网卡，支撑无特权端到端集成测试。
+- `internal/`：内核私有子包，涵盖控制面、PPP 协议栈、TUN 虚拟网卡与宿主路由/DNS 恢复。
+- `cmd/`：独立内核命令行客户端入口。
 
-## 会话生命周期
+## 开发规范
 
-1. **控制面认证**：HTTPS 登录 `/remote/logincheck`（或 SAML 浏览器回调），按需通过 `Handler.Prompt` 完成双因素挑战，获取 `SVPNCOOKIE`。
-2. **隧道建链**：请求 `/remote/fortisslvpn_xml` 解析 IP/路由/DNS，随后发送 `GET /remote/sslvpn-tunnel` 劫持底层 TLS 连接切换为 `0x5050` 二进制帧流。
-3. **PPP 协商**：在二进制帧流上完成 LCP 与 IPCP 协商，取得网关分配的内网 IPv4 地址与 DNS。
-4. **网卡与路由配置**：打开平台虚拟 TUN 网卡，先将回滚计划写入 `journal.json`，再下发网关 `/32` 保护路由、子网路由与 DNS。
-5. **转发与保活**：启动 TUN 与 TLS 双向转发协程及周期性 LCP Echo 探测；断开或异常退出时幂等回滚宿主路由与 DNS。
+- **零外部耦合**：`fortivpn/**` 严禁导入 `tunnelkit/internal/**` 或 Wails，保持可随时独立拆出为单独仓库。
+- **宿主调用边界**：根包仅依赖 Go 标准库暴露公共契约；桌面 GUI 主进程仅允许导入根包 `tunnelkit/fortivpn`，严禁直接导入 `tunnelkit/fortivpn/engine`。
+- **配置与错误契约**：进入引擎的配置必须通过 `Config.Validate()` 校验；所有对外错误须封装为结构化 `*fortivpn.Error`，不在内核层硬编码界面本地化文案。
 
 ## 验证
 
 ```bash
-cd fortivpn && go test -race ./...
+go test -race ./fortivpn/...
 ```

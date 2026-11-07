@@ -46,6 +46,8 @@ go vet ./...
 go test -race ./...
 bash scripts/test_extract_pending_version.sh
 bash scripts/test_extract_release_notes.sh
+bash scripts/test_prepare_release.sh
+bash scripts/test_package_manifests.sh
 bash scripts/test_ci_config.sh
 bash scripts/test_rolling_release_config.sh
 git diff --check
@@ -101,6 +103,6 @@ wails3 package
 1. **后端与内核改动**：通过 `go test -race ./...` 与 `go vet ./...`。
 2. **前端改动**：通过 `pnpm --dir frontend run format:check`、`lint:check`、`test -- --run` 与 `build`。
 3. **绑定、窗口或构建改动**：运行 `wails3 build` 确认主程序、`tunnelkit-helper` 与内嵌前端资源完整编译通过。
-4. **CI 与发布配置改动**：运行 `scripts/test_*.sh` 四项契约测试。
-5. **配置、目录、命令或用户可见变化**：同步更新 `README.md`、`docs/guide/*` 或 `CHANGELOG.md` 顶部的 `未发布` 段落。
+4. **CI 与发布配置改动**：运行 `scripts/test_*.sh` 全部契约测试。
+5. **配置、目录、命令或用户可见变化**：同步更新 `README.md`、`docs/guide/*`、对应目录 `README.md` 或 `CHANGELOG.md` 顶部的 `未发布` 段落。
 6. **工作区检查**：运行 `git diff --check`，确认无多余空白、临时文件或调试残留。

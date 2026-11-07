@@ -1,14 +1,25 @@
-# 桌面连接状态机 (`internal/vpn`)
+# 桌面 VPN 服务状态机 (`internal/vpn`)
 
-本包负责桌面端 VPN 连接生命周期编排、交互式挑战转发、运行期会话接管与异常网络恢复。
+负责桌面端 VPN 连接生命周期编排、交互挑战转发、活动连接平滑切换、自更新维护门禁、运行期会话接管与异常网络恢复。
 
-## 职责
+## 目录结构
 
-- [service.go](service.go) / [state.go](state.go) / [log.go](log.go) / [maintenance.go](maintenance.go)：连接状态机（`disconnected`、`connecting`、`connected`、`disconnecting`）、串行事件广播、运行日志读写与自更新维护门禁。
-- [connect.go](connect.go) / [disconnect.go](disconnect.go) / [shutdown.go](shutdown.go)：连接启动、切换确认、握手期取消、交互挑战应答（`Answer` / `Cancel`）、平滑断开与应用关闭收敛。
-- [events.go](events.go)：消费 `tunnelkit-helper` 事件流与脱敏日志，映射为前端可消费的状态快照并以普通用户权限落盘日志。
-- [recover.go](recover.go) / [network_recovery.go](network_recovery.go)：通过 `helperclient` 读取 `run/session.json` 加密会话票据；桌面端重启时自动接管存活的辅助进程，或在会话失效、网络清理未完成时触发仅恢复网络的辅助会话回滚残留路由与 DNS。
-- [errors.go](errors.go)：将内核错误码映射为用户可读的诊断提示与证书指纹信任引导。
+- `service.go`：服务实例构造、依赖注入、连接状态读写与有序事件监听器广播队列。
+- `state.go`：前端与菜单栏共用的顶层连接状态枚举、状态视图、错误结构与日志视图。
+- `connect.go`：发起 VPN 连接、已连接配置平滑切换、握手期取消、就绪超时守卫及交互挑战应答。
+- `disconnect.go`：主动断开连接、取消进行中的连接握手、等待终态事件与辅助进程退出确认。
+- `shutdown.go`：应用退出时的会话收敛守卫，等待进行中的恢复、连接或断开完成后清理活动会话，失败时保留恢复票据。
+- `events.go`：消费 `tunnelkit-helper` 异步事件、交互挑战与脱敏日志流，更新桌面状态并以当前用户权限落盘日志。
+- `recover.go`：桌面端启动或重连时通过 `run/session.json` 接管存活的辅助进程，或在端点已失效时转入网络恢复。
+- `network_recovery.go`：在不建立 VPN 连接、不读取配置密码的前提下，拉起仅恢复网络的辅助会话回滚残留路由与 DNS。
+- `maintenance.go`：自更新安装前置维护门禁，断开活动会话并在更新期间拒绝新连接请求。
+- `log.go`：校验配置 ID 并按尾部上限读取或清理指定连接的脱敏日志文件。
+- `errors.go`：将内核结构化错误码映射为用户可读的中文诊断提示与证书指纹信任引导。
+
+## 开发规范
+
+- **内核隔离**：仅导入根包 `tunnelkit/fortivpn` 的配置、事件与错误类型，严禁直接导入 `tunnelkit/fortivpn/engine`。
+- **票据生命周期守卫**：`run/session.json` 会话票据必须在确认辅助进程正常完成网络清理并退出后方可清除；若 IPC 中断或网络清理失败，必须保留票据供下次启动或断开重试。
 
 ## 验证
 

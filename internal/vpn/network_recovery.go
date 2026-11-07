@@ -9,8 +9,7 @@ import (
 	"tunnelkit/internal/helperclient"
 )
 
-// recoverNetwork retries a stale or failed session's protected journal without
-// opening a VPN connection or reading the profile's credentials.
+// recoverNetwork 在不建立 VPN 连接、不读取配置密码的前提下，拉起仅恢复网络的辅助会话回滚残留路由与 DNS。
 func (s *Service) recoverNetwork(ctx context.Context, prior helperclient.Ticket) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

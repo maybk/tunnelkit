@@ -1,13 +1,18 @@
 package sslvpn
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"tunnelkit/fortivpn"
 )
 
 // TunnelConfig holds the VPN parameters returned by /remote/fortisslvpn_xml
@@ -307,4 +312,72 @@ func ipMaskToPrefix(ipStr, maskStr string) (netip.Prefix, bool) {
 		return netip.Prefix{}, false
 	}
 	return netip.PrefixFrom(addr, ones).Masked(), true
+}
+
+// FetchTunnelConfig retrieves and parses /remote/fortisslvpn_xml (with fallback to /remote/fortisslvpn).
+func (c *Client) FetchTunnelConfig(ctx context.Context, cookie string) (TunnelConfig, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL()+PathConfigXML, nil)
+	if err != nil {
+		return TunnelConfig{}, fortivpn.WrapError(fortivpn.CodeGatewayUnreachable, "failed to create tunnel config request", err)
+	}
+	c.setCommonHeaders(req)
+	req.Header.Set("Cookie", CookieName+"="+cookie)
+
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return TunnelConfig{}, c.classifyTransportError(err)
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_ = resp.Body.Close()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return TunnelConfig{}, ctxErr
+	}
+	if readErr != nil {
+		return TunnelConfig{}, c.classifyTransportError(readErr)
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return TunnelConfig{}, fortivpn.NewError(fortivpn.CodeTunnelDenied, fmt.Sprintf("gateway denied tunnel configuration with HTTP %d", resp.StatusCode))
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return c.fetchLegacyConfig(ctx, cookie)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return TunnelConfig{}, fortivpn.NewError(fortivpn.CodeTunnelDenied, fmt.Sprintf("unexpected HTTP %d from fortisslvpn_xml", resp.StatusCode))
+	}
+
+	if c.configXMLHook != nil {
+		c.configXMLHook(RedactConfigXML(body))
+	}
+	cfg, err := ParseConfigXML(body)
+	if err != nil {
+		if legacyCfg, legacyErr := c.fetchLegacyConfig(ctx, cookie); legacyErr == nil && len(legacyCfg.SplitRoutes) > 0 {
+			return legacyCfg, nil
+		}
+		return TunnelConfig{}, fortivpn.WrapError(fortivpn.CodeTunnelDenied, "failed to parse tunnel XML configuration", err)
+	}
+	return cfg, nil
+}
+
+func (c *Client) fetchLegacyConfig(ctx context.Context, cookie string) (TunnelConfig, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL()+PathConfigLegacy, nil)
+	if err != nil {
+		return TunnelConfig{}, err
+	}
+	c.setCommonHeaders(req)
+	req.Header.Set("Cookie", CookieName+"="+cookie)
+
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return TunnelConfig{}, c.classifyTransportError(err)
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	_ = resp.Body.Close()
+	if readErr != nil {
+		return TunnelConfig{}, c.classifyTransportError(readErr)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return TunnelConfig{}, fortivpn.NewError(fortivpn.CodeTunnelDenied, "SSL-VPN tunnel mode is not available on this gateway")
+	}
+	return ParseLegacyConfigHTML(body)
 }

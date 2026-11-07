@@ -59,16 +59,7 @@ func Recover(ctx context.Context, journalPath string) error {
 	if err != nil {
 		return err
 	}
-	var errs []error
-	if err := rollbackWindowsJournal(ctx, journal); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) == 0 {
-		if err := journal.Clear(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return rollbackWindowsJournal(ctx, journal)
 }
 
 type windowsAdapterOps interface {
@@ -390,17 +381,8 @@ func (a *windowsApplied) Close(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	var errs []error
 	a.adapterOps().flushAdapter(a.luid)
-	if err := rollbackWindowsJournalWithOps(ctx, a.journal, a.adapterOps()); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) == 0 {
-		if err := a.journal.Clear(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return rollbackWindowsJournalWithOps(ctx, a.journal, a.adapterOps())
 }
 
 func rollbackWindowsJournal(ctx context.Context, journal *Journal) error {
@@ -408,14 +390,12 @@ func rollbackWindowsJournal(ctx context.Context, journal *Journal) error {
 }
 
 func rollbackWindowsJournalWithOps(ctx context.Context, journal *Journal, ops windowsAdapterOps) error {
-	var errs []error
-	for _, entry := range journal.Entries() {
+	return journal.Rollback(func(entry JournalEntry) error {
 		switch entry.Kind {
 		case KindWindowsNRPT:
-			if err := clearWindowsNRPT(); err != nil {
-				errs = append(errs, err)
-			}
+			err := clearWindowsNRPT()
 			flushWindowsDNSCache(ctx)
+			return err
 		case KindHostRoute:
 			if entry.LUID != 0 && entry.Gateway != "" {
 				gwAddr, err := netip.ParseAddr(entry.Gateway)
@@ -427,14 +407,14 @@ func rollbackWindowsJournalWithOps(ctx context.Context, journal *Journal, ops wi
 						}
 					}
 					luid := winipcfg.LUID(entry.LUID)
-					if err := ops.deleteHostRoute(luid, netip.PrefixFrom(gwAddr, 32), nextHop); err != nil {
-						errs = append(errs, err)
-					}
+					return ops.deleteHostRoute(luid, netip.PrefixFrom(gwAddr, 32), nextHop)
 				}
 			}
+			return nil
+		default:
+			return nil
 		}
-	}
-	return errors.Join(errs...)
+	})
 }
 
 func lookupWindowsLUID(ifaceName string) (winipcfg.LUID, error) {

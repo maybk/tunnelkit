@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// quitGuard keeps native quit callbacks responsive while one bounded cleanup
-// runs. A successful cleanup re-enters Quit once; failures leave the app usable.
+// quitGuard 在单次有界断开清理期间保持原生退出回调响应：
+// 清理成功后自动重入一次 Quit，清理失败则保留应用可继续交互重试。
 type quitGuard struct {
 	mu             sync.Mutex
 	pending, ready bool

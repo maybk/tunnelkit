@@ -6,8 +6,7 @@ import (
 	"time"
 )
 
-// AcquireSession serializes system-wide network changes across users/processes.
-// Only system administrators can create or modify this lock file.
+// AcquireSession 获取跨用户与跨进程的系统级会话锁，串行化宿主网络变更与组件升级。
 func AcquireSession() (*os.File, error) {
 	base, err := stateRoot()
 	if err != nil {

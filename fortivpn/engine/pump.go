@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/netip"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"tunnelkit/fortivpn"
+	"tunnelkit/fortivpn/internal/netdev"
 	"tunnelkit/fortivpn/internal/ppp"
 )
 
@@ -32,6 +34,64 @@ var dataFramePool = sync.Pool{
 		b := make([]byte, 0, 2048)
 		return &b
 	},
+}
+
+func (s *session) ensureDevice(mru int) error {
+	s.mu.Lock()
+	if s.dev != nil {
+		dev := s.dev
+		s.mu.Unlock()
+		if setter, ok := dev.(interface{ SetMTU(int) }); ok && mru > 0 {
+			setter.SetMTU(mru)
+		}
+		return nil
+	}
+	var (
+		dev Device
+		err error
+	)
+	if s.opts.device != nil {
+		dev = s.opts.device
+	} else {
+		dev, err = netdev.Open(mru)
+		if err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
+	s.dev = dev
+	s.mu.Unlock()
+
+	s.log.Info(fmt.Sprintf("Interface %s is UP.", dev.Name()))
+
+	s.devWg.Add(1)
+	go func() {
+		defer s.devWg.Done()
+		s.deviceReaderLoop(dev)
+	}()
+	return nil
+}
+
+func (s *session) deviceReaderLoop(dev Device) {
+	buf := make([]byte, 65535)
+	for {
+		n, err := dev.ReadPacket(buf)
+		if err != nil {
+			return
+		}
+		if n <= 0 {
+			continue
+		}
+		if lnk := s.activeLink.Load(); lnk != nil {
+			lnk.enqueueData(buf[:n])
+		}
+	}
+}
+
+func (s *session) getDevice() Device {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dev
 }
 
 // enqueueControl pushes a PPP control frame (LCP/IPCP/Echo) onto ctrlCh without dropping.

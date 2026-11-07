@@ -51,7 +51,7 @@ func MainWindowOptions(darkMode bool) application.WebviewWindowOptions {
 }
 
 // MainWindowOptionsForPlatform 按平台声明标题栏融合策略：
-// macOS 使用 HiddenInset 原生交通灯 + 48pt 透明标题栏；
+// macOS 使用 HiddenInset 原生交通灯 + 52pt 透明标题栏；
 // Windows 使用 Frameless + NonClientRegionSupport + WebView2CompositionHosting 原生命中测试。
 func MainWindowOptionsForPlatform(platform string, darkMode bool) application.WebviewWindowOptions {
 	// 与前端 --background 一致，避免 WebView 加载前在深色模式下闪白。

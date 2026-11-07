@@ -28,17 +28,6 @@ var (
 	ErrRecoveryPending = errors.New("helper cleanup is unconfirmed; recovery ticket retained")
 )
 
-// Ticket stores the connection metadata needed to re-attach to a running helper
-// across GUI restarts (`~/.tunnelkit/run/session.json`).
-type Ticket struct {
-	Endpoint    string `json:"endpoint"`
-	Token       string `json:"token"`
-	PID         int    `json:"pid"`
-	ProfileID   string `json:"profileId"`
-	ProfileName string `json:"profileName"`
-	StartedAt   string `json:"startedAt"`
-}
-
 // LaunchRequest describes how to spawn and initialize a new helper session.
 type LaunchRequest struct {
 	HelperPath   string

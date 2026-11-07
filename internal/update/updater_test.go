@@ -127,6 +127,7 @@ func TestCheckerApplyRejectsSHA256Mismatch(t *testing.T) {
 	}))
 	defer releaseSrv.Close()
 
+	var preHookCalledOnFail atomic.Bool
 	checker := NewChecker(
 		"0.2.0",
 		WithHTTPClient(releaseSrv.Client()),
@@ -136,11 +137,18 @@ func TestCheckerApplyRejectsSHA256Mismatch(t *testing.T) {
 		WithAssetURLValidator(func(rawURL, _, _ string) bool {
 			return strings.HasPrefix(rawURL, releaseSrv.URL+"/")
 		}),
+		WithPreUpdateHook(func(_ context.Context) error {
+			preHookCalledOnFail.Store(true)
+			return nil
+		}),
 	)
 
 	_, err := checker.Apply(context.Background(), nil)
 	if err == nil || !strings.Contains(err.Error(), "SHA-256") {
 		t.Fatalf("expected SHA-256 mismatch error, got: %v", err)
+	}
+	if preHookCalledOnFail.Load() {
+		t.Fatal("preUpdateHook should not be called before download and SHA-256 verification succeed")
 	}
 }
 
@@ -172,9 +180,11 @@ func TestCheckerApplyAndRestartHooksAndConcurrency(t *testing.T) {
 	defer releaseSrv.Close()
 
 	var (
-		preHookCalled  atomic.Bool
-		progressEvents atomic.Int32
-		restartHandled atomic.Bool
+		preHookCalled      atomic.Bool
+		progressEvents     atomic.Int32
+		restartHandled     atomic.Bool
+		finishedCalled     atomic.Int32
+		finishedRestarting atomic.Bool
 	)
 
 	checker := NewChecker(
@@ -197,6 +207,10 @@ func TestCheckerApplyAndRestartHooksAndConcurrency(t *testing.T) {
 			restartHandled.Store(true)
 			return restartFn()
 		}),
+		WithUpdateFinishedHook(func(restarting bool) {
+			finishedCalled.Add(1)
+			finishedRestarting.Store(restarting)
+		}),
 		WithApplier(func(_ context.Context, _ string, _ ProgressFunc) (func() error, error) {
 			return func() error { return nil }, nil
 		}),
@@ -214,6 +228,9 @@ func TestCheckerApplyAndRestartHooksAndConcurrency(t *testing.T) {
 	if !restartHandled.Load() {
 		t.Fatal("expected restartHandler to be called")
 	}
+	if finishedCalled.Load() != 1 || !finishedRestarting.Load() {
+		t.Fatalf("expected updateFinishedHook(true) once, got count=%d restarting=%v", finishedCalled.Load(), finishedRestarting.Load())
+	}
 
 	// 验证并发互斥锁保护
 	checker.mu.Lock()
@@ -226,7 +243,8 @@ func TestCheckerApplyAndRestartHooksAndConcurrency(t *testing.T) {
 	checker.updating = false
 	checker.mu.Unlock()
 
-	// 验证 preUpdateHook 返回错误时中止更新
+	// 验证 preUpdateHook 返回错误时中止更新且不触发 updateFinishedHook
+	var abortFinishedCalled atomic.Bool
 	abortChecker := NewChecker(
 		"0.2.0",
 		WithHTTPClient(releaseSrv.Client()),
@@ -238,8 +256,14 @@ func TestCheckerApplyAndRestartHooksAndConcurrency(t *testing.T) {
 		WithPreUpdateHook(func(_ context.Context) error {
 			return errors.New("vpn disconnect failed")
 		}),
+		WithUpdateFinishedHook(func(_ bool) {
+			abortFinishedCalled.Store(true)
+		}),
 	)
 	if _, err := abortChecker.Apply(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "vpn disconnect failed") {
 		t.Fatalf("expected preUpdate error, got %v", err)
+	}
+	if abortFinishedCalled.Load() {
+		t.Fatal("expected updateFinishedHook not to be called when preUpdateHook fails")
 	}
 }

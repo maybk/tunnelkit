@@ -4,7 +4,7 @@
 
 ## 职责
 
-- [server.go](server.go)：辅助进程监听生命周期、调用方身份与一次性令牌校验、单会话请求（`start` / `recover` / `answer` / `stop`）分发。
+- [server.go](server.go) / [event_writer.go](event_writer.go)：辅助进程监听生命周期、调用方身份与一次性令牌校验、单会话请求（`start` / `recover` / `answer` / `stop`）分发与非阻塞异步事件流推送。
 - [session.go](session.go)：驱动 `fortivpn/engine` 执行 VPN 会话，桥接异步交互挑战（OTP / FortiToken Push / SAML）并在会话结束后自动退出。
 - [logfile.go](logfile.go)：脱敏日志格式化器，自动遮蔽密码、`SVPNCOOKIE`、Token 与验证码并通过已鉴权 IPC 流式回传给桌面进程落盘。
 - [cli.go](cli.go) / [privilege_unix.go](privilege_unix.go) / [privilege_windows.go](privilege_windows.go)：受限启动参数解析、Unix `setuid` 身份与环境净化、Windows 单会话服务入口。

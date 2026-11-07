@@ -12,6 +12,9 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"unicode/utf8"
+
+	"tunnelkit/internal/ipc"
 )
 
 var sensitiveKeyValueRegex = regexp.MustCompile(`(?i)\b(SVPNCOOKIE|credential|password|passwd|token|otp)=([^\s&;,"']+)`)
@@ -97,4 +100,64 @@ func (h *lineLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *lineLogHandler) WithGroup(_ string) slog.Handler {
 	return h
+}
+
+// sessionLogWriter sends only redacted output from NewLogger. Files are written
+// by the ordinary desktop process; the privileged helper never accepts log paths.
+type sessionLogWriter struct{ state *sessionState }
+
+func (w sessionLogWriter) Write(p []byte) (int, error) {
+	originalSize := len(p)
+	line := strings.ToValidUTF8(string(p), "")
+	if len(line) > 16<<10 {
+		size := 16 << 10
+		for !utf8.ValidString(line[:size]) {
+			size--
+		}
+		line = line[:size]
+	}
+	w.state.mu.Lock()
+	defer w.state.mu.Unlock()
+	if w.state.enqueueFrameLocked(outboundFrame{
+		msgType: ipc.TypeLog,
+		payload: ipc.LogData{Line: line},
+		logLine: line,
+	}) {
+		return originalSize, nil
+	}
+	w.state.appendLogBacklogLocked(line)
+	return originalSize, nil
+}
+
+func (s *sessionState) appendLogBacklogLocked(line string) {
+	// Keep a bounded tail across temporary GUI disconnections without privileged
+	// filesystem writes. Attach flushes it as a small number of bounded frames.
+	s.logBacklog = append(s.logBacklog, line)
+	s.logBacklogBytes += len(line)
+	for s.logBacklogBytes > 128<<10 {
+		s.logBacklogBytes -= len(s.logBacklog[0])
+		s.logBacklog[0] = ""
+		s.logBacklog = s.logBacklog[1:]
+	}
+}
+
+func flushLogBacklog(c *ipc.Conn, lines []string) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	backlog := strings.Join(lines, "")
+	for len(backlog) > 0 {
+		size := min(16<<10, len(backlog))
+		for size > 0 && !utf8.ValidString(backlog[:size]) {
+			size--
+		}
+		if size == 0 {
+			break
+		}
+		if err := c.Send(ipc.TypeLog, 0, ipc.LogData{Line: backlog[:size]}); err != nil {
+			return err
+		}
+		backlog = backlog[size:]
+	}
+	return nil
 }

@@ -10,8 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"tunnelkit/internal/privilege"
 )
 
 func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc) (func() error, error) {
@@ -58,11 +56,8 @@ func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc
 		return nil, err
 	}
 
-	if err := privilege.Ensure(ctx, filepath.Join(bundlePath, "Contents", "MacOS", "tunnelkit-helper")); err != nil {
-		return nil, fmt.Errorf("应用已替换，辅助组件升级未完成: %w", err)
-	}
 	restart := func() error {
-		return exec.Command("/usr/bin/open", "-n", bundlePath).Start()
+		return exec.Command("/usr/bin/open", append([]string{"-n", bundlePath, "--args"}, restartArguments()...)...).Run()
 	}
 	return restart, nil
 }
@@ -103,9 +98,13 @@ func replaceMacAppBundle(ctx context.Context, srcAppPath, dstAppPath string) err
 	}
 
 	if out, err := exec.CommandContext(ctx, "/usr/bin/ditto", srcAppPath, dstAppPath).CombinedOutput(); err != nil {
-		_ = os.RemoveAll(dstAppPath)
-		_ = os.Rename(backupPath, dstAppPath)
-		return fmt.Errorf("写入新应用包失败: %s (%w)", strings.TrimSpace(string(out)), err)
+		removeErr := os.RemoveAll(dstAppPath)
+		restoreErr := os.Rename(backupPath, dstAppPath)
+		installErr := fmt.Errorf("写入新应用包失败: %s (%w)", strings.TrimSpace(string(out)), err)
+		if restoreErr != nil {
+			return errors.Join(ErrRollbackFailed, installErr, removeErr, restoreErr)
+		}
+		return errors.Join(installErr, removeErr)
 	}
 
 	_ = exec.CommandContext(ctx, "/usr/bin/xattr", "-dr", "com.apple.quarantine", dstAppPath).Run()
@@ -114,38 +113,47 @@ func replaceMacAppBundle(ctx context.Context, srcAppPath, dstAppPath string) err
 }
 
 func replaceMacAppBundleElevated(ctx context.Context, srcAppPath, dstAppPath, backupPath string) error {
-	helperPath := filepath.Join(dstAppPath, "Contents", "MacOS", "tunnelkit-helper")
-	shellCmd := strings.Join([]string{
-		"set -eu",
-		"/bin/rm -rf " + darwinShellQuote(backupPath),
-		"/bin/mv " + darwinShellQuote(dstAppPath) + " " + darwinShellQuote(backupPath),
-		"if /usr/bin/ditto " + darwinShellQuote(srcAppPath) + " " + darwinShellQuote(dstAppPath) + "; then",
-		"  /usr/bin/xattr -dr com.apple.quarantine " + darwinShellQuote(dstAppPath) + " || true;",
-		"  " + darwinShellQuote(helperPath) + " install;",
-		"  /bin/rm -rf " + darwinShellQuote(backupPath) + ";",
-		"else",
-		"  /bin/rm -rf " + darwinShellQuote(dstAppPath) + ";",
-		"  /bin/mv " + darwinShellQuote(backupPath) + " " + darwinShellQuote(dstAppPath) + ";",
-		"  exit 1;",
-		"fi",
-	}, "\n")
+	shellCmd := buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath)
 
 	escaped := strings.ReplaceAll(shellCmd, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 	script := `do shell script "` + escaped + `" with administrator privileges`
 
-	out, err := exec.CommandContext(ctx, "/usr/bin/osascript", "-e", script).CombinedOutput()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// 提权后的脚本必须完成替换或回滚，不能在文件事务中途中断。
+	out, err := exec.Command("/usr/bin/osascript", "-e", script).CombinedOutput()
 	if err != nil {
 		text := strings.TrimSpace(string(out))
 		lower := strings.ToLower(text)
-		if strings.Contains(lower, "(-128)") || strings.Contains(lower, "canceled") || strings.Contains(lower, "cancelled") {
-			return errors.New("已取消管理员授权，更新未安装")
+		if strings.Contains(lower, "(-128)") || strings.Contains(lower, "canceled") || strings.Contains(lower, "cancelled") || strings.Contains(text, "用户已取消") {
+			return ErrElevationCancelled
 		}
 		return fmt.Errorf("管理员授权安装更新失败: %s (%w)", text, err)
 	}
 	return nil
 }
 
+func buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath string) string {
+	srcQ := darwinShellQuote(srcAppPath)
+	dstQ := darwinShellQuote(dstAppPath)
+	bakQ := darwinShellQuote(backupPath)
+	return strings.Join([]string{
+		"set -eu",
+		"/bin/rm -rf " + bakQ,
+		"/bin/mv " + dstQ + " " + bakQ,
+		"if /usr/bin/ditto " + srcQ + " " + dstQ + "; then",
+		"  /usr/bin/xattr -dr com.apple.quarantine " + dstQ + " || true;",
+		"  /bin/rm -rf " + bakQ + ";",
+		"else",
+		"  /bin/rm -rf " + dstQ + ";",
+		"  /bin/mv " + bakQ + " " + dstQ + ";",
+		"  exit 1;",
+		"fi",
+	}, "\n")
+}
+
 func darwinShellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	return shellQuote(value)
 }

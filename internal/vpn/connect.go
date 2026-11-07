@@ -8,7 +8,6 @@ import (
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/helperclient"
-	"tunnelkit/internal/ipc"
 	"tunnelkit/internal/storage"
 )
 
@@ -236,20 +235,15 @@ func (s *Service) disconnectIfActive(ctx context.Context, targetProfileID string
 	}
 
 	if oldTicket, loadErr := s.tickets.Load(); loadErr == nil {
-		if oldConn, snap, attachErr := s.launcher.Attach(ctx, oldTicket); attachErr == nil {
-			if snap != nil && snap.Phase == fortivpn.PhaseDisconnected {
-				return false, s.finishSession(ctx, oldConn, snap, oldTicket)
-			}
-			if oldTicket.ProfileID == targetProfileID {
-				s.adoptSession(oldConn, snap, oldTicket)
-				return true, nil
-			}
-			s.adoptSession(oldConn, snap, oldTicket)
-			return false, s.disconnectLocked(ctx)
-		} else if !ipc.EndpointUnavailable(attachErr) {
-			return false, attachErr
+		oldConn, snap, recovered, err := s.attachOrRecoverTicket(ctx, oldTicket)
+		if err != nil || recovered {
+			return false, err
 		}
-		return false, s.recoverNetwork(ctx, oldTicket)
+		s.adoptSession(oldConn, snap, oldTicket)
+		if oldTicket.ProfileID == targetProfileID {
+			return true, nil
+		}
+		return false, s.disconnectLocked(ctx)
 	} else if !errors.Is(loadErr, os.ErrNotExist) {
 		return false, loadErr
 	}

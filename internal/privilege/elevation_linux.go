@@ -23,14 +23,16 @@ func elevateInstall(ctx context.Context, source string) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		text := strings.TrimSpace(string(out))
+		lower := strings.ToLower(text)
 		var exit *exec.ExitError
-		if errors.As(err, &exit) && exit.ExitCode() == 126 {
+		if (errors.As(err, &exit) && exit.ExitCode() == 126) ||
+			strings.Contains(lower, "dismissed") ||
+			strings.Contains(lower, "cancel") {
 			return ErrCancelled
 		}
-		text := strings.TrimSpace(string(out))
-		// Missing agents may use a pre-authorized sudo rule. Real installation
-		// failures are returned, rather than triggering a second authorization.
-		if !strings.Contains(strings.ToLower(text), "agent") {
+		// 若桌面环境未运行 PolicyKit 代理，可回退至免密 sudo；真实安装失败直接返回而不触发二次弹窗。
+		if !strings.Contains(lower, "agent") {
 			return fmt.Errorf("辅助组件安装失败: %s (%w)", text, err)
 		}
 	}

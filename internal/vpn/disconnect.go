@@ -8,7 +8,6 @@ import (
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/helperclient"
-	"tunnelkit/internal/ipc"
 )
 
 // Disconnect 断开当前活动连接（通过已建立的 IPC 通道通知 helper，无需再次弹出管理员授权）。
@@ -50,19 +49,13 @@ func (s *Service) disconnectLocked(ctx context.Context) error {
 
 	if conn == nil {
 		if ticket, loadErr := s.tickets.Load(); loadErr == nil {
-			if attached, snap, attachErr := s.launcher.Attach(ctx, ticket); attachErr == nil {
-				if snap != nil && snap.Phase == fortivpn.PhaseDisconnected {
-					return s.finishSession(ctx, attached, snap, ticket)
-				}
-				conn = attached
-				_, streamDone = s.startEventStream(conn, ticket)
-				curState = s.State()
-			} else {
-				if !ipc.EndpointUnavailable(attachErr) {
-					return attachErr
-				}
-				return s.recoverNetwork(ctx, ticket)
+			attached, _, recovered, err := s.attachOrRecoverTicket(ctx, ticket)
+			if err != nil || recovered {
+				return err
 			}
+			conn = attached
+			_, streamDone = s.startEventStream(conn, ticket)
+			curState = s.State()
 		} else if !errors.Is(loadErr, os.ErrNotExist) {
 			return loadErr
 		}

@@ -1,6 +1,6 @@
 # 跨平台虚拟网卡 (`internal/netdev`)
 
-本包屏蔽各操作系统三层虚拟网卡（TUN）的系统调用差异，向 `fortivpn/engine` 提供统一的純 IP 报文读写接口。
+本包屏蔽各操作系统三层虚拟网卡（TUN）的系统调用差异，向 `fortivpn/engine` 提供统一的纯 IP 报文读写接口。
 
 ## 职责
 

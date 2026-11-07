@@ -15,10 +15,11 @@ Vue 前端 -> Wails bindings -> internal/api -> internal/vpn -> internal/helperc
 | `internal/api` | 暴露给前端的 Wails 服务适配层 | 负责参数转发、配置文本双向转换与状态拼装 |
 | [`internal/vpn`](../../internal/vpn/README.md) | 桌面端连接状态机、交互式挑战桥接、连接切换与网络异常恢复 | 通过 `helperclient` 控制后台辅助进程 |
 | [`internal/helper`](../../internal/helper/README.md) | 单会话特权辅助服务、脱敏日志落盘与网络恢复看门狗 | 仅响应通过本机身份与一次性令牌校验的连接 |
-| [`internal/privilege`](../../internal/privilege/README.md) | 受保护辅助组件安装、完整性与权限校验、授权调用、平台服务与系统运行路径 | 供 helper、helperclient、update 复用，不依赖 VPN 或 GUI |
+| [`internal/privilege`](../../internal/privilege/README.md) | 受保护辅助组件安装、完整性与权限校验、授权调用、平台服务与系统运行路径 | 供 `helper` 与 `helperclient` 复用，不依赖 VPN、`update` 或 GUI |
+| `internal/credentials` | 本地凭据加密密封器与平台主密钥保护 | 供 `profile` 与 `helperclient` 复用，不依赖上层业务 |
 | `internal/profile` | 配置增删改查、字段校验与密码加密存储 | 不感知运行期隧道会话 |
 | `internal/storage` | `~/.tunnelkit` 目录布局与原子文件写入 | 不依赖上层业务模型 |
-| `internal/update` | GitHub Releases 版本更新检查、多源降级与语义化版本比较 | 零业务耦合，严格校验发布页跳转地址 |
+| `internal/update` | GitHub Releases 版本更新检查、多源降级、语义化版本比较与三端原子自更新 | 零业务耦合，严格校验发布页与安装包摘要 |
 | [`fortivpn`](../../fortivpn/README.md) | 纯 Go Fortinet SSL-VPN 协议内核与独立 CLI | 严禁引用 `tunnelkit/internal/**` 或 Wails |
 
 ## 目录结构
@@ -39,15 +40,16 @@ tunnelkit/
 │       └── netcfg/            # 平台路由、分流 DNS 与异常恢复
 ├── internal/
 │   ├── api/                   # Wails 绑定服务
-│   ├── app/                   # 窗口配置、菜单栏托盘与生命周期装配
+│   ├── app/                   # 窗口配置、菜单栏托盘、自更新协调与生命周期装配
+│   ├── credentials/           # 本地凭据加密密封器与平台密钥保护
 │   ├── ipc/                   # 本地 IPC 帧协议与调用方身份校验
-│   ├── helper/                # 特权辅助服务端与脱敏日志器
-│   ├── helperclient/          # 辅助进程按需拉起与客户端封装
+│   ├── helper/                # 特权辅助服务端、异步事件流与脱敏日志器
+│   ├── helperclient/          # 辅助进程按需拉起、客户端封装与加密会话票据
 │   ├── privilege/             # 特权组件安装、校验、授权与受保护运行目录
 │   ├── profile/               # 配置模型、校验器、持久化与密码库
 │   ├── storage/               # 数据目录路径与原子写入
-│   ├── update/                # 版本更新检查、多源回退与版本比较
-│   └── vpn/                   # 桌面连接状态机与会话恢复
+│   ├── update/                # 版本更新检查、多源回退、版本比较与原子自更新
+│   └── vpn/                   # 桌面连接状态机、维护门禁与会话恢复
 ├── assets/
 │   ├── brand/                 # 品牌与菜单栏图标 SVG 母版
 │   └── icons/                 # 桌面端与系统托盘内嵌 PNG 图标

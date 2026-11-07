@@ -6,7 +6,7 @@
 
 - [config.go](config.go) / [configtext.go](configtext.go)：`Config` 配置模型、校验与 `key = value` 文本双向序列化。
 - [event.go](event.go) / [errors.go](errors.go)：会话阶段事件（`Phase`）、交互式挑战请求（`Prompt`）与结构化错误定义。
-- [engine/engine.go](engine/engine.go) / [engine/session.go](engine/session.go) / [engine/pump.go](engine/pump.go)：单次连接与自动重连编排、双向数据包转发及流量统计。
+- [engine/engine.go](engine/engine.go) / [engine/session.go](engine/session.go) / [engine/netcfg.go](engine/netcfg.go) / [engine/pump.go](engine/pump.go)：单次连接与自动重连编排、网络配置规划与下发、双向数据包转发及流量统计。
 - [internal/sslvpn/](internal/sslvpn/README.md)：HTTPS 控制面认证、2FA / SAML、隧道 XML 解析、裸 TLS 连接劫持与 `0x5050` 6 字节帧编解码。
 - [internal/ppp/](internal/ppp/README.md)：PPP 数据面协商（LCP、IPCP）与 LCP Echo 保活。
 - [internal/netdev/](internal/netdev/README.md)：跨平台虚拟 TUN 网卡（macOS `utun`、Windows Wintun、Linux `/dev/net/tun`）。

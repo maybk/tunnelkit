@@ -82,8 +82,6 @@ func Run(assets embed.FS) error {
 		return fmt.Errorf("初始化数据目录失败: %w", err)
 	}
 
-	update.CleanupOldArtifacts()
-
 	profileStore := profile.NewStore(rootDir)
 	vpnService := vpn.NewService(rootDir, profileStore, vpn.NewDefaultLauncher())
 
@@ -92,9 +90,10 @@ func Run(assets embed.FS) error {
 		wailsApp   *application.App
 	)
 	tray := &trayController{}
-	systemAPI := newSystemAPI(version, vpnService, func() *application.App {
+	updater := newUpdater(version, vpnService, func() *application.App {
 		return wailsApp
 	})
+	systemAPI := api.NewSystemAPIWithUpdater(version, updater)
 
 	quitter := &quitGuard{
 		stop: vpnService.Shutdown,
@@ -166,6 +165,7 @@ func Run(assets embed.FS) error {
 	})
 
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		update.CleanupOldArtifacts()
 		go vpnService.Recover(context.Background())
 	})
 	wailsApp.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
@@ -182,32 +182,4 @@ func shutdownVPN(vpnService *vpn.Service) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return vpnService.Shutdown(ctx)
-}
-
-func newSystemAPI(version string, vpnService *vpn.Service, getApp func() *application.App) *api.SystemAPI {
-	return api.NewSystemAPI(
-		version,
-		update.WithPreUpdateHook(func(ctx context.Context) error {
-			return vpnService.Disconnect(ctx)
-		}),
-		update.WithProgressListener(func(p update.Progress) {
-			if wailsApp := getApp(); wailsApp != nil {
-				wailsApp.Event.Emit(EventUpdateProgress, p)
-			}
-		}),
-		update.WithRestartHandler(func(restartFn func() error) error {
-			if restartFn != nil {
-				if err := restartFn(); err != nil {
-					return err
-				}
-			}
-			if wailsApp := getApp(); wailsApp != nil {
-				go func() {
-					time.Sleep(150 * time.Millisecond)
-					wailsApp.Quit()
-				}()
-			}
-			return nil
-		}),
-	)
 }

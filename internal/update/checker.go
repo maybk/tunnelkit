@@ -34,6 +34,7 @@ var (
 	ErrSelfUpdateNotReady  = errors.New("当前平台或版本暂不支持应用内自动更新，请前往下载页手动更新")
 	ErrDownloadUpdate      = errors.New("下载更新安装包失败，请稍后重试或前往下载页手动下载")
 	ErrChecksumMismatch    = errors.New("更新安装包 SHA-256 校验失败，已中止安装")
+	ErrElevationCancelled  = errors.New("已取消管理员授权，更新未安装")
 )
 
 // Info 表示版本更新检查结果。
@@ -134,19 +135,37 @@ func WithRestartHandler(fn func(restartFn func() error) error) Option {
 	}
 }
 
+// WithUpdateFinishedHook 注册自更新收尾回调；restarting=true 表示新进程已拉起并即将退出当前进程。
+func WithUpdateFinishedHook(fn func(restarting bool)) Option {
+	return func(c *Checker) {
+		if fn != nil {
+			c.updateFinishedHook = fn
+		}
+	}
+}
+
+// WithSelfUpdateCapable 显式指定当前运行环境是否满足原地自更新条件（如 macOS .app 形态或非只读挂载）。
+func WithSelfUpdateCapable(capable bool) Option {
+	return func(c *Checker) {
+		c.selfUpdateCapable = capable
+	}
+}
+
 // Checker 负责向 GitHub Releases 查询最新正式版本、判断是否存在更新并驱动应用内自更新。
 type Checker struct {
-	version           string
-	goos              string
-	goarch            string
-	proxyPrefix       string
-	httpClient        *http.Client
-	releaseURLs       []string
-	applier           ApplierFunc
-	assetURLValidator func(rawURL, tag, assetName string) bool
-	preUpdateHook     func(context.Context) error
-	progressListener  ProgressFunc
-	restartHandler    func(restartFn func() error) error
+	version            string
+	goos               string
+	goarch             string
+	proxyPrefix        string
+	httpClient         *http.Client
+	releaseURLs        []string
+	applier            ApplierFunc
+	assetURLValidator  func(rawURL, tag, assetName string) bool
+	preUpdateHook      func(context.Context) error
+	progressListener   ProgressFunc
+	restartHandler     func(restartFn func() error) error
+	updateFinishedHook func(restarting bool)
+	selfUpdateCapable  bool
 
 	mu         sync.Mutex
 	updating   bool
@@ -167,6 +186,7 @@ func NewChecker(version string, opts ...Option) *Checker {
 		},
 		applier:           applyPlatformUpdate,
 		assetURLValidator: IsValidAssetDownloadURL,
+		selfUpdateCapable: true,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -284,7 +304,7 @@ func (c *Checker) fetchReleaseFrom(parentCtx context.Context, endpoint, currentV
 		info.AssetURL = matched.BrowserDownloadURL
 		info.AssetSize = matched.Size
 		info.AssetSHA256 = matched.Digest
-		info.CanSelfUpdate = hasUpdate && info.AssetSHA256 != ""
+		info.CanSelfUpdate = hasUpdate && c.selfUpdateCapable && info.AssetSHA256 != ""
 	}
 
 	return info, nil

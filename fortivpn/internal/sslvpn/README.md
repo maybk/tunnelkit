@@ -5,7 +5,7 @@
 ## 职责
 
 - [client.go](client.go) / [trust.go](trust.go)：TLS 客户端构建、系统根证书校验与服务端叶子证书 SHA-256 指纹固定（Pinning）。
-- [auth.go](auth.go)：`/remote/login` 预检、`/remote/logincheck` 表单认证、双因素挑战（OTP / FortiToken Push `ret=2`）与 `/remote/logout` 注销。
+- [auth.go](auth.go)：`/remote/logincheck` 表单认证、双因素挑战（OTP / FortiToken Push `ret=2`）与 `/remote/logout` 注销。
 - [saml.go](saml.go)：本地回环 HTTP 监听接收 SAML 浏览器单点登录回调并提取 `SVPNCOOKIE`。
 - [tunconf.go](tunconf.go)：请求并解析 `/remote/fortisslvpn_xml`（含 IPv4 地址、MTU、拆分路由 `split-tunnel-info` 与 DNS）。
 - [tunnel.go](tunnel.go)：发送 `GET /remote/sslvpn-tunnel` 伪装升级请求并劫持底层 `tls.Conn`。

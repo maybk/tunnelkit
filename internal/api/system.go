@@ -29,9 +29,16 @@ type SystemAPI struct {
 }
 
 func NewSystemAPI(version string, opts ...update.Option) *SystemAPI {
+	return NewSystemAPIWithUpdater(version, update.NewChecker(version, opts...))
+}
+
+func NewSystemAPIWithUpdater(version string, updater *update.Checker) *SystemAPI {
+	if updater == nil {
+		updater = update.NewChecker(version)
+	}
 	return &SystemAPI{
 		version: version,
-		updater: update.NewChecker(version, opts...),
+		updater: updater,
 	}
 }
 

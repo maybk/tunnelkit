@@ -1,6 +1,6 @@
 //go:build !windows
 
-package profile
+package credentials
 
 func sealKeyBytes(raw []byte) ([]byte, error) {
 	return raw, nil

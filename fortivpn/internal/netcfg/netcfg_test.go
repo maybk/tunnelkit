@@ -1,9 +1,11 @@
 package netcfg
 
 import (
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"tunnelkit/fortivpn"
@@ -174,5 +176,63 @@ func TestJournalWriteFailureDoesNotCommitInMemory(t *testing.T) {
 	}
 	if len(j.Entries()) != 1 {
 		t.Fatal("failed clear discarded the in-memory recovery entry")
+	}
+}
+
+func TestDiffRoutes(t *testing.T) {
+	r1 := netip.MustParsePrefix("10.0.0.0/24")
+	r2 := netip.MustParsePrefix("10.0.1.0/24")
+	r3 := netip.MustParsePrefix("10.0.2.0/24")
+	r4 := netip.MustParsePrefix("10.0.3.0/24")
+
+	toRemove, toKeep, toAdd := DiffRoutes([]netip.Prefix{r1, r2, r3}, []netip.Prefix{r2, r3, r4})
+	if !slices.Equal(toRemove, []netip.Prefix{r1}) {
+		t.Fatalf("toRemove = %v, want [%v]", toRemove, r1)
+	}
+	if !slices.Equal(toKeep, []netip.Prefix{r2, r3}) {
+		t.Fatalf("toKeep = %v, want [%v %v]", toKeep, r2, r3)
+	}
+	if !slices.Equal(toAdd, []netip.Prefix{r4}) {
+		t.Fatalf("toAdd = %v, want [%v]", toAdd, r4)
+	}
+}
+
+func TestJournalRollbackRetainsOnlyFailedEntries(t *testing.T) {
+	dir := t.TempDir()
+	jPath := filepath.Join(dir, "netcfg-journal.json")
+
+	j := NewJournal(jPath)
+	e1 := JournalEntry{Kind: KindHostRoute, Gateway: "198.51.100.10", NextHop: "192.168.1.1", Iface: "en0"}
+	e2 := JournalEntry{Kind: KindDarwinDNSKey, Key: "State:/Network/Service/TunnelKit/DNS"}
+	if err := j.Record(e1); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Record(e2); err != nil {
+		t.Fatal(err)
+	}
+
+	err := j.Rollback(func(entry JournalEntry) error {
+		if entry == e1 {
+			return errors.New("route delete failed")
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected rollback error when e1 fails")
+	}
+
+	reloaded, err := LoadJournal(jPath)
+	if err != nil {
+		t.Fatalf("LoadJournal after partial rollback: %v", err)
+	}
+	if !slices.Equal(reloaded.Entries(), []JournalEntry{e1}) {
+		t.Fatalf("remaining entries = %+v, want [%+v]", reloaded.Entries(), e1)
+	}
+
+	if err := reloaded.Rollback(func(JournalEntry) error { return nil }); err != nil {
+		t.Fatalf("Rollback retry: %v", err)
+	}
+	if _, err := os.Stat(jPath); !os.IsNotExist(err) {
+		t.Fatalf("expected journal file to be deleted after complete rollback, stat err = %v", err)
 	}
 }

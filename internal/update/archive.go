@@ -9,10 +9,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
 const maxExtractedBinaryBytes = 250 << 20 // 250 MiB
+
+// ErrRollbackFailed 表示组件恢复未完成，禁止直接降级重试覆盖剩余备份。
+var ErrRollbackFailed = errors.New("回滚原应用组件失败，已中止更新以保护备份文件")
 
 // ResolveExecutablePath 获取当前进程可执行文件的真实绝对路径（自动解析符号链接）。
 func ResolveExecutablePath() (string, error) {
@@ -26,13 +30,47 @@ func ResolveExecutablePath() (string, error) {
 	return selfExe, nil
 }
 
-// CleanupOldArtifacts 清理上次自更新在当前可执行文件同目录下遗留的 .old 备份文件。
+// CleanupOldArtifacts 清理上次自更新在当前可执行文件同目录下遗留的备份文件。
 func CleanupOldArtifacts() {
 	selfExe, err := ResolveExecutablePath()
 	if err != nil {
 		return
 	}
 	CleanDirectoryBackups(filepath.Dir(selfExe))
+	if bundlePath, ok := ResolveMacAppBundlePath(selfExe); ok {
+		if _, statErr := os.Stat(bundlePath); statErr == nil {
+			_ = os.RemoveAll(bundlePath + ".bak")
+		}
+	}
+}
+
+// CanInstallCurrentProcess 判断当前正在运行的进程安装形态是否支持原地自更新。
+func CanInstallCurrentProcess() bool {
+	selfExe, err := ResolveExecutablePath()
+	if err != nil {
+		return false
+	}
+	return CanInstallInPlace(runtime.GOOS, selfExe, os.Getenv("APPIMAGE"))
+}
+
+// CanInstallInPlace 判断给定的平台、可执行文件路径与环境变量是否支持原地自更新替换。
+func CanInstallInPlace(goos, exePath, appImageEnv string) bool {
+	cleaned := strings.TrimSpace(exePath)
+	if cleaned == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(goos)) {
+	case "darwin":
+		_, ok := ResolveMacAppBundlePath(cleaned)
+		return ok
+	case "windows":
+		return true
+	case "linux":
+		// AppImage 运行在只读 FUSE 挂载目录中，不支持按 tar.gz 原地解包替换内部文件。
+		return strings.TrimSpace(appImageEnv) == ""
+	default:
+		return false
+	}
 }
 
 // CleanDirectoryBackups 清理指定目录中的自更新备份文件。
@@ -158,20 +196,33 @@ func writeLimitedFile(targetPath string, r io.Reader, mode os.FileMode) error {
 	return os.Chmod(targetPath, mode)
 }
 
-// ReplaceFilesWithBackup 将 stageDir 中的文件原子替换到 targetDir（原文件先重命名为 .old，若中途失败自动回滚）。
+// ReplaceFilesWithBackup 将 stageDir 中的文件原子替换到 targetDir（原文件先重命名为 .old，若中途失败自动逆序回滚）。
 func ReplaceFilesWithBackup(stageDir, targetDir string, names []string, mode os.FileMode, removeBackup bool) error {
 	var backedUp []string
 	var replaced []string
 
-	rollback := func() {
-		for _, name := range replaced {
-			_ = os.Remove(filepath.Join(targetDir, name))
+	rollback := func() error {
+		var rollbackErr error
+		for i := len(replaced) - 1; i >= 0; i-- {
+			name := replaced[i]
+			if err := os.Remove(filepath.Join(targetDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				rollbackErr = errors.Join(rollbackErr, err)
+			}
 		}
-		for _, name := range backedUp {
+		for i := len(backedUp) - 1; i >= 0; i-- {
+			name := backedUp[i]
 			oldPath := filepath.Join(targetDir, name+".old")
 			dstPath := filepath.Join(targetDir, name)
-			_ = os.Rename(oldPath, dstPath)
+			rollbackErr = errors.Join(rollbackErr, os.Rename(oldPath, dstPath))
 		}
+		return rollbackErr
+	}
+
+	fail := func(cause error) error {
+		if restoreErr := rollback(); restoreErr != nil {
+			return errors.Join(ErrRollbackFailed, cause, restoreErr)
+		}
+		return cause
 	}
 
 	for _, name := range names {
@@ -182,15 +233,13 @@ func ReplaceFilesWithBackup(stageDir, targetDir string, names []string, mode os.
 		_ = os.Remove(oldPath)
 		if _, err := os.Stat(dstPath); err == nil {
 			if err := os.Rename(dstPath, oldPath); err != nil {
-				rollback()
-				return err
+				return fail(err)
 			}
 			backedUp = append(backedUp, name)
 		}
 
 		if err := copyAndRenameFile(srcPath, dstPath, mode); err != nil {
-			rollback()
-			return err
+			return fail(err)
 		}
 		replaced = append(replaced, name)
 	}

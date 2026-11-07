@@ -9,12 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
-	"time"
-
-	"golang.org/x/sys/windows"
-
-	"tunnelkit/internal/privilege"
 )
 
 func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc) (func() error, error) {
@@ -43,7 +37,7 @@ func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc
 
 	files := []string{"tunnelkit.exe", "tunnelkit-helper.exe", "wintun.dll"}
 	if err := ReplaceFilesWithBackup(stageDir, targetDir, files, 0o755, false); err != nil {
-		if errors.Is(err, os.ErrPermission) {
+		if errors.Is(err, os.ErrPermission) && !errors.Is(err, ErrRollbackFailed) {
 			if elevErr := replaceWindowsFilesElevated(ctx, stageDir, targetDir, files); elevErr != nil {
 				return nil, elevErr
 			}
@@ -52,12 +46,9 @@ func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc
 		}
 	}
 
-	if err := privilege.Ensure(ctx, filepath.Join(targetDir, "tunnelkit-helper.exe")); err != nil {
-		return nil, fmt.Errorf("应用已替换，辅助组件升级未完成: %w", err)
-	}
 	targetExe := filepath.Join(targetDir, "tunnelkit.exe")
 	restart := func() error {
-		return exec.Command(targetExe).Start()
+		return exec.Command(targetExe, restartArguments()...).Start()
 	}
 	return restart, nil
 }
@@ -67,63 +58,19 @@ func replaceWindowsFilesElevated(ctx context.Context, stageDir, targetDir string
 	okSentinel := filepath.Join(stageDir, "done.ok")
 	errSentinel := filepath.Join(stageDir, "done.err")
 
-	var lines []string
-	lines = append(lines, "@echo off")
-	for _, name := range files {
-		src := filepath.Join(stageDir, name)
-		dst := filepath.Join(targetDir, name)
-		old := dst + ".old"
-		lines = append(lines, fmt.Sprintf(`del /f /q "%s" >nul 2>&1`, old))
-		lines = append(lines, fmt.Sprintf(`if exist "%s" move /y "%s" "%s" >nul`, dst, dst, old))
-		lines = append(lines, fmt.Sprintf(`copy /y "%s" "%s" >nul || (echo fail > "%s" & exit /b 1)`, src, dst, errSentinel))
-	}
-	lines = append(lines, fmt.Sprintf(`"%s" install-service >nul 2>&1 || (echo fail > "%s" & exit /b 1)`, filepath.Join(targetDir, "tunnelkit-helper.exe"), errSentinel))
-	lines = append(lines, fmt.Sprintf(`echo ok > "%s"`, okSentinel))
-	content := strings.Join(lines, "\r\n") + "\r\n"
+	content := buildWindowsFileUpdate(stageDir, targetDir, files, okSentinel, errSentinel)
 	if err := os.WriteFile(scriptPath, []byte(content), 0o700); err != nil {
 		return fmt.Errorf("生成提权更新脚本失败: %w", err)
 	}
 
-	verbPtr, err := windows.UTF16PtrFromString("runas")
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	filePtr, err := windows.UTF16PtrFromString("cmd.exe")
-	if err != nil {
+	if err := runElevatedInstaller(scriptPath, stageDir); err != nil {
 		return err
 	}
-	paramPtr, err := windows.UTF16PtrFromString(`/c "` + scriptPath + `"`)
-	if err != nil {
-		return err
+	if _, err := os.Stat(okSentinel); err == nil {
+		return nil
 	}
-	dirPtr, err := windows.UTF16PtrFromString(stageDir)
-	if err != nil {
-		return err
-	}
-
-	if err := windows.ShellExecute(0, verbPtr, filePtr, paramPtr, dirPtr, windows.SW_HIDE); err != nil {
-		if errors.Is(err, windows.ERROR_CANCELLED) {
-			return errors.New("已取消管理员授权，更新未安装")
-		}
-		return fmt.Errorf("Windows UAC 授权更新失败: %w", err)
-	}
-
-	waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		if _, err := os.Stat(okSentinel); err == nil {
-			return nil
-		}
-		if _, err := os.Stat(errSentinel); err == nil {
-			return errors.New("管理员提权替换更新文件失败")
-		}
-		select {
-		case <-waitCtx.Done():
-			return fmt.Errorf("等待管理员更新完成超时: %w", waitCtx.Err())
-		case <-ticker.C:
-		}
-	}
+	return errors.New("管理员提权替换更新文件失败")
 }

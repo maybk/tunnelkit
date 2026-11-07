@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
-	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/ipc"
@@ -21,6 +19,7 @@ type promptResponse struct {
 type sessionState struct {
 	mu              sync.Mutex
 	client          *ipc.Conn
+	writer          *eventWriter
 	logBacklog      []string
 	logBacklogBytes int
 	lastPhase       fortivpn.Phase
@@ -44,7 +43,8 @@ func newSessionState(promptTimeout time.Duration) *sessionState {
 
 func (s *sessionState) AttachClient(c *ipc.Conn, helloID uint64, version string) error {
 	s.mu.Lock()
-	old := s.client
+	oldClient := s.client
+	oldWriter := s.writer
 	snap := s.snapshotLocked()
 	var promptCopy *fortivpn.Prompt
 	if s.pendingPrompt != nil {
@@ -62,19 +62,8 @@ func (s *sessionState) AttachClient(c *ipc.Conn, helloID uint64, version string)
 	if err == nil && promptCopy != nil {
 		err = c.Send(ipc.TypePrompt, 0, *promptCopy)
 	}
-	if err == nil && len(s.logBacklog) > 0 {
-		backlog := strings.Join(s.logBacklog, "")
-		for len(backlog) > 0 && err == nil {
-			size := min(16<<10, len(backlog))
-			for size > 0 && !utf8.ValidString(backlog[:size]) {
-				size--
-			}
-			if size == 0 {
-				break
-			}
-			err = c.Send(ipc.TypeLog, 0, ipc.LogData{Line: backlog[:size]})
-			backlog = backlog[size:]
-		}
+	if err == nil {
+		err = flushLogBacklog(c, s.logBacklog)
 	}
 	if err != nil {
 		s.mu.Unlock()
@@ -84,29 +73,46 @@ func (s *sessionState) AttachClient(c *ipc.Conn, helloID uint64, version string)
 	s.logBacklog = nil
 	s.logBacklogBytes = 0
 	s.client = c
+	w := newEventWriter(c)
+	s.writer = w
 	s.mu.Unlock()
 
-	if old != nil && old != c {
-		_ = old.Close()
+	if oldWriter != nil {
+		oldWriter.close()
 	}
+	if oldClient != nil && oldClient != c {
+		_ = oldClient.Close()
+	}
+	go s.writeEvents(w)
 	return nil
 }
 
 func (s *sessionState) ClearClient(c *ipc.Conn) bool {
 	s.mu.Lock()
 	detached := s.client == c
+	var w *eventWriter
 	if detached {
 		s.client = nil
+		w = s.writer
+		s.writer = nil
 	}
 	s.mu.Unlock()
+	if w != nil {
+		w.close()
+	}
 	return detached
 }
 
 func (s *sessionState) CloseClient() {
 	s.mu.Lock()
 	c := s.client
+	w := s.writer
 	s.client = nil
+	s.writer = nil
 	s.mu.Unlock()
+	if w != nil {
+		w.close()
+	}
 	if c != nil {
 		_ = c.Close()
 	}
@@ -130,14 +136,11 @@ func (s *sessionState) OnEvent(ev fortivpn.Event) {
 	if ev.Phase == fortivpn.PhaseDisconnected {
 		s.pendingPrompt = nil
 	}
-	client := s.client
+	s.enqueueFrameLocked(outboundFrame{
+		msgType: ipc.TypeEvent,
+		payload: ev,
+	})
 	s.mu.Unlock()
-
-	if client != nil {
-		_ = client.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		_ = client.Send(ipc.TypeEvent, 0, ev)
-		_ = client.SetWriteDeadline(time.Time{})
-	}
 }
 
 func (s *sessionState) Prompt(ctx context.Context, p fortivpn.Prompt) (string, error) {
@@ -146,7 +149,10 @@ func (s *sessionState) Prompt(ctx context.Context, p fortivpn.Prompt) (string, e
 	s.mu.Lock()
 	s.pendingPrompt = &p
 	s.promptCh = ch
-	client := s.client
+	s.enqueueFrameLocked(outboundFrame{
+		msgType: ipc.TypePrompt,
+		payload: p,
+	})
 	s.mu.Unlock()
 
 	defer func() {
@@ -157,12 +163,6 @@ func (s *sessionState) Prompt(ctx context.Context, p fortivpn.Prompt) (string, e
 		}
 		s.mu.Unlock()
 	}()
-
-	if client != nil {
-		_ = client.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		_ = client.Send(ipc.TypePrompt, 0, p)
-		_ = client.SetWriteDeadline(time.Time{})
-	}
 
 	timer := time.NewTimer(s.promptTimeout)
 	defer timer.Stop()
@@ -220,42 +220,8 @@ func (s *sessionState) snapshotLocked() *fortivpn.Event {
 	return ev
 }
 
-// sessionLogWriter sends only redacted output from NewLogger. Files are written
-// by the ordinary desktop process; the privileged helper never accepts log paths.
-type sessionLogWriter struct{ state *sessionState }
-
-func (w sessionLogWriter) Write(p []byte) (int, error) {
-	originalSize := len(p)
-	line := strings.ToValidUTF8(string(p), "�")
-	if len(line) > 16<<10 {
-		size := 16 << 10
-		for !utf8.ValidString(line[:size]) {
-			size--
-		}
-		line = line[:size]
-	}
-	w.state.mu.Lock()
-	defer w.state.mu.Unlock()
-	client := w.state.client
-	if client != nil {
-		_ = client.SetWriteDeadline(time.Now().Add(2 * time.Second))
-		err := client.Send(ipc.TypeLog, 0, ipc.LogData{Line: line})
-		_ = client.SetWriteDeadline(time.Time{})
-		if err == nil {
-			return originalSize, nil
-		}
-		_ = client.Close()
-	}
-	// Keep a bounded tail across temporary GUI disconnections without privileged
-	// filesystem writes. Attach flushes it as a small number of bounded frames.
-	w.state.logBacklog = append(w.state.logBacklog, line)
-	w.state.logBacklogBytes += len(line)
-	for w.state.logBacklogBytes > 128<<10 {
-		w.state.logBacklogBytes -= len(w.state.logBacklog[0])
-		w.state.logBacklog[0] = ""
-		w.state.logBacklog = w.state.logBacklog[1:]
-	}
-	return originalSize, nil
+func (s *sessionState) HasClient() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.client != nil
 }
-
-func (s *sessionState) HasClient() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.client != nil }

@@ -5,7 +5,7 @@
 ## 职责
 
 - [packet.go](packet.go)：PPP 控制报文（Code / Identifier / Length）与 TLV 选项编解码。
-- [fsm.go](fsm.go)：RFC 1661 协商状态机驱动。
+- [fsm.go](fsm.go) / [fsm_handlers.go](fsm_handlers.go)：RFC 1661 协商状态机驱动与控制帧处理器。
 - [lcp.go](lcp.go)：LCP（`0xc021`）协商，处理 MRU 与 Magic-Number 并拒绝网关认证重协商。
 - [ipcp.go](ipcp.go)：IPCP（`0x8021`）协商，遵循网关 `Configure-Nak` 收敛分配客户端 IPv4、主备 DNS。
 - [echo.go](echo.go)：周期发送 `Echo-Request`（Code `9`）并响应对端 `Echo-Reply`（Code `10`），连续超时判定死链。

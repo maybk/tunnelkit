@@ -36,55 +36,49 @@ func (s *Service) Recover(ctx context.Context) State {
 		})
 	}
 
-	conn, snap, err := s.launcher.Attach(ctx, ticket)
+	conn, snap, recovered, err := s.attachOrRecoverTicket(ctx, ticket)
 	if err != nil {
-		if !ipc.EndpointUnavailable(err) {
-			return s.setState(State{
-				Status:      StatusDisconnected,
-				Phase:       fortivpn.PhaseDisconnected,
-				ProfileID:   ticket.ProfileID,
-				ProfileName: ticket.ProfileName,
-				Error: &Error{
-					Message: "无法确认已有隧道状态",
-					Hint:    "恢复票据已保留，请重试断开或连接。",
-				},
-			})
+		msg := "恢复网络配置失败"
+		hint := err.Error()
+		if !recovered {
+			msg = "无法确认已有隧道状态"
+			hint = "恢复票据已保留，请重试断开或连接。"
 		}
-		if err := s.recoverNetwork(ctx, ticket); err != nil {
-			return s.setState(State{
-				Status:      StatusDisconnected,
-				Phase:       fortivpn.PhaseDisconnected,
-				ProfileID:   ticket.ProfileID,
-				ProfileName: ticket.ProfileName,
-				Error: &Error{
-					Message: "恢复网络配置失败",
-					Hint:    err.Error(),
-				},
-			})
-		}
-		return s.State()
+		return s.setState(State{
+			Status:      StatusDisconnected,
+			Phase:       fortivpn.PhaseDisconnected,
+			ProfileID:   ticket.ProfileID,
+			ProfileName: ticket.ProfileName,
+			Error: &Error{
+				Message: msg,
+				Hint:    hint,
+			},
+		})
 	}
-
-	if snap != nil && snap.Phase == fortivpn.PhaseDisconnected {
-		if err := s.finishSession(ctx, conn, snap, ticket); err != nil {
-			return s.setState(State{
-				Status:      StatusDisconnected,
-				Phase:       fortivpn.PhaseDisconnected,
-				ProfileID:   ticket.ProfileID,
-				ProfileName: ticket.ProfileName,
-				Error: &Error{
-					Message: "恢复网络配置失败",
-					Hint:    err.Error(),
-				},
-			})
-		}
+	if recovered {
 		return s.State()
 	}
 
 	return s.adoptSession(conn, snap, ticket)
 }
 
-// adoptSession publishes the snapshot before consuming subsequent IPC events.
+// attachOrRecoverTicket 尝试接入票据对应的 helper；若 helper 已退出或处于 PhaseDisconnected，
+// 则自动完成会话收尾与网络恢复并返回 recovered=true。
+func (s *Service) attachOrRecoverTicket(ctx context.Context, ticket helperclient.Ticket) (conn Conn, snap *fortivpn.Event, recovered bool, err error) {
+	conn, snap, attachErr := s.launcher.Attach(ctx, ticket)
+	if attachErr != nil {
+		if !ipc.EndpointUnavailable(attachErr) {
+			return nil, nil, false, attachErr
+		}
+		return nil, nil, true, s.recoverNetwork(ctx, ticket)
+	}
+	if snap != nil && snap.Phase == fortivpn.PhaseDisconnected {
+		return nil, nil, true, s.finishSession(ctx, conn, snap, ticket)
+	}
+	return conn, snap, false, nil
+}
+
+// adoptSession 先发布已恢复会话的初始状态快照，再启动后续 IPC 事件流消费。
 func (s *Service) adoptSession(conn Conn, snap *fortivpn.Event, ticket helperclient.Ticket) State {
 	phase := fortivpn.PhaseConnected
 	var info *fortivpn.TunnelInfo

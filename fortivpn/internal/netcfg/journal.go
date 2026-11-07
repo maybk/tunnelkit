@@ -149,6 +149,31 @@ func (j *Journal) Clear() error {
 	return nil
 }
 
+// Rollback executes fn for each recorded entry in LIFO order, removing each entry
+// from the journal as soon as its rollback succeeds and deleting the journal file
+// once all entries have been rolled back.
+func (j *Journal) Rollback(fn func(JournalEntry) error) error {
+	if j == nil {
+		return nil
+	}
+	var errs []error
+	for _, entry := range j.Entries() {
+		if err := fn(entry); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if err := j.Remove(entry); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) == 0 {
+		if err := j.Clear(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func (j *Journal) flushLocked() error {
 	if j.path == "" {
 		return nil

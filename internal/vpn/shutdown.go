@@ -5,9 +5,8 @@ import (
 	"time"
 )
 
-// Shutdown stops accepting new operations, waits for any recovery/connection/
-// disconnection already in progress, then stops the remaining session.
-// A failed cleanup keeps its ticket so another Shutdown or app launch can retry.
+// Shutdown 停止接收新的连接操作，等待进行中的恢复、连接或断开流程收敛后停止当前会话；
+// 若清理失败则保留恢复票据，供下次退出或启动重试。
 func (s *Service) Shutdown(ctx context.Context) (err error) {
 	ctx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelTimeout()
@@ -60,7 +59,7 @@ func (s *Service) waitStreamDoneContext(ctx context.Context, done <-chan struct{
 	}
 }
 
-// waitForHelper also covers a terminal event received just before the quit request.
+// waitForHelper 等待底层 helper 进程退出，同时覆盖退出请求前刚收到终态事件的窗口。
 func (s *Service) waitForHelper(ctx context.Context) error {
 	s.mu.RLock()
 	wait := s.waitHelper

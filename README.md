@@ -62,7 +62,7 @@ winget install maybk.TunnelKit
 macOS 手动安装 `.dmg` 后若提示无法验证开发者，可执行：
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/tunnelkit.app"
+xattr -dr com.apple.quarantine "/Applications/TunnelKit.app"
 ```
 
 ## ✨ 功能特性

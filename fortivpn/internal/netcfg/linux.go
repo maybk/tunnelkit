@@ -4,7 +4,6 @@ package netcfg
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -170,32 +169,17 @@ func (a *linuxApplied) Update(ctx context.Context, d Desired) error {
 		}
 	}
 
-	oldSet := make(map[netip.Prefix]struct{}, len(a.tunnelRoutes))
-	for _, r := range a.tunnelRoutes {
-		oldSet[r] = struct{}{}
+	toRemove, updatedRoutes, toAdd := DiffRoutes(a.tunnelRoutes, d.Routes)
+	for _, r := range toRemove {
+		_ = deleteLinuxTunnelRoute(ctx, a.run, r, a.desired.Iface)
 	}
-	newSet := make(map[netip.Prefix]struct{}, len(d.Routes))
-	for _, r := range d.Routes {
-		newSet[r] = struct{}{}
-	}
-
-	var updatedRoutes []netip.Prefix
-	for _, r := range a.tunnelRoutes {
-		if _, keep := newSet[r]; !keep {
-			_ = deleteLinuxTunnelRoute(ctx, a.run, r, a.desired.Iface)
-		} else {
-			updatedRoutes = append(updatedRoutes, r)
+	for _, r := range toAdd {
+		created, err := addLinuxTunnelRoute(ctx, a.run, r, d.Iface)
+		if err != nil {
+			return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: add updated route failed", err)
 		}
-	}
-	for _, r := range d.Routes {
-		if _, exists := oldSet[r]; !exists {
-			created, err := addLinuxTunnelRoute(ctx, a.run, r, d.Iface)
-			if err != nil {
-				return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: add updated route failed", err)
-			}
-			if created {
-				updatedRoutes = append(updatedRoutes, r)
-			}
+		if created {
+			updatedRoutes = append(updatedRoutes, r)
 		}
 	}
 	a.tunnelRoutes = updatedRoutes
@@ -226,21 +210,12 @@ func (a *linuxApplied) Close(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	var errs []error
 	for i := len(a.tunnelRoutes) - 1; i >= 0; i-- {
 		_ = deleteLinuxTunnelRoute(ctx, a.run, a.tunnelRoutes[i], a.desired.Iface)
 	}
 	a.tunnelRoutes = nil
 
-	if err := rollbackLinuxJournalEntries(ctx, a.run, a.journal); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) == 0 {
-		if err := a.journal.Clear(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return rollbackLinuxJournalEntries(ctx, a.run, a.journal)
 }
 
 func recoverLinuxWithRunner(ctx context.Context, journalPath string, run cmdRunner) error {
@@ -248,33 +223,20 @@ func recoverLinuxWithRunner(ctx context.Context, journalPath string, run cmdRunn
 	if err != nil {
 		return err
 	}
-	var errs []error
-	if err := rollbackLinuxJournalEntries(ctx, run, journal); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) == 0 {
-		if err := journal.Clear(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return rollbackLinuxJournalEntries(ctx, run, journal)
 }
 
 func rollbackLinuxJournalEntries(ctx context.Context, run cmdRunner, journal *Journal) error {
-	var errs []error
-	for _, entry := range journal.Entries() {
+	return journal.Rollback(func(entry JournalEntry) error {
 		switch entry.Kind {
 		case KindLinuxDNS:
-			if err := removeLinuxDNS(ctx, run, entry.Iface, entry.Key); err != nil {
-				errs = append(errs, err)
-			}
+			return removeLinuxDNS(ctx, run, entry.Iface, entry.Key)
 		case KindHostRoute:
-			if err := deleteLinuxHostRoute(ctx, run, entry.Gateway, entry.NextHop, entry.Iface); err != nil {
-				errs = append(errs, err)
-			}
+			return deleteLinuxHostRoute(ctx, run, entry.Gateway, entry.NextHop, entry.Iface)
+		default:
+			return nil
 		}
-	}
-	return errors.Join(errs...)
+	})
 }
 
 func configureLinuxInterface(ctx context.Context, run cmdRunner, iface string, local, peer netip.Addr, mtu int) error {

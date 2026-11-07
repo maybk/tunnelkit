@@ -815,3 +815,28 @@ func TestDisconnectWithoutTerminalEventRetainsTicket(t *testing.T) {
 		t.Fatalf("lost recovery information: %v", err)
 	}
 }
+
+func TestUpdateMaintenanceGate(t *testing.T) {
+	conn := newFakeConn()
+	svc, prof := setupTestService(t, &fakeLauncher{launchFn: func(_ context.Context, req helperclient.LaunchRequest) (Conn, helperclient.Ticket, error) {
+		conn.sendEvent(fortivpn.Event{Phase: fortivpn.PhaseConnected})
+		return conn, helperclient.Ticket{Endpoint: "/tmp/maint", Token: "tok", ProfileID: req.ProfileID}, nil
+	}})
+	if err := svc.Connect(context.Background(), prof.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.BeginUpdate(context.Background()); err != nil {
+		t.Fatalf("BeginUpdate failed: %v", err)
+	}
+	if err := svc.Connect(context.Background(), prof.ID); !errors.Is(err, ErrMaintenance) {
+		t.Fatalf("Connect during maintenance = %v, want ErrMaintenance", err)
+	}
+	svc.EndUpdate(false)
+	if err := svc.BeginUpdate(context.Background()); err != nil {
+		t.Fatalf("second BeginUpdate failed: %v", err)
+	}
+	svc.EndUpdate(true)
+	if err := svc.Connect(context.Background(), prof.ID); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Connect after restarting EndUpdate = %v, want ErrClosed", err)
+	}
+}

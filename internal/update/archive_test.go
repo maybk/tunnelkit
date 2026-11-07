@@ -150,4 +150,23 @@ func TestExtractArchiveAndAtomicReplaceHelpers(t *testing.T) {
 	if _, ok := ResolveMacAppBundlePath("/usr/local/bin/tunnelkit"); ok {
 		t.Fatal("expected ok=false for non-app-bundle path")
 	}
+
+	if !CanInstallInPlace("darwin", "/Applications/TunnelKit.app/Contents/MacOS/tunnelkit", "") {
+		t.Fatal("expected darwin .app bundle to support in-place self-update")
+	}
+	if CanInstallInPlace("darwin", "/usr/local/bin/tunnelkit", "") {
+		t.Fatal("expected bare darwin binary outside .app not to support in-place self-update")
+	}
+	if !CanInstallInPlace("windows", `C:\Program Files\TunnelKit\tunnelkit.exe`, "") {
+		t.Fatal("expected windows exe to support in-place self-update")
+	}
+	if !CanInstallInPlace("linux", "/usr/local/bin/tunnelkit", "") {
+		t.Fatal("expected linux binary to support in-place self-update")
+	}
+	if CanInstallInPlace("linux", "/tmp/.mount_tunnelkit/usr/bin/tunnelkit", "/home/user/TunnelKit.AppImage") {
+		t.Fatal("expected linux AppImage mount not to support tar.gz in-place self-update")
+	}
+	if CanInstallInPlace("freebsd", "/usr/local/bin/tunnelkit", "") {
+		t.Fatal("expected unsupported OS to return false")
+	}
 }

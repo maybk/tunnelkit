@@ -3,18 +3,17 @@ package vpn
 import (
 	"context"
 	"errors"
-	"os"
 	"sync"
 	"time"
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/helperclient"
 	"tunnelkit/internal/profile"
-	"tunnelkit/internal/storage"
 )
 
 var (
 	ErrBusy           = errors.New("正在处理上一个连接操作，请稍候")
+	ErrMaintenance    = errors.New("正在执行应用更新，请稍候")
 	ErrInvalidProfile = errors.New("配置 ID 无效")
 	ErrNoActivePrompt = errors.New("当前没有待响应的验证提示")
 	ErrClosed         = errors.New("VPN 服务正在关闭")
@@ -58,11 +57,12 @@ func (l *DefaultLauncher) Attach(ctx context.Context, t helperclient.Ticket) (Co
 type Service struct {
 	rootDir      string
 	profiles     *profile.Store
-	tickets      *TicketStore
+	tickets      *helperclient.TicketStore
 	launcher     Launcher
 	readyTimeout time.Duration
 
 	opRunning    bool
+	maintenance  bool
 	closing      bool
 	shutdownGate chan struct{}
 	// emitMu 串行化“写状态 + 通知监听者”，保证前端与菜单栏收到的状态顺序与发生顺序一致。
@@ -88,7 +88,7 @@ func NewService(rootDir string, profiles *profile.Store, launcher Launcher) *Ser
 	return &Service{
 		rootDir:      rootDir,
 		profiles:     profiles,
-		tickets:      NewTicketStore(rootDir),
+		tickets:      helperclient.NewTicketStore(rootDir),
 		launcher:     launcher,
 		readyTimeout: 60 * time.Second,
 		shutdownGate: make(chan struct{}, 1),
@@ -140,47 +140,14 @@ func (s *Service) Answer(ctx context.Context, promptID, value string, cancel boo
 	return err
 }
 
-// Log 读取指定配置的脱敏连接日志。
-func (s *Service) Log(profileID string) (LogView, error) {
-	if !profile.IsValidID(profileID) {
-		return LogView{}, ErrInvalidProfile
-	}
-	tail, err := storage.TailFile(storage.LogPath(s.rootDir, profileID), storage.DefaultTailBytes)
-	if err != nil {
-		return LogView{}, err
-	}
-	view := LogView{ProfileID: profileID, Content: tail.Content, Exists: tail.Exists}
-	if tail.Exists {
-		view.UpdatedAt = tail.ModTime.Format(time.RFC3339)
-	}
-	return view, nil
-}
-
-// ClearLog 清空指定配置的连接日志。
-func (s *Service) ClearLog(profileID string) error {
-	if !profile.IsValidID(profileID) {
-		return ErrInvalidProfile
-	}
-	return storage.ResetFile(storage.LogPath(s.rootDir, profileID))
-}
-
-// RemoveLog 删除指定配置的连接日志文件（删除配置时调用）。
-func (s *Service) RemoveLog(profileID string) error {
-	if !profile.IsValidID(profileID) {
-		return ErrInvalidProfile
-	}
-	err := os.Remove(storage.LogPath(s.rootDir, profileID))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	return err
-}
-
 func (s *Service) begin() (func(), error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
 		return nil, ErrClosed
+	}
+	if s.maintenance {
+		return nil, ErrMaintenance
 	}
 	if s.opRunning {
 		return nil, ErrBusy

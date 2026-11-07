@@ -4,7 +4,6 @@ package netcfg
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -205,32 +204,17 @@ func (a *darwinApplied) Update(ctx context.Context, d Desired) error {
 		}
 	}
 
-	oldSet := make(map[netip.Prefix]struct{}, len(a.tunnelRoutes))
-	for _, r := range a.tunnelRoutes {
-		oldSet[r] = struct{}{}
+	toRemove, updatedRoutes, toAdd := DiffRoutes(a.tunnelRoutes, d.Routes)
+	for _, r := range toRemove {
+		_ = deleteDarwinTunnelRoute(ctx, a.run, r, a.desired.Iface)
 	}
-	newSet := make(map[netip.Prefix]struct{}, len(d.Routes))
-	for _, r := range d.Routes {
-		newSet[r] = struct{}{}
-	}
-
-	var updatedRoutes []netip.Prefix
-	for _, r := range a.tunnelRoutes {
-		if _, keep := newSet[r]; !keep {
-			_ = deleteDarwinTunnelRoute(ctx, a.run, r, a.desired.Iface)
-		} else {
-			updatedRoutes = append(updatedRoutes, r)
+	for _, r := range toAdd {
+		created, err := addDarwinTunnelRoute(ctx, a.run, r, d.Iface)
+		if err != nil {
+			return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: add updated route failed", err)
 		}
-	}
-	for _, r := range d.Routes {
-		if _, exists := oldSet[r]; !exists {
-			created, err := addDarwinTunnelRoute(ctx, a.run, r, d.Iface)
-			if err != nil {
-				return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: add updated route failed", err)
-			}
-			if created {
-				updatedRoutes = append(updatedRoutes, r)
-			}
+		if created {
+			updatedRoutes = append(updatedRoutes, r)
 		}
 	}
 	a.tunnelRoutes = updatedRoutes
@@ -265,21 +249,12 @@ func (a *darwinApplied) Close(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	var errs []error
 	for i := len(a.tunnelRoutes) - 1; i >= 0; i-- {
 		_ = deleteDarwinTunnelRoute(ctx, a.run, a.tunnelRoutes[i], a.desired.Iface)
 	}
 	a.tunnelRoutes = nil
 
-	if err := rollbackJournalEntries(ctx, a.run, a.journal); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) == 0 {
-		if err := a.journal.Clear(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return rollbackJournalEntries(ctx, a.run, a.journal)
 }
 
 func recoverWithRunner(ctx context.Context, journalPath string, run cmdRunner) error {
@@ -287,33 +262,20 @@ func recoverWithRunner(ctx context.Context, journalPath string, run cmdRunner) e
 	if err != nil {
 		return err
 	}
-	var errs []error
-	if err := rollbackJournalEntries(ctx, run, journal); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) == 0 {
-		if err := journal.Clear(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
+	return rollbackJournalEntries(ctx, run, journal)
 }
 
 func rollbackJournalEntries(ctx context.Context, run cmdRunner, journal *Journal) error {
-	var errs []error
-	for _, entry := range journal.Entries() {
+	return journal.Rollback(func(entry JournalEntry) error {
 		switch entry.Kind {
 		case KindDarwinDNSKey:
-			if err := removeDarwinDNS(ctx, run, entry.Key); err != nil {
-				errs = append(errs, err)
-			}
+			return removeDarwinDNS(ctx, run, entry.Key)
 		case KindHostRoute:
-			if err := deleteDarwinHostRoute(ctx, run, entry.Gateway, entry.NextHop, entry.Iface); err != nil {
-				errs = append(errs, err)
-			}
+			return deleteDarwinHostRoute(ctx, run, entry.Gateway, entry.NextHop, entry.Iface)
+		default:
+			return nil
 		}
-	}
-	return errors.Join(errs...)
+	})
 }
 
 func lookupDarwinRoute(ctx context.Context, run cmdRunner, gateway netip.Addr, skipIface string) (Snapshot, error) {

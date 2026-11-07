@@ -6,7 +6,7 @@ TunnelKit 是基于 Wails v3、Go 与 Vue 3 + TypeScript 的跨平台（macOS / 
 
 依赖方向固定为：
 
-- 桌面进程：`Vue 前端 -> Wails bindings -> internal/api -> internal/vpn -> internal/helperclient | internal/ipc | internal/privilege | internal/profile | internal/storage | internal/update | fortivpn`
+- 桌面进程：`Vue 前端 -> Wails bindings -> internal/api -> internal/vpn | internal/profile | internal/update -> internal/helperclient | internal/ipc | internal/privilege | internal/credentials | internal/storage | fortivpn`
 - 特权辅助进程：`cmd/tunnelkit-helper -> internal/helper -> internal/ipc | internal/privilege | fortivpn/engine | fortivpn`
 - 独立协议内核：`fortivpn/**` **严禁**引用 `tunnelkit/internal/**` 或 Wails，可随时独立拆出为单独仓库。
 
@@ -14,14 +14,15 @@ TunnelKit 是基于 Wails v3、Go 与 Vue 3 + TypeScript 的跨平台（macOS / 
 
 - `fortivpn`：纯 Go Fortinet SSL-VPN 协议内核（配置解析、`internal/sslvpn` 控制面、`internal/ppp` 协议栈、`internal/netdev` 平台虚拟网卡、`internal/netcfg` 路由/DNS 配置与恢复、`engine` 会话编排、`fortitest` 内存假网关）。
 - `cmd/tunnelkit-helper` 与 `internal/helper`：单次 VPN 会话生命周期运行的特权辅助程序，监听本机 IPC 通道，校验调用方身份与一次性令牌后驱动 `fortivpn/engine`。
-- `internal/ipc` 与 `internal/helperclient`：本地 IPC 传输与按需启动器。
-- `internal/privilege`：三端特权组件的受保护安装、完整性与权限校验、系统授权调用、服务注册和运行路径；供 helper、helperclient 与 update 复用，不依赖 VPN、Wails 或前端。
-- `internal/vpn`：桌面端连接状态机、交互式挑战（OTP / FortiToken Push / SAML）转发、会话接管与网络恢复。
+- `internal/ipc` 与 `internal/helperclient`：本地 IPC 传输、加密会话票据存储与辅助进程按需启动器。
+- `internal/privilege`：三端特权组件的受保护安装、完整性与权限校验、系统授权调用、服务注册和运行路径；供 `helper` 与 `helperclient` 复用，不依赖 VPN、update、Wails 或前端。
+- `internal/credentials`：基于 AES-256-GCM 与平台密钥保护（Unix `0600` / Windows DPAPI）的本地凭据加密密封器，供 `profile` 与 `helperclient` 复用。
+- `internal/vpn`：桌面端连接状态机、交互式挑战（OTP / FortiToken Push / SAML）转发、会话接管、更新维护门禁与网络恢复。
 - `internal/profile`：配置增删改查、字段校验与密码加密存储。
 - `internal/storage`：统一管理 `~/.tunnelkit` 目录路径与原子文件写入。
-- `internal/update`：版本更新检查、多源降级回退、发布地址白名单校验与语义化版本比较。
+- `internal/update`：版本更新检查、多源降级回退、发布地址白名单校验、语义化版本比较与三端原子自更新，不依赖 VPN、`privilege`、Wails 或前端。
 - `internal/api`：Wails 服务薄适配层，仅做参数转发与跨包编排；领域逻辑与 I/O 实现下沉至对应 `internal/*` 子包。
-- `main.go` 与 `internal/app`：应用装配、窗口与标题栏配置、关闭隐藏到菜单栏及 `vpn:state` 事件推送。
+- `main.go` 与 `internal/app`：应用装配、窗口与标题栏配置、关闭隐藏到菜单栏、自更新协调及 `vpn:state` 事件推送。
 
 ## 常用命令
 
@@ -45,7 +46,7 @@ bash scripts/test_rolling_release_config.sh
 
 1. 未经明确要求，不执行 `git commit`、`git push`、切换分支或改写 Git 历史；保留现有改动，不顺带重构无关代码。
 2. 密码、Cookie、Token、OTP 验证码与密钥禁止硬编码，也禁止写入日志、源码及错误提示；密码与认证令牌仅通过本地 IPC 通道传输，严禁落地为明文临时文件或命令行参数。
-3. `profiles.json` 仅保存非敏感字段；密码加密后存入 `secrets.json`，主密钥保存在 `~/.tunnelkit/secret.key`。
+3. `profiles.json` 仅保存非敏感字段；连接密码与运行期会话重连令牌经 `internal/credentials` 加密后分别存入 `secrets.json` 与 `run/session.json`，主密钥保存在 `~/.tunnelkit/secret.key`。
 4. 辅助程序日志必须经过 `internal/helper` 脱敏器，再通过已鉴权 IPC 交给非特权桌面进程落盘。
 5. 网络路由与 DNS 修改必须先持久化写入系统保护目录中的 `run/<uid-or-sid>/netcfg-journal.json` 再执行系统变更，确保进程异常退出后能幂等恢复宿主网络。
 6. `fortivpn` 包必须保持零外部业务耦合，禁止在 `fortivpn/**` 中导入 `tunnelkit/internal/**`。

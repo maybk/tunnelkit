@@ -116,6 +116,32 @@ func SplitDNSNeedsDomains(dns DNSPlan) bool {
 	return dns.Mode == fortivpn.DNSSplit && len(dns.Servers) > 0 && len(dns.Domains) == 0
 }
 
+// DiffRoutes partitions oldRoutes and newRoutes into routes to remove, routes
+// already active to keep, and new routes to add, preserving input order.
+func DiffRoutes(oldRoutes, newRoutes []netip.Prefix) (toRemove, toKeep, toAdd []netip.Prefix) {
+	oldSet := make(map[netip.Prefix]struct{}, len(oldRoutes))
+	for _, r := range oldRoutes {
+		oldSet[r] = struct{}{}
+	}
+	newSet := make(map[netip.Prefix]struct{}, len(newRoutes))
+	for _, r := range newRoutes {
+		newSet[r] = struct{}{}
+	}
+	for _, r := range oldRoutes {
+		if _, keep := newSet[r]; keep {
+			toKeep = append(toKeep, r)
+		} else {
+			toRemove = append(toRemove, r)
+		}
+	}
+	for _, r := range newRoutes {
+		if _, exists := oldSet[r]; !exists {
+			toAdd = append(toAdd, r)
+		}
+	}
+	return toRemove, toKeep, toAdd
+}
+
 // Plan computes the ordered sequence of network configuration steps from Desired and Snapshot.
 func Plan(d Desired, snap Snapshot) []Step {
 	var steps []Step

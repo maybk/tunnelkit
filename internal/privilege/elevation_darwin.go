@@ -22,7 +22,11 @@ func elevateInstall(ctx context.Context, source string) error {
 			return ctx.Err()
 		}
 		text := strings.TrimSpace(string(out))
-		if strings.Contains(text, "(-128)") {
+		lower := strings.ToLower(text)
+		if strings.Contains(lower, "(-128)") ||
+			strings.Contains(lower, "canceled") ||
+			strings.Contains(lower, "cancelled") ||
+			strings.Contains(text, "用户已取消") {
 			return ErrCancelled
 		}
 		return fmt.Errorf("辅助组件安装失败: %s", text)

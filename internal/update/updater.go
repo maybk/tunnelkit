@@ -42,12 +42,35 @@ type ApplierFunc func(ctx context.Context, archivePath string, report ProgressFu
 
 // Apply 执行下载、SHA-256 校验与平台原地更新，并返回用于拉起新版本进程的重启函数。
 func (c *Checker) Apply(ctx context.Context, onProgress ProgressFunc) (func() error, error) {
+	if err := c.beginUpdate(); err != nil {
+		return nil, err
+	}
+	prepared := false
+	defer func() { c.finishUpdate(prepared, false) }()
+	return c.apply(ctx, onProgress, &prepared)
+}
+
+func (c *Checker) beginUpdate() error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.updating {
-		c.mu.Unlock()
-		return nil, ErrUpdateInProgress
+		return ErrUpdateInProgress
 	}
 	c.updating = true
+	return nil
+}
+
+func (c *Checker) finishUpdate(prepared, restarting bool) {
+	if prepared && c.updateFinishedHook != nil {
+		c.updateFinishedHook(restarting)
+	}
+	c.mu.Lock()
+	c.updating = false
+	c.mu.Unlock()
+}
+
+func (c *Checker) apply(ctx context.Context, onProgress ProgressFunc, prepared *bool) (func() error, error) {
+	c.mu.Lock()
 	var info Info
 	var hasCached bool
 	if c.cachedInfo != nil && c.cachedInfo.CanSelfUpdate {
@@ -55,12 +78,6 @@ func (c *Checker) Apply(ctx context.Context, onProgress ProgressFunc) (func() er
 		hasCached = true
 	}
 	c.mu.Unlock()
-
-	defer func() {
-		c.mu.Lock()
-		c.updating = false
-		c.mu.Unlock()
-	}()
 
 	report := func(p Progress) {
 		if c.progressListener != nil {
@@ -94,12 +111,6 @@ func (c *Checker) Apply(ctx context.Context, onProgress ProgressFunc) (func() er
 		return nil, ErrSelfUpdateNotReady
 	}
 
-	if c.preUpdateHook != nil {
-		if err := c.preUpdateHook(ctx); err != nil {
-			return nil, err
-		}
-	}
-
 	tmpDir, err := os.MkdirTemp("", "tunnelkit-update-*")
 	if err != nil {
 		return nil, fmt.Errorf("创建更新临时目录失败: %w", err)
@@ -120,6 +131,13 @@ func (c *Checker) Apply(ctx context.Context, onProgress ProgressFunc) (func() er
 		Percent:         100,
 		Message:         "正在安装新版本…",
 	})
+
+	if c.preUpdateHook != nil {
+		if err := c.preUpdateHook(ctx); err != nil {
+			return nil, err
+		}
+		*prepared = true
+	}
 
 	applier := c.applier
 	if applier == nil {
@@ -142,17 +160,22 @@ func (c *Checker) Apply(ctx context.Context, onProgress ProgressFunc) (func() er
 
 // ApplyAndRestart 执行自更新并调用重启处理器（或默认重启函数）。
 func (c *Checker) ApplyAndRestart(ctx context.Context) error {
-	restartFn, err := c.Apply(ctx, nil)
+	if err := c.beginUpdate(); err != nil {
+		return err
+	}
+	prepared, restarting := false, false
+	defer func() { c.finishUpdate(prepared, restarting) }()
+	restartFn, err := c.apply(ctx, nil, &prepared)
 	if err != nil {
 		return err
 	}
 	if c.restartHandler != nil {
-		return c.restartHandler(restartFn)
+		err = c.restartHandler(restartFn)
+	} else if restartFn != nil {
+		err = restartFn()
 	}
-	if restartFn != nil {
-		return restartFn()
-	}
-	return nil
+	restarting = err == nil
+	return err
 }
 
 func (c *Checker) downloadAndVerify(

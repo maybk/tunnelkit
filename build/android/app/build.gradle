@@ -3,19 +3,19 @@ plugins {
 }
 
 android {
-    namespace 'com.wails.app'
-    compileSdk 34
+    namespace = 'com.wails.app'
+    compileSdk = 36
 
     buildFeatures {
         buildConfig = true
     }
 
     defaultConfig {
-        applicationId "com.wails.app"
-        minSdk 21
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        applicationId = "com.wails.app"
+        minSdk = 21
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0"
 
         // Configure supported ABIs
         ndk {
@@ -23,19 +23,37 @@ android {
         }
     }
 
+    def keystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
+    def hasKeystore = keystoreFile != null && !keystoreFile.trim().isEmpty()
+
+    signingConfigs {
+        // A real keystore can be provided via environment variables; without
+        // one, release builds are signed with the debug keystore so they can
+        // be installed for testing (not suitable for Play Store uploads).
+        release {
+            if (hasKeystore) {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig = hasKeystore ? signingConfigs.release : signingConfigs.debug
         }
         debug {
-            debuggable true
+            debuggable = true
         }
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 
     // Source sets configuration
@@ -60,4 +78,6 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.webkit:webkit:1.9.0'
     implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.biometric:biometric:1.1.0'
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
 }

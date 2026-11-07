@@ -66,7 +66,7 @@ tasks:
       - task: common:generate:icons
     preconditions:
       - sh: '{{if eq .OBFUSCATED "true"}}command -v garble >/dev/null 2>&1{{else}}true{{end}}'
-        msg: "garble is required for obfuscated builds. Install it with: go install mvdan.cc/garble@v0.16.0 (requires Go 1.24+). See https://github.com/burrowers/garble/releases for version/toolchain compatibility."
+        msg: "garble is required for obfuscated builds. Install it with: go install mvdan.cc/garble@v0.18.0 (requires Go 1.27+). See https://github.com/burrowers/garble/releases for version/toolchain compatibility."
     cmds:
       - task: generate:syso
         vars:
@@ -204,14 +204,14 @@ tasks:
           ARCH: '{{.ARCH}}'
       - |-
         wails3 tool msix \
-          --config "{{.ROOT_DIR}}/wails.json" \
-          --name "{{.APP_NAME}}" \
+          --config "{{.ROOT_DIR}}/build/config.yml" \
+          --name "{{.APP_NAME}}.exe" \
           --executable "{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" \
           --arch "{{.ARCH}}" \
           --out "{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}-{{.ARCH}}.msix" \
           {{if .CERT_PATH}}--cert "{{.CERT_PATH}}"{{end}} \
           {{if .PUBLISHER}}--publisher "{{.PUBLISHER}}"{{end}} \
-          {{if .USE_MSIX_TOOL}}--use-msix-tool{{else}}--use-makeappx{{end}}
+          {{if eq .USE_MSIX_TOOL "true"}}--use-msix-tool{{else}}--use-makeappx{{end}}
     vars:
       ARCH: '{{.ARCH | default ARCH}}'
       CERT_PATH: '{{.CERT_PATH | default ""}}'
@@ -231,21 +231,20 @@ tasks:
     summary: Signs the Windows executable
     desc: |
       Signs the .exe with an Authenticode certificate.
-      Configure SIGN_CERTIFICATE or SIGN_THUMBPRINT in the vars section at the top of this file.
+      Set SIGN_CERTIFICATE or SIGN_THUMBPRINT to override the certificate
+      configured globally via `wails3 setup` (~/.config/wails/defaults.yaml).
       Password is retrieved from system keychain (run: wails3 setup signing)
     deps:
       - task: build
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}.exe" {{if .SIGN_CERTIFICATE}}--certificate {{.SIGN_CERTIFICATE}}{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint {{.SIGN_THUMBPRINT}}{{end}} {{if .TIMESTAMP_SERVER}}--timestamp {{.TIMESTAMP_SERVER}}{{end}}
-    preconditions:
-      - sh: '[ -n "{{.SIGN_CERTIFICATE}}" ] || [ -n "{{.SIGN_THUMBPRINT}}" ]'
-        msg: "Either SIGN_CERTIFICATE or SIGN_THUMBPRINT is required. Set it in the vars section at the top of build/windows/Taskfile.yml"
+      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}.exe" {{if .SIGN_CERTIFICATE}}--certificate "{{.SIGN_CERTIFICATE}}"{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint "{{.SIGN_THUMBPRINT}}"{{end}} {{if .TIMESTAMP_SERVER}}--timestamp "{{.TIMESTAMP_SERVER}}"{{end}}
 
   sign:installer:
     summary: Signs the NSIS installer
     desc: |
       Creates and signs the NSIS installer.
-      Configure SIGN_CERTIFICATE or SIGN_THUMBPRINT in the vars section at the top of this file.
+      Set SIGN_CERTIFICATE or SIGN_THUMBPRINT to override the certificate
+      configured globally via `wails3 setup` (~/.config/wails/defaults.yaml).
       Password is retrieved from system keychain (run: wails3 setup signing)
     deps:
       - task: create:nsis:installer
@@ -254,7 +253,4 @@ tasks:
     vars:
       INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "machine"}}'
     cmds:
-      - wails3 tool sign --input "build/windows/nsis/{{.APP_NAME}}-installer.exe" {{if .SIGN_CERTIFICATE}}--certificate {{.SIGN_CERTIFICATE}}{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint {{.SIGN_THUMBPRINT}}{{end}} {{if .TIMESTAMP_SERVER}}--timestamp {{.TIMESTAMP_SERVER}}{{end}}
-    preconditions:
-      - sh: '[ -n "{{.SIGN_CERTIFICATE}}" ] || [ -n "{{.SIGN_THUMBPRINT}}" ]'
-        msg: "Either SIGN_CERTIFICATE or SIGN_THUMBPRINT is required. Set it in the vars section at the top of build/windows/Taskfile.yml"
+      - wails3 tool sign --input "build/windows/nsis/{{.APP_NAME}}-installer.exe" {{if .SIGN_CERTIFICATE}}--certificate "{{.SIGN_CERTIFICATE}}"{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint "{{.SIGN_THUMBPRINT}}"{{end}} {{if .TIMESTAMP_SERVER}}--timestamp "{{.TIMESTAMP_SERVER}}"{{end}}

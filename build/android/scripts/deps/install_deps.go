@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -47,6 +50,17 @@ func main() {
 		errors = append(errors, "ANDROID_HOME not set. Install Android Studio and set ANDROID_HOME environment variable")
 	} else {
 		fmt.Printf("✓ ANDROID_HOME: %s\n", androidHome)
+		for _, component := range []struct {
+			path string
+			name string
+		}{
+			{filepath.Join(androidHome, "platforms", "android-36"), "Android SDK Platform API 36 (platforms;android-36)"},
+			{filepath.Join(androidHome, "build-tools", "36.0.0"), "Android SDK Build-Tools 36.0.0 (build-tools;36.0.0)"},
+		} {
+			if info, err := os.Stat(component.path); err != nil || !info.IsDir() {
+				errors = append(errors, component.name+" is not installed")
+			}
+		}
 	}
 
 	// Check adb
@@ -94,11 +108,13 @@ func main() {
 		fmt.Printf("✓ Android NDK: %s\n", ndkHome)
 	}
 
-	// Check Java
-	if !checkCommand("java", "-version") {
-		errors = append(errors, "Java not found. Install JDK 11+ (OpenJDK recommended)")
+	// Check Java. AGP 9 requires JDK 17 or newer.
+	if major, err := javaMajorVersion(); err != nil {
+		errors = append(errors, "Java not found or its version could not be read. Install JDK 17+ (OpenJDK recommended)")
+	} else if major < 17 {
+		errors = append(errors, fmt.Sprintf("Java %d is too old. Install JDK 17+ (OpenJDK recommended)", major))
 	} else {
-		fmt.Println("✓ Java is installed")
+		fmt.Printf("✓ Java %d is installed\n", major)
 	}
 
 	// Check for AVD (Android Virtual Device)
@@ -109,7 +125,9 @@ func main() {
 			avds := strings.Split(strings.TrimSpace(string(output)), "\n")
 			fmt.Printf("✓ Found %d Android Virtual Device(s)\n", len(avds))
 		} else {
-			fmt.Println("⚠ No Android Virtual Devices found. Create one via Android Studio > Tools > Device Manager")
+			// Mirror the iOS installer, which offers to create a simulator when
+			// none exist. Only create from an already-installed system image.
+			offerCreateAVD(androidHome)
 		}
 	}
 
@@ -124,8 +142,8 @@ func main() {
 		fmt.Println("Setup instructions:")
 		fmt.Println("1. Install Android Studio: https://developer.android.com/studio")
 		fmt.Println("2. Open SDK Manager and install:")
-		fmt.Println("   - Android SDK Platform (API 34)")
-		fmt.Println("   - Android SDK Build-Tools")
+		fmt.Println("   - Android SDK Platform (API 36)")
+		fmt.Println("   - Android SDK Build-Tools 36.0.0")
 		fmt.Println("   - Android SDK Platform-Tools")
 		fmt.Println("   - Android Emulator")
 		fmt.Println("   - NDK (Side by side)")
@@ -143,9 +161,138 @@ func main() {
 	fmt.Println("✓ All Android development dependencies are installed!")
 }
 
+var javaVersionPattern = regexp.MustCompile(`(?i)(?:java|openjdk) version "(?:1\.)?(\d+)`)
+
+func javaMajorVersion() (int, error) {
+	java := "java"
+	if javaHome := os.Getenv("JAVA_HOME"); javaHome != "" {
+		java = filepath.Join(javaHome, "bin", "java")
+	}
+	output, err := exec.Command(java, "-version").CombinedOutput()
+	if err != nil {
+		return 0, err
+	}
+	match := javaVersionPattern.FindStringSubmatch(string(output))
+	if len(match) != 2 {
+		return 0, fmt.Errorf("unrecognised java version output")
+	}
+	return strconv.Atoi(match[1])
+}
+
 func checkCommand(name string, args ...string) bool {
 	cmd := exec.Command(name, args...)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	return cmd.Run() == nil
+}
+
+// offerCreateAVD mirrors the iOS installer's simulator offer: when no AVD
+// exists, offer to create one — but ONLY from a system image that is already
+// installed. We never run sdkmanager here (a multi-GB download with a license
+// prompt is a surprise the user should trigger themselves).
+func offerCreateAVD(androidHome string) {
+	abi := "x86_64"
+	if runtime.GOARCH == "arm64" {
+		abi = "arm64-v8a"
+	}
+
+	// Find the highest-API installed system image matching the host ABI.
+	// The API level must be compared numerically: lexicographic sorting
+	// would rank android-9 above android-36.
+	var img string
+	if androidHome != "" {
+		matches, _ := filepath.Glob(filepath.Join(androidHome, "system-images", "android-*", "*", abi))
+		bestAPI := -1
+		for _, m := range matches {
+			apiDir := filepath.Base(filepath.Dir(filepath.Dir(m)))
+			api, err := strconv.Atoi(strings.TrimPrefix(apiDir, "android-"))
+			if err != nil {
+				continue // preview/extension images (e.g. android-36-ext18)
+			}
+			if api > bestAPI {
+				bestAPI = api
+				img = m
+			}
+		}
+	}
+
+	avdmanager := findAVDManager(androidHome)
+
+	if img == "" || avdmanager == "" {
+		fmt.Println("⚠ No Android Virtual Devices found.")
+		fmt.Println("   Install a system image and create an AVD, e.g.:")
+		fmt.Printf("     sdkmanager 'system-images;android-36;google_apis;%s'\n", abi)
+		fmt.Printf("     avdmanager create avd --name wails --package 'system-images;android-36;google_apis;%s' --device pixel_7\n", abi)
+		return
+	}
+
+	// Derive the package path from the installed image directory, e.g.
+	//   <sdk>/system-images/android-36/google_apis/arm64-v8a
+	//   -> system-images;android-36;google_apis;arm64-v8a
+	rel := strings.TrimPrefix(img, filepath.Join(androidHome, "system-images")+string(os.PathSeparator))
+	pkg := "system-images;" + strings.ReplaceAll(rel, string(os.PathSeparator), ";")
+
+	fmt.Println("⚠ No Android Virtual Devices found.")
+	fmt.Printf("   Would you like to create a 'wails' AVD from %s?\n", pkg)
+	if !promptUser("Create AVD?") {
+		fmt.Println("   Skipping AVD creation.")
+		fmt.Printf("   Create manually: avdmanager create avd --name wails --package '%s' --device pixel_7\n", pkg)
+		return
+	}
+
+	cmd := exec.Command(avdmanager, "create", "avd", "--name", "wails", "--package", pkg, "--device", "pixel_7", "--force")
+	cmd.Stdin = strings.NewReader("no\n") // decline the custom hardware-profile prompt
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("   Failed to create AVD: %v\n", err)
+	} else {
+		fmt.Println("   ✅ 'wails' AVD created")
+	}
+}
+
+// findAVDManager returns the avdmanager path from PATH, or from the SDK's
+// cmdline-tools (preferring the newest version), or "" if not found.
+func findAVDManager(androidHome string) string {
+	if p, err := exec.LookPath("avdmanager"); err == nil {
+		return p
+	}
+	if androidHome != "" {
+		matches, _ := filepath.Glob(filepath.Join(androidHome, "cmdline-tools", "*", "bin", "avdmanager"))
+		// Prefer the "latest" alias; otherwise compare versions numerically
+		// ("9.0" would lexicographically outrank "11.0").
+		best := ""
+		bestVersion := -1.0
+		for _, m := range matches {
+			version := filepath.Base(filepath.Dir(filepath.Dir(m)))
+			if version == "latest" {
+				return m
+			}
+			v, err := strconv.ParseFloat(version, 64)
+			if err != nil {
+				v = 0
+			}
+			if v > bestVersion {
+				bestVersion = v
+				best = m
+			}
+		}
+		return best
+	}
+	return ""
+}
+
+func promptUser(question string) bool {
+	if os.Getenv("CI") != "" || os.Getenv("TASK_FORCE_YES") == "true" {
+		fmt.Printf("%s [y/N]: y (auto-accepted)\n", question)
+		return true
+	}
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("%s [y/N]: ", question)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	response = strings.ToLower(strings.TrimSpace(response))
+	return response == "y" || response == "yes"
 }

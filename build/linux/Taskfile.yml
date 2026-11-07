@@ -36,7 +36,7 @@ tasks:
       TARGET_ARCH: '{{.ARCH | default ARCH}}'
       # Check if a C compiler is available (gcc or clang) — cross-platform via wails3 tool
       HAS_CC:
-        sh: 'wails3 tool has-cc'
+        sh: 'wails3 tool has "gcc|clang"'
 
   build:native:
     summary: Builds the application natively on Linux
@@ -55,7 +55,7 @@ tasks:
       - task: generate:dotdesktop
     preconditions:
       - sh: '{{if eq .OBFUSCATED "true"}}command -v garble >/dev/null 2>&1{{else}}true{{end}}'
-        msg: "garble is required for obfuscated builds. Install it with: go install mvdan.cc/garble@v0.16.0 (requires Go 1.24+). See https://github.com/burrowers/garble/releases for version/toolchain compatibility."
+        msg: "garble is required for obfuscated builds. Install it with: go install mvdan.cc/garble@v0.18.0 (requires Go 1.27+). See https://github.com/burrowers/garble/releases for version/toolchain compatibility."
     cmds:
       - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o {{.OUTPUT}}'
       - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} -trimpath -buildvcs=false -ldflags="-w -s" -o "{{.BIN_DIR}}/tunnelkit-helper" ./cmd/tunnelkit-helper'
@@ -196,39 +196,33 @@ tasks:
     summary: Signs the DEB package
     desc: |
       Signs the .deb package with a PGP key.
-      Configure PGP_KEY in the vars section at the top of this file.
+      Set PGP_KEY in the vars section to override the key configured globally via
+      `wails3 setup` (~/.config/wails/defaults.yaml).
       Password is retrieved from system keychain (run: wails3 setup signing)
     deps:
       - task: create:deb
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}*.deb" --pgp-key {{.PGP_KEY}} {{if .SIGN_ROLE}}--role {{.SIGN_ROLE}}{{end}}
-    preconditions:
-      - sh: '[ -n "{{.PGP_KEY}}" ]'
-        msg: "PGP_KEY is required. Set it in the vars section at the top of build/linux/Taskfile.yml"
+      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}*.deb" {{if .PGP_KEY}}--pgp-key "{{.PGP_KEY}}"{{end}} {{if .SIGN_ROLE}}--role "{{.SIGN_ROLE}}"{{end}}
 
   sign:rpm:
     summary: Signs the RPM package
     desc: |
       Signs the .rpm package with a PGP key.
-      Configure PGP_KEY in the vars section at the top of this file.
+      Set PGP_KEY in the vars section to override the key configured globally via
+      `wails3 setup` (~/.config/wails/defaults.yaml).
       Password is retrieved from system keychain (run: wails3 setup signing)
     deps:
       - task: create:rpm
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}*.rpm" --pgp-key {{.PGP_KEY}}
-    preconditions:
-      - sh: '[ -n "{{.PGP_KEY}}" ]'
-        msg: "PGP_KEY is required. Set it in the vars section at the top of build/linux/Taskfile.yml"
+      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}*.rpm" {{if .PGP_KEY}}--pgp-key "{{.PGP_KEY}}"{{end}}
 
   sign:packages:
     summary: Signs all Linux packages (DEB and RPM)
     desc: |
       Signs both .deb and .rpm packages with a PGP key.
-      Configure PGP_KEY in the vars section at the top of this file.
+      Set PGP_KEY in the vars section to override the key configured globally via
+      `wails3 setup` (~/.config/wails/defaults.yaml).
       Password is retrieved from system keychain (run: wails3 setup signing)
     cmds:
       - task: sign:deb
       - task: sign:rpm
-    preconditions:
-      - sh: '[ -n "{{.PGP_KEY}}" ]'
-        msg: "PGP_KEY is required. Set it in the vars section at the top of build/linux/Taskfile.yml"

@@ -1,5 +1,6 @@
 .DS_Store
 .task
+.wails
 bin
 dist
 node_modules

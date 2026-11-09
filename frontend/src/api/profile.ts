@@ -1,29 +1,33 @@
-import { DEFAULT_VPN_PORT } from '@/lib/profileForm'
-import { ProfileAPI } from '../../bindings/tunnelkit/internal/api'
-import type * as api from '../../bindings/tunnelkit/internal/api'
-import type * as profile from '../../bindings/tunnelkit/internal/profile'
-import type * as fortivpn from '../../bindings/tunnelkit/fortivpn'
+import type { ParsedProfileText, Profile, ProfileInput } from '@/types/profile'
+import * as ProfileAPI from '@bindings/tunnelkit/internal/api/profileapi.js'
+import { mapParsedProfileTextFromDto, mapProfileFromDto, mapProfileInputToDto } from './mappers'
 
-export type Profile = profile.Profile
-export type ProfileInput = profile.Input
-export type ParsedProfileText = api.ParsedProfileText
-export type ConfigWarning = fortivpn.Warning
+export const profileApi = {
+  async list(): Promise<Profile[]> {
+    const items = await ProfileAPI.List()
+    return (items ?? []).map((item) => mapProfileFromDto(item))
+  },
 
-export { DEFAULT_VPN_PORT }
+  async save(input: ProfileInput): Promise<Profile> {
+    const saved = await ProfileAPI.Save(mapProfileInputToDto(input))
+    return mapProfileFromDto(saved)
+  },
 
-export const listProfiles = (): Promise<Profile[]> => ProfileAPI.List()
+  async remove(id: string): Promise<void> {
+    await ProfileAPI.Delete(id)
+  },
 
-export const saveProfile = (input: ProfileInput): Promise<Profile> => ProfileAPI.Save(input)
+  async trustCert(id: string, sha256: string): Promise<Profile> {
+    const updated = await ProfileAPI.TrustCert(id, sha256)
+    return mapProfileFromDto(updated)
+  },
 
-export const deleteProfile = (id: string): Promise<void> => ProfileAPI.Delete(id)
+  async formatText(input: ProfileInput, hasSavedPassword: boolean): Promise<string> {
+    return ProfileAPI.FormatText(mapProfileInputToDto(input), hasSavedPassword)
+  },
 
-export const trustProfileCert = (id: string, sha256: string): Promise<Profile> =>
-  ProfileAPI.TrustCert(id, sha256)
-
-export const parseProfileText = (base: ProfileInput, text: string): Promise<ParsedProfileText> =>
-  ProfileAPI.ParseText(base, text)
-
-export const formatProfileText = (
-  input: ProfileInput,
-  hasSavedPassword: boolean,
-): Promise<string> => ProfileAPI.FormatText(input, hasSavedPassword)
+  async parseText(base: ProfileInput, text: string): Promise<ParsedProfileText> {
+    const parsed = await ProfileAPI.ParseText(mapProfileInputToDto(base), text)
+    return mapParsedProfileTextFromDto(parsed)
+  },
+}

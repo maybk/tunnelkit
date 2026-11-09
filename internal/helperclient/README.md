@@ -4,19 +4,22 @@
 
 ## 目录结构
 
-- `client.go`：IPC 客户端连接握手、请求序号关联及控制调用与异步事件流分发。
-- `ticket.go`：经 `internal/credentials` 加密持久化 `run/session.json` 会话票据，支持桌面端重启后重连接管。
+- `client.go`：IPC 请求关联、控制调用与事件分发。
+- `handshake.go`：版本协商、握手超时与取消收尾。
+- `legacy_journal.go`：以桌面权限有界读取旧版网络恢复数据，确认恢复后删除旧记录。
+- `ticket.go`：加密会话票据的读写与清理。
+- `ticket_migrate.go`：旧票据识别与格式转换。
 - `launch.go`：辅助程序二进制定位、受保护安装确保、启动参数拼装与就绪握手等待。
 - `launch_unix.go`：macOS 与 Linux 直接拉起已受保护安装的 `setuid-root` 辅助进程并监听退出状态。
 - `launch_windows.go`：Windows 通过服务控制管理器（SCM）按需启动 `TunnelKitHelper` 服务并传入会话参数。
 - `launch_other.go`：非支持平台下的辅助进程启动空实现。
 - `process.go`：等待辅助进程真实退出的轮询与通道同步入口。
 - `process_unix.go`：Unix 平台基于 `kill(pid, 0)` 的辅助进程存活探测。
-- `process_windows.go`：Windows 平台基于进程句柄与退出码的辅助进程存活探测。
+- `process_windows.go`：Windows 平台基于 Toolhelp 进程快照的辅助进程存活探测。
 - `process_other.go`：非支持平台下的辅助进程存活探测空实现。
 - `certificate.go`：在桌面进程内以当前用户权限读取并校验客户端证书与私钥，转换为内存 `Secret` 后通过 IPC 下发。
-- `certificate_unix.go`：Unix 平台以 `O_NOFOLLOW` 安全打开客户端证书文件，拒绝软链接。
-- `certificate_windows.go`：Windows 平台检查文件属性与重解析点后安全打开客户端证书文件。
+- `certificate_unix.go`：Unix 平台以非阻塞方式打开用户文件，交由调用方检查普通文件类型与大小。
+- `certificate_windows.go`：Windows 平台以当前桌面用户权限打开文件，交由调用方检查类型与大小。
 - `certificate_other.go`：非支持平台下的客户端证书文件打开实现。
 
 ## 开发规范

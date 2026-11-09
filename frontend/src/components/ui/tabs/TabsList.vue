@@ -1,25 +1,33 @@
 <script setup lang="ts">
 import type { TabsListProps } from 'reka-ui'
 import type { HTMLAttributes } from 'vue'
+import type { TabsListVariants } from '.'
 import { reactiveOmit } from '@vueuse/core'
-import { TabsList } from 'reka-ui'
 import { cn } from '@/lib/utils'
+import { TabsList } from 'reka-ui'
+import { tabsListVariants } from '.'
 
-const props = defineProps<TabsListProps & { class?: HTMLAttributes['class'] }>()
-const delegatedProps = reactiveOmit(props, 'class')
+const props = withDefaults(
+  defineProps<
+    TabsListProps & {
+      class?: HTMLAttributes['class']
+      variant?: TabsListVariants['variant']
+    }
+  >(),
+  {
+    variant: 'default',
+  },
+)
+
+const delegatedProps = reactiveOmit(props, 'class', 'variant')
 </script>
 
 <template>
-  <!-- 外层 rounded-xl (12px) = 内层 TabsTrigger rounded-lg (8px) + p-1 (4px)，严格同心圆角 -->
   <TabsList
     data-slot="tabs-list"
+    :data-variant="variant"
     v-bind="delegatedProps"
-    :class="
-      cn(
-        'inline-flex h-9 w-fit items-center justify-center gap-0.5 rounded-xl bg-muted/90 p-1 text-muted-foreground ring-1 ring-black/[0.04] dark:ring-white/[0.06]',
-        props.class,
-      )
-    "
+    :class="cn(tabsListVariants({ variant }), props.class)"
   >
     <slot />
   </TabsList>

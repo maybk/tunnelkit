@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RefreshCw, ShieldAlert } from '@lucide/vue'
-import { Button } from '@/components/ui/button'
+import AppButton from '@/components/base/button/AppButton.vue'
 import CopyButton from './CopyButton.vue'
 
 defineProps<{
@@ -12,15 +12,15 @@ const emit = defineEmits<{
   recheck: []
 }>()
 
-const buildCommand = 'go build -o bin/tunnelkit-helper ./cmd/tunnelkit-helper'
+import { HELPER_BUILD_COMMAND as buildCommand } from '@/constants/releases'
 </script>
 
 <template>
   <div
-    class="mx-6 mb-3 flex items-center gap-3 rounded-xl border border-status-busy/35 bg-status-busy/10 px-4 py-2.5 text-body shadow-2xs"
+    class="mx-6 mb-3 flex items-center gap-3 rounded-xl border border-tone-warning-solid/35 bg-tone-warning-solid/10 px-4 py-2.5 text-body shadow-2xs"
   >
     <div
-      class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-status-busy/18 text-status-busy"
+      class="flex size-7 shrink-0 items-center justify-center rounded-lg bg-tone-warning-solid/18 text-tone-warning-solid"
     >
       <ShieldAlert class="size-4" aria-hidden="true" />
     </div>
@@ -35,10 +35,10 @@ const buildCommand = 'go build -o bin/tunnelkit-helper ./cmd/tunnelkit-helper'
     </div>
     <div class="app-no-drag flex shrink-0 items-center gap-1.5">
       <CopyButton :text="buildCommand" />
-      <Button variant="outline" size="xs" :disabled="checking" @click="emit('recheck')">
+      <AppButton variant="outline" size="xs" :disabled="checking" @click="emit('recheck')">
         <RefreshCw class="size-3" :class="checking ? 'animate-spin' : ''" aria-hidden="true" />
         重新检测
-      </Button>
+      </AppButton>
     </div>
   </div>
 </template>

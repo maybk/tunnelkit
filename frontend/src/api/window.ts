@@ -1,57 +1,19 @@
-import type { CSSProperties } from 'vue'
+import type { DesktopPlatform } from '@/types/desktop'
 import { Events, System, Window } from '@wailsio/runtime'
-
-export type DesktopPlatform = 'macos' | 'windows' | 'linux' | 'web'
-export type WailsWindowControlRegion = 'minimize' | 'maximize' | 'close'
-
-export interface DesktopWindowPort {
-  readonly platform: DesktopPlatform
-  isFocused(): Promise<boolean>
-  isMaximised(): Promise<boolean>
-  isFullscreen(): Promise<boolean>
-  subscribeFocused(listener: (isFocused: boolean) => void): () => void
-  subscribeMaximised(listener: (isMaximised: boolean) => void): () => void
-  subscribeFullscreen(listener: (isFullscreen: boolean) => void): () => void
-  minimise(): Promise<void>
-  toggleMaximise(): Promise<void>
-  close(): Promise<void>
-}
-
-/** 传统 Wails 拖拽契约，允许子元素通过 no-drag 退出拖拽命中。 */
-export const windowDragRegionStyle: CSSProperties = {
-  '--wails-draggable': 'drag',
-}
-
-/** 交互控件显式退出窗口拖拽区。 */
-export const windowInteractiveRegionStyle: CSSProperties = {
-  '--wails-draggable': 'no-drag',
-  '--wails-non-client-region': 'none',
-}
-
-/**
- * Windows Composition Hosting 将该元素上报为原生 HTCAPTION 矩形。
- * 仅用于纯空白弹性拖拽段，避免自定义属性继承给子交互控件。
- */
-export const windowCaptionRegionStyle: CSSProperties = {
-  '--wails-draggable': 'drag',
-  '--wails-non-client-region': 'caption',
-}
-
-/** Windows 原生 caption 控件保留 WebView2 非客户区命中测试语义（含 Snap Layout）。 */
-export const windowControlRegionStyle = (region: WailsWindowControlRegion): CSSProperties => ({
-  '--wails-draggable': 'no-drag',
-  '--wails-non-client-region': region,
-})
 
 interface NativeBridgeWindow extends globalThis.Window {
   webkit?: { messageHandlers?: { external?: { postMessage?: unknown } } }
   chrome?: { webview?: { postMessage?: unknown } }
 }
 
-export const detectDesktopPlatform = (): DesktopPlatform => {
-  if (System.IsWindows()) return 'windows'
-  if (System.IsMac()) return 'macos'
-  if (System.IsLinux()) return 'linux'
+export function detectDesktopPlatform(): DesktopPlatform {
+  try {
+    if (System.IsWindows()) return 'windows'
+    if (System.IsMac()) return 'macos'
+    if (System.IsLinux()) return 'linux'
+  } catch {
+    // 忽略非 Wails 运行时异常
+  }
   if (typeof window !== 'undefined') {
     const win = window as NativeBridgeWindow
     if (win.webkit?.messageHandlers?.external?.postMessage) {
@@ -63,14 +25,30 @@ export const detectDesktopPlatform = (): DesktopPlatform => {
   return 'web'
 }
 
-export const desktopWindowApi: DesktopWindowPort = {
-  get platform() {
+export const desktopWindowApi = {
+  get platform(): DesktopPlatform {
     return detectDesktopPlatform()
   },
-  isFocused: () => Window.IsFocused(),
-  isMaximised: () => Window.IsMaximised(),
-  isFullscreen: () => Window.IsFullscreen(),
-  subscribeFocused: (listener) => {
+
+  subscribeReady(listener: () => void): () => void {
+    if (typeof window === 'undefined') return () => {}
+    window.addEventListener('wails:runtime-config-ready', listener, { once: true })
+    return () => window.removeEventListener('wails:runtime-config-ready', listener)
+  },
+
+  isFocused(): Promise<boolean> {
+    return Window.IsFocused()
+  },
+
+  isMaximised(): Promise<boolean> {
+    return Window.IsMaximised()
+  },
+
+  isFullscreen(): Promise<boolean> {
+    return Window.IsFullscreen()
+  },
+
+  subscribeFocused(listener: (focused: boolean) => void): () => void {
     const offFocus = Events.On(Events.Types.Common.WindowFocus, () => listener(true))
     const offLostFocus = Events.On(Events.Types.Common.WindowLostFocus, () => listener(false))
     return () => {
@@ -78,7 +56,8 @@ export const desktopWindowApi: DesktopWindowPort = {
       offLostFocus()
     }
   },
-  subscribeMaximised: (listener) => {
+
+  subscribeMaximised(listener: (maximised: boolean) => void): () => void {
     const offMaximise = Events.On(Events.Types.Common.WindowMaximise, () => listener(true))
     const offUnMaximise = Events.On(Events.Types.Common.WindowUnMaximise, () => listener(false))
     return () => {
@@ -86,7 +65,8 @@ export const desktopWindowApi: DesktopWindowPort = {
       offUnMaximise()
     }
   },
-  subscribeFullscreen: (listener) => {
+
+  subscribeFullscreen(listener: (fullscreen: boolean) => void): () => void {
     const offFullscreen = Events.On(Events.Types.Common.WindowFullscreen, () => listener(true))
     const offUnFullscreen = Events.On(Events.Types.Common.WindowUnFullscreen, () => listener(false))
     return () => {
@@ -94,7 +74,16 @@ export const desktopWindowApi: DesktopWindowPort = {
       offUnFullscreen()
     }
   },
-  minimise: () => Window.Minimise(),
-  toggleMaximise: () => Window.ToggleMaximise(),
-  close: () => Window.Close(),
+
+  minimise(): Promise<void> {
+    return Window.Minimise()
+  },
+
+  toggleMaximise(): Promise<void> {
+    return Window.ToggleMaximise()
+  },
+
+  close(): Promise<void> {
+    return Window.Close()
+  },
 }

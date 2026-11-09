@@ -1,13 +1,8 @@
 package profile
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -42,7 +37,10 @@ func (s *Store) List() ([]Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	hasPwd := s.secrets.idSet()
+	hasPwd, err := s.secrets.idSet()
+	if err != nil {
+		return nil, err
+	}
 	for i := range profiles {
 		_, profiles[i].HasPassword = hasPwd[profiles[i].ID]
 	}
@@ -63,8 +61,14 @@ func (s *Store) GetWithPassword(id string) (Profile, string, error) {
 		return Profile{}, "", ErrNotFound
 	}
 	p := profiles[i]
-	if p.Auth == string(fortivpn.AuthSAML) && !s.secrets.has(p.ID) {
-		return p, "", nil
+	if p.Auth == string(fortivpn.AuthSAML) {
+		has, err := s.secrets.has(p.ID)
+		if err != nil {
+			return Profile{}, "", err
+		}
+		if !has {
+			return p, "", nil
+		}
 	}
 	password, err := s.secrets.load(p.ID)
 	if err != nil {
@@ -90,7 +94,11 @@ func (s *Store) Save(in Input) (Profile, error) {
 		return Profile{}, ErrNotFound
 	}
 
-	hasSavedPwd := existing >= 0 && s.secrets.has(id)
+	hasSavedPwd, err := s.secrets.has(id)
+	if err != nil {
+		return Profile{}, err
+	}
+	hasSavedPwd = existing >= 0 && hasSavedPwd
 	normalized, err := NormalizeAndValidate(in, hasSavedPwd)
 	if err != nil {
 		return Profile{}, err
@@ -159,13 +167,17 @@ func (s *Store) TrustCert(id, sha256 string) (Profile, error) {
 	if i < 0 {
 		return Profile{}, ErrNotFound
 	}
+	hasPassword, err := s.secrets.has(id)
+	if err != nil {
+		return Profile{}, err
+	}
 	profiles[i].TrustedCert = digest
 	profiles[i].UpdatedAt = time.Now().Format(time.RFC3339)
 	if err := s.writeAll(profiles); err != nil {
 		return Profile{}, err
 	}
 	p := profiles[i]
-	p.HasPassword = s.secrets.has(id)
+	p.HasPassword = hasPassword
 	return p, nil
 }
 
@@ -198,59 +210,4 @@ func indexOf(profiles []Profile, id string) int {
 		}
 	}
 	return -1
-}
-
-func (s *Store) readAll() ([]Profile, error) {
-	data, err := os.ReadFile(s.path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return []Profile{}, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("读取配置文件失败: %w", err)
-	}
-	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) == 0 {
-		return []Profile{}, nil
-	}
-
-	var list []Profile
-	if err := json.Unmarshal(trimmed, &list); err != nil {
-		return nil, fmt.Errorf("解析配置文件失败: %w", err)
-	}
-
-	valid := list[:0]
-	for _, p := range list {
-		if !IsValidID(p.ID) {
-			slog.Warn("忽略 ID 非法的配置条目", "id", p.ID)
-			continue
-		}
-		if p.Port == 0 {
-			p.Port = DefaultPort
-		}
-		if p.Auth == "" {
-			p.Auth = string(fortivpn.AuthPassword)
-		}
-		if p.Routes == "" {
-			p.Routes = string(fortivpn.RouteGateway)
-		}
-		if p.DNS == "" {
-			p.DNS = string(fortivpn.DNSSplit)
-		}
-		valid = append(valid, p)
-	}
-	return valid, nil
-}
-
-func (s *Store) writeAll(profiles []Profile) error {
-	// HasPassword 由 secretVault 实时计算，不落盘。
-	persisted := make([]Profile, len(profiles))
-	for i, p := range profiles {
-		p.HasPassword = false
-		persisted[i] = p
-	}
-	data, err := json.MarshalIndent(persisted, "", "  ")
-	if err != nil {
-		return err
-	}
-	return storage.WriteFile(s.path, append(data, '\n'), 0o600)
 }

@@ -4,11 +4,10 @@ package helperclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/ipc"
@@ -26,6 +25,7 @@ type Client struct {
 	conn        *ipc.Conn
 	pid         int
 	version     string
+	protocol    int
 	processExit <-chan error
 	eventsCh    chan Message
 
@@ -34,65 +34,6 @@ type Client struct {
 	pending   map[uint64]chan ipc.ResultData
 	closed    bool
 	closeOnce sync.Once
-}
-
-// ConnectDial connects to an arbitrary ipc.Conn (used in unit tests without OS elevation).
-func ConnectDial(ctx context.Context, conn *ipc.Conn, token string) (*Client, *fortivpn.Event, error) {
-	return handshakeAndServe(ctx, conn, token)
-}
-
-func handshakeAndServe(ctx context.Context, conn *ipc.Conn, token string) (*Client, *fortivpn.Event, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
-		deadline = parent
-	}
-	_ = conn.SetDeadline(deadline)
-	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
-	defer stop()
-	if err := conn.Send(ipc.TypeHello, 1, ipc.HelloData{
-		Protocol: ipc.ProtocolVersion,
-		Token:    token,
-	}); err != nil {
-		return nil, nil, err
-	}
-
-	env, err := conn.ReadEnvelope()
-	_ = conn.SetDeadline(time.Time{})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if env.Type == ipc.TypeResult {
-		res, _ := ipc.DecodeStrict[ipc.ResultData](env.Data)
-		if res.Error == "protocol_mismatch" {
-			return nil, nil, ErrProtocolMismatch
-		}
-		return nil, nil, fmt.Errorf("helper rejected hello: %s", res.Error)
-	}
-	if env.Type != ipc.TypeWelcome {
-		return nil, nil, fmt.Errorf("unexpected handshake response %q", env.Type)
-	}
-
-	welcome, err := ipc.DecodeStrict[ipc.WelcomeData](env.Data)
-	if err != nil {
-		return nil, nil, err
-	}
-	if welcome.Protocol != ipc.ProtocolVersion {
-		return nil, nil, ErrProtocolMismatch
-	}
-
-	c := &Client{
-		conn:     conn,
-		pid:      welcome.PID,
-		version:  welcome.Version,
-		eventsCh: make(chan Message, 64),
-		pending:  make(map[uint64]chan ipc.ResultData),
-	}
-	go c.readLoop()
-	return c, welcome.Snapshot, nil
 }
 
 // PID returns the helper process ID reported during welcome.
@@ -106,12 +47,18 @@ func (c *Client) Events() <-chan Message {
 
 // Start sends the start command with cfg to the helper.
 func (c *Client) Start(ctx context.Context, cfg fortivpn.Config) error {
+	if c.protocol != ipc.ProtocolVersion {
+		return ErrProtocolMismatch
+	}
 	return c.call(ctx, ipc.TypeStart, ipc.StartData{Config: cfg})
 }
 
 // RecoverNetwork restores pending host network changes without connecting to a gateway.
-func (c *Client) RecoverNetwork(ctx context.Context) error {
-	return c.call(ctx, ipc.TypeRecover, ipc.StopData{})
+func (c *Client) RecoverNetwork(ctx context.Context, journal json.RawMessage) error {
+	if c.protocol != ipc.ProtocolVersion {
+		return ErrProtocolMismatch
+	}
+	return c.call(ctx, ipc.TypeRecover, ipc.RecoverData{Journal: journal})
 }
 
 // Answer submits the user's OTP/FTM/SAML response (or cancellation) to the helper.

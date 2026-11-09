@@ -191,12 +191,16 @@ func (a *linuxApplied) Update(ctx context.Context, d Desired) error {
 		}
 		a.dnsBackend = backend
 	} else if a.dnsBackend != "" {
-		_ = removeLinuxDNS(ctx, a.run, a.desired.Iface, a.dnsBackend)
-		_ = a.journal.Remove(JournalEntry{
+		if err := removeLinuxDNS(ctx, a.run, a.desired.Iface, a.dnsBackend); err != nil {
+			return err
+		}
+		if err := a.journal.Remove(JournalEntry{
 			Kind:  KindLinuxDNS,
 			Iface: a.desired.Iface,
 			Key:   a.dnsBackend,
-		})
+		}); err != nil {
+			return err
+		}
 		a.dnsBackend = ""
 	}
 

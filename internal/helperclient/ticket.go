@@ -3,18 +3,19 @@
 package helperclient
 
 import (
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"strings"
 
 	"tunnelkit/internal/credentials"
+	"tunnelkit/internal/ipc"
 	"tunnelkit/internal/storage"
 )
 
 // Ticket 保存跨 GUI 重启重新接入运行中 helper 所需的会话凭据（~/.tunnelkit/run/session.json）。
 type Ticket struct {
+	Protocol    int                `json:"protocol,omitempty"`
 	Endpoint    string             `json:"endpoint"`
 	Token       string             `json:"-"`
 	SealedToken credentials.Sealed `json:"sealedToken"`
@@ -43,12 +44,18 @@ func (s *TicketStore) Save(t Ticket) error {
 	if strings.TrimSpace(t.Endpoint) == "" || strings.TrimSpace(t.Token) == "" {
 		return errors.New("invalid session ticket")
 	}
+	if t.Protocol == 0 {
+		t.Protocol = ipc.ProtocolVersion
+	}
+	if t.Protocol < 1 || t.Protocol > ipc.ProtocolVersion {
+		return ErrProtocolMismatch
+	}
 	sealed, err := s.sealer.Encrypt(t.Token)
 	if err != nil {
 		return err
 	}
 	t.SealedToken = sealed
-	data, err := json.MarshalIndent(t, "", "  ")
+	data, err := storage.MarshalDocument(ticketSchemaVersion, t)
 	if err != nil {
 		return err
 	}
@@ -61,16 +68,14 @@ func (s *TicketStore) Load() (Ticket, error) {
 	if err != nil {
 		return Ticket{}, err
 	}
-	var t Ticket
-	if err := json.Unmarshal(data, &t); err != nil {
-		return Ticket{}, err
-	}
-	t.Token, err = s.sealer.Decrypt(t.SealedToken)
+	t, migrate, err := s.decodeTicket(data)
 	if err != nil {
 		return Ticket{}, err
 	}
-	if strings.TrimSpace(t.Endpoint) == "" || strings.TrimSpace(t.Token) == "" {
-		return Ticket{}, errors.New("invalid session ticket")
+	if migrate {
+		if err := s.Save(t); err != nil {
+			return Ticket{}, err
+		}
 	}
 	t.SealedToken = credentials.Sealed{}
 	return t, nil

@@ -1,0 +1,93 @@
+/* ==========================================================================
+ * Kit Instrument · Primitive Color Scales (OKLCH)
+ * ========================================================================== */
+
+:root {
+  /* Graphite Neutral Scale (Light — Cool Slate-Cyan 228–235) */
+  --kit-graphite-1: oklch(0.985 0.004 232);
+  --kit-graphite-2: oklch(0.964 0.005 232);
+  --kit-graphite-3: oklch(0.946 0.006 232);
+  --kit-graphite-4: oklch(0.925 0.007 232);
+  --kit-graphite-5: oklch(0.902 0.008 232);
+  --kit-graphite-6: oklch(0.875 0.009 233);
+  --kit-graphite-7: oklch(0.825 0.011 233);
+  --kit-graphite-8: oklch(0.735 0.014 234);
+  --kit-graphite-9: oklch(0.585 0.018 234);
+  --kit-graphite-10: oklch(0.505 0.02 235);
+  --kit-graphite-11: oklch(0.365 0.022 235);
+  --kit-graphite-12: oklch(0.195 0.02 235);
+
+  /* Cobalt Brand Scale (Default · Kit Cobalt) */
+  --brand-soft: oklch(0.52 0.175 262 / 0.1);
+  --brand-border: oklch(0.52 0.175 262 / 0.24);
+  --brand-solid: oklch(0.505 0.175 262);
+  --brand-hover: oklch(0.465 0.178 262);
+  --brand-fg: oklch(0.46 0.175 262);
+  --brand-on-solid: oklch(1 0 0);
+
+  /* Semantic Status Primitives (Light) — Flow Emerald / Amber / Red / Sky */
+  --kit-emerald-solid: oklch(0.62 0.155 158);
+  --kit-emerald-fg: oklch(0.48 0.125 160);
+  --kit-emerald-soft: oklch(0.62 0.155 158 / 0.11);
+  --kit-emerald-border: oklch(0.62 0.155 158 / 0.26);
+
+  --kit-amber-solid: oklch(0.73 0.155 70);
+  --kit-amber-fg: oklch(0.52 0.13 62);
+  --kit-amber-soft: oklch(0.73 0.155 70 / 0.12);
+  --kit-amber-border: oklch(0.73 0.155 70 / 0.28);
+
+  --kit-red-solid: oklch(0.565 0.195 26);
+  --kit-red-fg: oklch(0.51 0.19 26);
+  --kit-red-soft: oklch(0.565 0.195 26 / 0.1);
+  --kit-red-border: oklch(0.565 0.195 26 / 0.25);
+
+  --kit-sky-solid: oklch(0.56 0.145 245);
+  --kit-sky-fg: oklch(0.49 0.14 248);
+  --kit-sky-soft: oklch(0.56 0.145 245 / 0.11);
+  --kit-sky-border: oklch(0.56 0.145 245 / 0.25);
+}
+
+.dark {
+  /* Graphite Neutral Scale (Dark — Deep Abyssal Slate 228–235) */
+  --kit-graphite-1: oklch(0.162 0.016 234);
+  --kit-graphite-2: oklch(0.192 0.017 234);
+  --kit-graphite-3: oklch(0.222 0.018 234);
+  --kit-graphite-4: oklch(0.252 0.019 234);
+  --kit-graphite-5: oklch(0.285 0.02 233);
+  --kit-graphite-6: oklch(0.325 0.02 233);
+  --kit-graphite-7: oklch(0.385 0.02 232);
+  --kit-graphite-8: oklch(0.485 0.018 231);
+  --kit-graphite-9: oklch(0.585 0.018 230);
+  --kit-graphite-10: oklch(0.695 0.016 230);
+  --kit-graphite-11: oklch(0.825 0.012 229);
+  --kit-graphite-12: oklch(0.952 0.007 228);
+
+  /* Cobalt Brand Scale (Dark) */
+  --brand-soft: oklch(0.64 0.165 258 / 0.15);
+  --brand-border: oklch(0.64 0.165 258 / 0.32);
+  --brand-solid: oklch(0.59 0.175 260);
+  --brand-hover: oklch(0.63 0.17 259);
+  --brand-fg: oklch(0.73 0.135 256);
+  --brand-on-solid: oklch(1 0 0);
+
+  /* Semantic Status Primitives (Dark) */
+  --kit-emerald-solid: oklch(0.69 0.16 156);
+  --kit-emerald-fg: oklch(0.76 0.145 160);
+  --kit-emerald-soft: oklch(0.69 0.16 156 / 0.15);
+  --kit-emerald-border: oklch(0.69 0.16 156 / 0.32);
+
+  --kit-amber-solid: oklch(0.77 0.15 74);
+  --kit-amber-fg: oklch(0.82 0.14 78);
+  --kit-amber-soft: oklch(0.77 0.15 74 / 0.15);
+  --kit-amber-border: oklch(0.77 0.15 74 / 0.32);
+
+  --kit-red-solid: oklch(0.64 0.19 25);
+  --kit-red-fg: oklch(0.73 0.16 24);
+  --kit-red-soft: oklch(0.64 0.19 25 / 0.15);
+  --kit-red-border: oklch(0.64 0.19 25 / 0.32);
+
+  --kit-sky-solid: oklch(0.65 0.14 242);
+  --kit-sky-fg: oklch(0.75 0.125 240);
+  --kit-sky-soft: oklch(0.65 0.14 242 / 0.15);
+  --kit-sky-border: oklch(0.65 0.14 242 / 0.32);
+}

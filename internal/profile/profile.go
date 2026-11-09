@@ -1,4 +1,4 @@
-// Package profile 负责 VPN 服务配置模型、校验、v1->v2 迁移、持久化与密码加密存储。
+// Package profile 负责 VPN 服务配置模型、校验、旧格式兼容、持久化与密码加密存储。
 package profile
 
 import (

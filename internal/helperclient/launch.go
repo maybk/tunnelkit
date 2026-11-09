@@ -2,6 +2,7 @@ package helperclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -30,11 +31,12 @@ var (
 
 // LaunchRequest describes how to spawn and initialize a new helper session.
 type LaunchRequest struct {
-	HelperPath   string
-	Config       fortivpn.Config
-	ProfileID    string
-	ProfileName  string
-	RecoveryOnly bool
+	HelperPath      string
+	Config          fortivpn.Config
+	ProfileID       string
+	ProfileName     string
+	RecoveryOnly    bool
+	RecoveryJournal json.RawMessage
 	// OnReady persists the recovery ticket synchronously before start is sent.
 	OnReady func(Ticket) error
 }
@@ -147,6 +149,7 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 
 	client.processExit = exited
 	ticket := Ticket{
+		Protocol:    ipc.ProtocolVersion,
 		Endpoint:    endpoint,
 		Token:       token,
 		PID:         client.pid,
@@ -163,7 +166,7 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 	}
 	var startErr error
 	if req.RecoveryOnly {
-		startErr = client.RecoverNetwork(ctx)
+		startErr = client.RecoverNetwork(ctx, req.RecoveryJournal)
 	} else {
 		startErr = client.Start(ctx, req.Config)
 	}
@@ -189,9 +192,24 @@ func Attach(ctx context.Context, t Ticket) (*Client, *fortivpn.Event, error) {
 
 	conn, err := ipc.Dial(dialCtx, t.Endpoint)
 	if err != nil {
+		if t.Protocol == 1 && ipc.EndpointUnavailable(err) {
+			waitCtx, waitCancel := context.WithTimeout(ctx, 12*time.Second)
+			defer waitCancel()
+			if waitErr := (&Client{pid: t.PID}).WaitForExit(waitCtx); waitErr != nil {
+				return nil, nil, waitErr
+			}
+		}
 		return nil, nil, err
 	}
-	client, snap, err := handshakeAndServe(ctx, conn, t.Token)
+	protocol := t.Protocol
+	if protocol == 0 {
+		protocol = ipc.ProtocolVersion
+	}
+	if protocol < 1 || protocol > ipc.ProtocolVersion {
+		_ = conn.Close()
+		return nil, nil, ErrProtocolMismatch
+	}
+	client, snap, err := handshakeWithProtocol(ctx, conn, t.Token, protocol)
 	if err != nil {
 		_ = conn.Close()
 		return nil, nil, err

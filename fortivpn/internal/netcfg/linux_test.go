@@ -187,3 +187,38 @@ func TestRecoveryRetainsJournalWhenSystemCommandFails(t *testing.T) {
 		t.Fatalf("lost pending recovery: %v", err)
 	}
 }
+
+func TestLinuxDNSOffUpdatePreservesFailedCleanupForRetry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "journal.json")
+	failCleanup := false
+	runner := func(_ context.Context, _ string, name string, args ...string) (string, error) {
+		if failCleanup && name == "resolvectl" && args[0] == "revert" {
+			return "", errors.New("resolver temporarily unavailable")
+		}
+		return "", nil
+	}
+	d := Desired{Iface: "forti0", Local: netip.MustParseAddr("10.200.0.2"), Peer: netip.MustParseAddr("169.254.2.1"), MTU: 1400, DNS: DNSPlan{Mode: fortivpn.DNSFull, Servers: []netip.Addr{netip.MustParseAddr("10.0.0.53")}}}
+	applied, err := applyLinuxWithRunner(context.Background(), d, path, runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failCleanup = true
+	d.DNS.Mode = fortivpn.DNSOff
+	if err := applied.Update(context.Background(), d); err == nil {
+		t.Fatal("failed DNS cleanup must remain retryable")
+	}
+	j, err := LoadJournal(path)
+	if err != nil || len(j.Entries()) != 1 {
+		t.Fatal("failed cleanup lost its record", err)
+	}
+	failCleanup = false
+	if err := applied.Update(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	if err := applied.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("successful cleanup left its journal", err)
+	}
+}

@@ -65,7 +65,12 @@ func (s *Service) disconnectLocked(ctx context.Context) error {
 		if err := s.waitForHelper(ctx); err != nil {
 			return err
 		}
-		_ = s.tickets.Clear()
+		if handled, err := s.recoverLegacyNetwork(ctx, helperclient.Ticket{ProfileID: curState.ProfileID, ProfileName: curState.ProfileName}); handled {
+			return err
+		}
+		if err := s.tickets.Clear(); err != nil {
+			return err
+		}
 		s.setState(State{
 			Status:      StatusDisconnected,
 			Phase:       fortivpn.PhaseDisconnected,
@@ -105,8 +110,17 @@ func (s *Service) disconnectLocked(ctx context.Context) error {
 	if final := s.State(); final.Error != nil {
 		return errors.New(final.Error.Message)
 	}
+	if ticket, err := s.tickets.Load(); err == nil {
+		if ticket.Protocol == 1 {
+			return s.finishSession(ctx, nil, &fortivpn.Event{Phase: fortivpn.PhaseDisconnected}, ticket)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	s.detachConn()
-	_ = s.tickets.Clear()
+	if err := s.tickets.Clear(); err != nil {
+		return err
+	}
 
 	s.setState(State{
 		Status:      StatusDisconnected,

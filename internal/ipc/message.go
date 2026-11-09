@@ -18,7 +18,7 @@ import (
 
 const (
 	// ProtocolVersion is incremented whenever the helper <-> GUI wire schema changes.
-	ProtocolVersion = 2
+	ProtocolVersion = 3
 
 	// MaxFrameSize bounds a single IPC JSON message to 1 MiB.
 	MaxFrameSize = 1 << 20
@@ -76,6 +76,11 @@ type AnswerData struct {
 	PromptID string `json:"promptId"`
 	Value    string `json:"value,omitempty"`
 	Cancel   bool   `json:"cancel,omitempty"`
+}
+
+// RecoverData carries bounded, validated recovery records, never filesystem paths.
+type RecoverData struct {
+	Journal json.RawMessage `json:"journal,omitempty"`
 }
 
 // StopData requests graceful VPN disconnection.

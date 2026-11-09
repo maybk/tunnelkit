@@ -10,7 +10,7 @@ Vue 前端 -> Wails bindings -> internal/api -> internal/vpn -> internal/helperc
 
 | 模块 | 职责 | 边界约束 |
 | --- | --- | --- |
-| [`frontend/src`](../../frontend/README.md) | 桌面工作台界面、表单与配置文本双向编辑、认证弹窗、状态与日志展示 | 不直接读写本地文件、不保存密码明文 |
+| [`frontend`](../../frontend/README.md) | 桌面工作台界面、表单与配置文本双向编辑、认证弹窗、状态与日志展示 | 不直接读写本地文件、不保存密码明文 |
 | [`internal/app`](../../internal/app/README.md) | 应用启动装配、桌面标题栏配置、菜单栏常驻、自更新协调与事件桥接 | 不承载连接状态机或配置校验逻辑 |
 | [`internal/api`](../../internal/api/README.md) | 暴露给前端的 Wails 服务薄适配层 | 仅做参数转发、配置文本转换与状态拼装 |
 | [`internal/vpn`](../../internal/vpn/README.md) | 桌面端连接状态机、交互挑战桥接、连接切换、维护门禁与网络恢复 | 通过 `helperclient` 控制辅助进程，不导入 `fortivpn/engine` |

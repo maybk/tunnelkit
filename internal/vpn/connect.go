@@ -247,6 +247,9 @@ func (s *Service) disconnectIfActive(ctx context.Context, targetProfileID string
 	} else if !errors.Is(loadErr, os.ErrNotExist) {
 		return false, loadErr
 	}
+	if handled, err := s.recoverLegacyNetwork(ctx, helperclient.Ticket{}); handled {
+		return false, err
+	}
 	return false, s.waitForHelper(ctx)
 }
 

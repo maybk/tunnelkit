@@ -1,7 +1,6 @@
 package netcfg
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -182,7 +181,7 @@ func (j *Journal) flushLocked() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(j.list, "", "  ")
+	data, err := encodeJournal(j.list)
 	if err != nil {
 		return err
 	}

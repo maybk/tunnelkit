@@ -1,32 +1,33 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
+import { useVModel } from '@vueuse/core'
 import { cn } from '@/lib/utils'
 
 const props = defineProps<{
-  modelValue?: string | number
-  placeholder?: string
-  rows?: number
   class?: HTMLAttributes['class']
+  defaultValue?: string | number
+  modelValue?: string | number
 }>()
 
-const emit = defineEmits<{
-  (e: 'update:modelValue', payload: string): void
+const emits = defineEmits<{
+  (e: 'update:modelValue', payload: string | number): void
 }>()
+
+const modelValue = useVModel(props, 'modelValue', emits, {
+  passive: true,
+  defaultValue: props.defaultValue,
+})
 </script>
 
 <template>
   <textarea
+    v-model="modelValue"
     data-slot="textarea"
-    :value="props.modelValue"
-    :placeholder="props.placeholder"
-    :rows="props.rows"
-    spellcheck="false"
     :class="
       cn(
-        'w-full min-w-0 rounded-lg border border-input bg-card px-3 py-2 text-body leading-relaxed text-foreground shadow-[var(--shadow-control)] transition-[border-color,box-shadow,background-color] duration-150 outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-background/55 dark:focus-visible:bg-card',
+        'border-input dark:bg-input/30 focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 disabled:bg-input/50 dark:disabled:bg-input/80 rounded-lg border bg-transparent px-2.5 py-2 text-base transition-colors focus-visible:ring-3 aria-invalid:ring-3 md:text-sm flex field-sizing-content min-h-16 w-full outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
         props.class,
       )
     "
-    @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
   />
 </template>

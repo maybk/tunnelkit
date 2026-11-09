@@ -1,0 +1,87 @@
+/* ==========================================================================
+ * Kit Instrument · Tailwind v4 @theme Inline Mapping
+ * ========================================================================== */
+
+@theme inline {
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+
+  /* Core Surfaces & Semantic Colors */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Surface Elevation */
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+
+  /* 6-Tone System Utilities (bg-tone-*-soft, text-tone-*-fg, border-tone-*-border, bg-tone-*-solid) */
+  --color-tone-neutral-solid: var(--tone-neutral-solid);
+  --color-tone-neutral-fg: var(--tone-neutral-fg);
+  --color-tone-neutral-soft: var(--tone-neutral-soft);
+  --color-tone-neutral-border: var(--tone-neutral-border);
+
+  --color-tone-brand-solid: var(--tone-brand-solid);
+  --color-tone-brand-hover: var(--brand-hover);
+  --color-tone-brand-fg: var(--tone-brand-fg);
+  --color-tone-brand-soft: var(--tone-brand-soft);
+  --color-tone-brand-border: var(--tone-brand-border);
+
+  --color-tone-info-solid: var(--tone-info-solid);
+  --color-tone-info-fg: var(--tone-info-fg);
+  --color-tone-info-soft: var(--tone-info-soft);
+  --color-tone-info-border: var(--tone-info-border);
+
+  --color-tone-success-solid: var(--tone-success-solid);
+  --color-tone-success-fg: var(--tone-success-fg);
+  --color-tone-success-soft: var(--tone-success-soft);
+  --color-tone-success-border: var(--tone-success-border);
+
+  --color-tone-warning-solid: var(--tone-warning-solid);
+  --color-tone-warning-fg: var(--tone-warning-fg);
+  --color-tone-warning-soft: var(--tone-warning-soft);
+  --color-tone-warning-border: var(--tone-warning-border);
+
+  --color-tone-danger-solid: var(--tone-danger-solid);
+  --color-tone-danger-fg: var(--tone-danger-fg);
+  --color-tone-danger-soft: var(--tone-danger-soft);
+  --color-tone-danger-border: var(--tone-danger-border);
+
+  /* Radius Scale */
+  --radius-sm: calc(var(--radius) - 4px); /* 6px */
+  --radius-md: calc(var(--radius) - 2px); /* 8px */
+  --radius-lg: var(--radius); /* 10px */
+  --radius-xl: calc(var(--radius) + 2px); /* 12px */
+
+  /* Semantic Typography Scale */
+  --text-micro: 11px;
+  --text-caption: 12px;
+  --text-body: 13.5px;
+  --text-title: 15px;
+  --text-heading: 18px;
+  --text-display: 26px;
+}

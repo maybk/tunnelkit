@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn-vue/tailwind.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@import './tokens/palette.css';
+@import './tokens/semantic.css';
+@import './tokens/scale.css';
+@import './tokens/theme-map.css';
+@import './base.css';
+@import './utilities.css';

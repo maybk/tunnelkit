@@ -57,3 +57,8 @@ func SessionPath(rootDir string) string {
 func TicketPath(rootDir string) string {
 	return SessionPath(rootDir)
 }
+
+// LegacyJournalPath 只用于升级迁移旧版用户目录中的恢复记录。
+func LegacyJournalPath(rootDir string) string {
+	return filepath.Join(RunDir(rootDir), "netcfg-journal.json")
+}

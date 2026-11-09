@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -415,5 +417,21 @@ func TestPlatformBuildMetadataUsesApplicationName(t *testing.T) {
 	}
 	if !strings.Contains(string(nfpmBytes), `description: "Fortinet SSL-VPN client"`) {
 		t.Fatal(`build/linux/nfpm/nfpm.yaml must define description: "Fortinet SSL-VPN client"`)
+	}
+}
+
+func TestWithSecurityHeadersInjectsCSPAndNosniff(t *testing.T) {
+	handler := WithSecurityHeaders(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/index.html", nil)
+	handler.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Content-Security-Policy"); got != ContentSecurityPolicy {
+		t.Fatalf("Content-Security-Policy = %q, want %q", got, ContentSecurityPolicy)
+	}
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
 	}
 }

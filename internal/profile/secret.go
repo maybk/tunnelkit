@@ -59,31 +59,29 @@ func (v *secretVault) load(profileID string) (string, error) {
 	return v.sealer.Decrypt(sealed)
 }
 
-func (v *secretVault) has(profileID string) bool {
+func (v *secretVault) has(profileID string) (bool, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-
 	secrets, err := v.readMap()
 	if err != nil {
-		return false
+		return false, err
 	}
 	_, ok := secrets[profileID]
-	return ok
+	return ok, nil
 }
 
-func (v *secretVault) idSet() map[string]struct{} {
+func (v *secretVault) idSet() (map[string]struct{}, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-
 	secrets, err := v.readMap()
-	if err != nil || len(secrets) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
 	}
 	set := make(map[string]struct{}, len(secrets))
 	for id := range secrets {
 		set[id] = struct{}{}
 	}
-	return set
+	return set, nil
 }
 
 func (v *secretVault) remove(profileID string) error {
@@ -109,8 +107,12 @@ func (v *secretVault) readMap() (map[string]credentials.Sealed, error) {
 	if err != nil {
 		return nil, err
 	}
+	payload, _, err := storage.DecodeDocument(data, secretSchemaVersion)
+	if err != nil {
+		return nil, fmt.Errorf("解析密码文件失败: %w", err)
+	}
 	var m map[string]credentials.Sealed
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal(payload, &m); err != nil {
 		return nil, fmt.Errorf("解析密码文件失败: %w", err)
 	}
 	if m == nil {
@@ -120,7 +122,7 @@ func (v *secretVault) readMap() (map[string]credentials.Sealed, error) {
 }
 
 func (v *secretVault) writeMap(m map[string]credentials.Sealed) error {
-	data, err := json.MarshalIndent(m, "", "  ")
+	data, err := storage.MarshalDocument(secretSchemaVersion, m)
 	if err != nil {
 		return err
 	}

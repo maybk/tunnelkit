@@ -7,6 +7,7 @@ TunnelKit 是基于 Wails v3、Go 与 Vue 3 + TypeScript 的跨平台（macOS / 
 依赖方向固定为：
 
 - 桌面进程：`Vue 前端 -> Wails bindings -> internal/api -> internal/vpn | internal/profile | internal/update -> internal/helperclient | internal/ipc | internal/privilege | internal/credentials | internal/storage | fortivpn`
+- 前端内部：`views / layouts / components -> composables / stores -> api -> Wails bindings / runtime`；展示、校验、领域、工具、常量与类型为共享层，不反向依赖 UI 或宿主（仅 `frontend/src/api/` 允许导入 `@bindings` 与 `@wailsio/runtime`；`frontend/src/components/ui/` 同步自 `shadcn-vue` 官方模板）
 - 特权辅助进程：`cmd/tunnelkit-helper -> internal/helper -> internal/ipc | internal/privilege | fortivpn/engine | fortivpn`
 - 独立协议内核：`fortivpn/**` **严禁**引用 `tunnelkit/internal/**` 或 Wails，可随时独立拆出为单独仓库；桌面主进程**严禁**导入 `fortivpn/engine`。
 
@@ -59,7 +60,7 @@ bash scripts/test_rolling_release_config.sh
 
 - `README.md` 只保留项目入口、功能特性、快速开始和文档链接。
 - 稳定架构、配置、开发和发版说明放在 `docs/guide/`，排错过程和阶段性方案不写入长期指南。
-- 目录 `README.md` 遵循单层局部索引原则：仅列出当前目录的直接文件与直接子目录，不跨层展开子目录内部文件；核心二级子目录按“职责简介 + 目录结构 + 开发规范 + 验证”独立维护 `README.md`。
+- 目录 `README.md` 遵循单层局部索引原则：仅列出当前目录的直接文件与直接子目录，不跨层展开子目录内部文件；核心二级子目录说明职责、目录结构和开发规范；专属验证流程按需补充，前端通用验证命令集中维护在入口 README 与开发、测试指南。
 - 修改配置规则、目录职责、安全边界、命令或构建产物时，同步更新 `docs/guide/*` 与对应目录 `README.md`。
 - 每次完成用户可见的新增、变更或修复时，同步更新 `CHANGELOG.md` 顶部的待发布版本（`## [X.Y.Z] - 未发布`）；只记录相对上一正式版的最终净变化，不记录中间调试过程。
 - 未明确要求正式发布时，只维护待发布版本，不修改正式版本号、正式日期和已发布版本，也不创建标签或 Release。

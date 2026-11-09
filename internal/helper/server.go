@@ -259,8 +259,11 @@ func (r *sessionRunner) handleClient(conn *ipc.Conn) {
 func (r *sessionRunner) handleStartOrRecover(conn *ipc.Conn, msg ipc.Envelope) {
 	recoveryOnly := msg.Type == ipc.TypeRecover
 	var startData ipc.StartData
+	var recoveryData ipc.RecoverData
 	if recoveryOnly {
-		if _, err := ipc.DecodeStrict[ipc.StopData](msg.Data); err != nil {
+		var err error
+		recoveryData, err = ipc.DecodeStrict[ipc.RecoverData](msg.Data)
+		if err != nil {
 			_ = conn.Send(ipc.TypeResult, msg.ID, ipc.ResultData{ID: msg.ID, Error: "invalid recovery request"})
 			return
 		}
@@ -301,7 +304,10 @@ func (r *sessionRunner) handleStartOrRecover(conn *ipc.Conn, msg ipc.Envelope) {
 
 	go func(cfg fortivpn.Config) {
 		var err error
-		if r.opts.JournalPath != "" {
+		if len(recoveryData.Journal) > 0 {
+			err = engine.ImportRecoveryJournal(r.opts.JournalPath, recoveryData.Journal)
+		}
+		if err == nil && r.opts.JournalPath != "" {
 			err = engine.Recover(eCtx, r.opts.JournalPath)
 		}
 		if err == nil && recoveryOnly {

@@ -1,62 +1,55 @@
-import { VPNAPI } from '../../bindings/tunnelkit/internal/api'
-import type * as vpn from '../../bindings/tunnelkit/internal/vpn'
-import type * as fortivpn from '../../bindings/tunnelkit/fortivpn'
+import type { LogViewSnapshot } from '@/types/log'
+import type { VpnState } from '@/types/vpn'
+import * as VPNAPI from '@bindings/tunnelkit/internal/api/vpnapi.js'
+import * as vpnModels from '@bindings/tunnelkit/internal/vpn/models.js'
+import { Browser, Events } from '@wailsio/runtime'
+import { mapLogViewFromDto, mapVpnStateFromDto } from './mappers'
 
-export type VpnStatus = 'disconnected' | 'connecting' | 'connected' | 'disconnecting'
-export type VpnPhase =
-  | 'connecting'
-  | 'authenticating'
-  | 'waiting_input'
-  | 'negotiating'
-  | 'configuring'
-  | 'connected'
-  | 'reconnecting'
-  | 'disconnecting'
-  | 'disconnected'
+export const EVENT_VPN_STATE = 'vpn:state'
 
-export type VpnError = vpn.Error
-export type VpnLogView = vpn.LogView
-export type VpnTunnelInfo = fortivpn.TunnelInfo
-export type VpnStats = fortivpn.Stats
-export type VpnPrompt = fortivpn.Prompt
+export const vpnApi = {
+  async getState(): Promise<VpnState> {
+    const dto = await VPNAPI.State()
+    return mapVpnStateFromDto(dto)
+  },
 
-export interface VpnState {
-  status: VpnStatus
-  phase?: VpnPhase
-  profileId?: string
-  profileName?: string
-  connectedAt?: string
-  info?: VpnTunnelInfo | null
-  stats?: VpnStats | null
-  prompt?: VpnPrompt | null
-  error?: VpnError | null
+  async connect(profileId: string): Promise<void> {
+    await VPNAPI.Connect(profileId)
+  },
+
+  async disconnect(): Promise<void> {
+    await VPNAPI.Disconnect()
+  },
+
+  async cancel(): Promise<void> {
+    await VPNAPI.Cancel()
+  },
+
+  async answerPrompt(promptId: string, value: string, cancel: boolean): Promise<void> {
+    await VPNAPI.Answer(promptId, value, cancel)
+  },
+
+  async openAuthenticationUrl(rawUrl: string): Promise<void> {
+    const url = new URL(rawUrl)
+    if (url.protocol !== 'https:' || url.username || url.password) {
+      throw new Error('网关登录地址无效')
+    }
+    await Browser.OpenURL(url.toString())
+  },
+
+  async getLog(profileId: string): Promise<LogViewSnapshot> {
+    const dto = await VPNAPI.Log(profileId)
+    return mapLogViewFromDto(dto)
+  },
+
+  async clearLog(profileId: string): Promise<void> {
+    await VPNAPI.ClearLog(profileId)
+  },
+
+  subscribeState(listener: (state: VpnState) => void): () => void {
+    return Events.On(EVENT_VPN_STATE, (event: { data?: unknown }) => {
+      const dto = vpnModels.State.createFrom(event.data ?? {})
+      listener(mapVpnStateFromDto(dto))
+    })
+  },
 }
-
-export const VPN_STATE_EVENT = 'vpn:state'
-
-export const toVpnState = (raw: vpn.State): VpnState => ({
-  status: (raw.status || 'disconnected') as VpnStatus,
-  phase: (raw.phase || raw.status || 'disconnected') as VpnPhase,
-  profileId: raw.profileId,
-  profileName: raw.profileName,
-  connectedAt: raw.connectedAt,
-  info: raw.info ?? null,
-  stats: raw.stats ?? null,
-  prompt: raw.prompt ?? null,
-  error: raw.error ?? null,
-})
-
-export const getVpnState = async (): Promise<VpnState> => toVpnState(await VPNAPI.State())
-
-export const connectVpn = (profileId: string): Promise<void> => VPNAPI.Connect(profileId)
-
-export const cancelConnect = (): Promise<void> => VPNAPI.Cancel()
-
-export const answerVpnPrompt = (promptId: string, value: string, cancel = false): Promise<void> =>
-  VPNAPI.Answer(promptId, value, cancel)
-
-export const disconnectVpn = (): Promise<void> => VPNAPI.Disconnect()
-
-export const getVpnLog = (profileId: string): Promise<VpnLogView> => VPNAPI.Log(profileId)
-
-export const clearVpnLog = (profileId: string): Promise<void> => VPNAPI.ClearLog(profileId)

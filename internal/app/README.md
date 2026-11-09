@@ -5,6 +5,7 @@
 ## 目录结构
 
 - `app.go`：应用依赖装配、Wails 服务注册、启动期旧更新备份清理、会话恢复与 `vpn:state` 事件推送。
+- `csp.go`：桌面 WebView 静态资源 `Content-Security-Policy` 与 `X-Content-Type-Options` 响应头中间件。
 - `window.go`：主窗口尺寸、三端标题栏样式与关闭窗口隐藏至菜单栏钩子。
 - `dock_darwin.go`：macOS 窗口隐藏或恢复时同步切换 Dock 栏图标显隐。
 - `dock_other.go`：Windows 与 Linux 平台下 Dock 显隐钩子的空实现。

@@ -115,9 +115,7 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 
 			case fortivpn.PhaseDisconnected:
 				sawDisconnected = true
-				if ev.Err == nil || ev.Err.Code != fortivpn.CodeNetcfgFailed {
-					_ = s.tickets.Clear()
-				}
+				// 终态事件不等于进程已退出；票据由确认清理完成的收尾流程删除。
 				s.mu.Lock()
 				if s.conn == conn {
 					s.conn = nil

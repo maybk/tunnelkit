@@ -1,0 +1,35 @@
+/* ==========================================================================
+ * Kit Instrument · Desktop Chrome, Surface & Theme Utilities
+ * ========================================================================== */
+
+@layer utilities {
+  .app-drag-region {
+    --wails-draggable: drag;
+    -webkit-app-region: drag;
+  }
+
+  .app-no-drag {
+    --wails-draggable: no-drag;
+    -webkit-app-region: no-drag;
+  }
+
+  .surface-card {
+    background-color: var(--card);
+    color: var(--card-foreground);
+    box-shadow: var(--shadow-card);
+  }
+
+  .surface-card-interactive {
+    background-color: var(--card);
+    color: var(--card-foreground);
+    box-shadow: var(--shadow-card);
+    transition-property: box-shadow, background-color, border-color, transform;
+    transition-duration: var(--dur-base);
+    transition-timing-function: var(--ease-out-kit);
+  }
+
+  .surface-card-interactive:hover {
+    box-shadow: var(--shadow-card-hover);
+    border-color: var(--input);
+  }
+}

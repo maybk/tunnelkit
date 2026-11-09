@@ -6,17 +6,17 @@
 | --- | --- |
 | Go | `>= 1.27.3` |
 | Wails CLI | Wails v3，版本与 `go.mod` 及 `frontend/package.json` 中的 `@wailsio/runtime` 保持一致 |
-| Node.js / pnpm | Node.js `>= 24`，使用 `pnpm` 与 `frontend/pnpm-lock.yaml` |
+| Node.js / pnpm | Node.js `>= 24.11`，使用 `pnpm` 与 `frontend/pnpm-lock.yaml` |
 | 操作系统 | macOS `12.0+`（需 Xcode Command Line Tools）、Windows `10/11` 或 Linux（需 `GTK4` / `WebKitGTK 6.0` 与 `iproute2`） |
 
 Wails v3 CLI 安装说明见 [Wails v3 官方文档](https://v3.wails.io/quick-start/installation/)。
 
 ## 本地开发
 
-首次检出仓库后安装前端依赖：
+首次检出仓库后安装锁定版本的前端依赖：
 
 ```bash
-pnpm --dir frontend install
+pnpm --dir frontend install --frozen-lockfile
 ```
 
 在仓库根目录启动完整桌面开发环境：

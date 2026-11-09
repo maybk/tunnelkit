@@ -30,6 +30,12 @@ func (s *Service) Recover(ctx context.Context) State {
 				},
 			})
 		}
+		if handled, recoveryErr := s.recoverLegacyNetwork(ctx, helperclient.Ticket{}); handled {
+			if recoveryErr != nil {
+				s.failConnect("", "", &Error{Message: "恢复旧版网络配置失败", Hint: recoveryErr.Error()})
+			}
+			return s.State()
+		}
 		return s.setState(State{
 			Status: StatusDisconnected,
 			Phase:  fortivpn.PhaseDisconnected,
@@ -69,6 +75,9 @@ func (s *Service) attachOrRecoverTicket(ctx context.Context, ticket helperclient
 	if attachErr != nil {
 		if !ipc.EndpointUnavailable(attachErr) {
 			return nil, nil, false, attachErr
+		}
+		if ticket.Protocol == 1 {
+			return nil, nil, true, s.finishSession(ctx, nil, &fortivpn.Event{Phase: fortivpn.PhaseDisconnected}, ticket)
 		}
 		return nil, nil, true, s.recoverNetwork(ctx, ticket)
 	}

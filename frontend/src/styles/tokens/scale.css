@@ -1,0 +1,41 @@
+/* ==========================================================================
+ * Kit Instrument · Scale, Geometry, Shadows & Motion Tokens
+ * ========================================================================== */
+
+:root {
+  /* Radius Scale */
+  --radius: 0.625rem; /* 10px */
+
+  /* Desktop Chrome Geometry Contract */
+  --desktop-chrome-height: 3.25rem;
+  --desktop-chrome-macos-leading-inset: 5.75rem;
+  --desktop-chrome-min-drag-width: 6rem;
+
+  /* Typography Families */
+  --app-font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI Variable Text',
+    'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --app-font-mono:
+    'SF Mono', 'Cascadia Mono', 'JetBrains Mono', ui-monospace, Menlo, Monaco, Consolas, monospace;
+
+  /* Elevation & Shadows (Light) */
+  --shadow-card:
+    0px 0px 0px 1px oklch(0 0 0 / 0.055), 0px 1px 2px -1px oklch(0 0 0 / 0.04),
+    0px 3px 8px -2px oklch(0 0 0 / 0.04);
+  --shadow-card-hover:
+    0px 0px 0px 1px oklch(0 0 0 / 0.085), 0px 2px 4px -1px oklch(0 0 0 / 0.055),
+    0px 6px 14px -3px oklch(0 0 0 / 0.055);
+  --shadow-control: 0px 1px 2px 0px oklch(0 0 0 / 0.04);
+
+  /* Motion Timing */
+  --dur-fast: 100ms;
+  --dur-base: 160ms;
+  --dur-slow: 220ms;
+  --ease-out-kit: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.dark {
+  --shadow-card: 0px 0px 0px 1px oklch(1 0 0 / 0.08), 0px 4px 12px -2px oklch(0 0 0 / 0.32);
+  --shadow-card-hover: 0px 0px 0px 1px oklch(1 0 0 / 0.13), 0px 6px 16px -2px oklch(0 0 0 / 0.42);
+  --shadow-control: 0px 1px 2px 0px oklch(0 0 0 / 0.25);
+}

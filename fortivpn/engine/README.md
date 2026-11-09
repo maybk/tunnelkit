@@ -5,6 +5,7 @@
 ## 目录结构
 
 - `engine.go`：引擎配置选项、会话运行入口 `Run`、无网卡握手自检 `Check` 与残留网络恢复 `Recover`。
+- `recovery.go`：旧版网络恢复数据的内核导入入口，持久化后由 `Recover` 统一回滚。
 - `session.go`：单次尝试与自动重连状态机编排、指数退避重试、免重登重连判定及反序优雅清理。
 - `link.go`：绑定底层 `sslvpn.TunnelConn` 与 `ppp.Session`，管理控制队列、数据队列及 PPP 协商就绪等待。
 - `netcfg.go`：汇总网关下发与用户自定义的路由和 DNS 规则，驱动虚拟网卡打开及宿主网络初次应用或重连差量更新。

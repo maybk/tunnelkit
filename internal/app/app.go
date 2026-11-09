@@ -115,7 +115,8 @@ func Run(assets embed.FS) error {
 			application.NewService(systemAPI),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(frontendFS),
+			Handler:    application.AssetFileServerFS(frontendFS),
+			Middleware: WithSecurityHeaders(nil),
 		},
 		KeyBindings: map[string]func(application.Window){
 			"CmdOrCtrl+q": func(application.Window) { wailsApp.Quit() },

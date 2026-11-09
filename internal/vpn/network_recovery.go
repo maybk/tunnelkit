@@ -3,6 +3,7 @@ package vpn
 import (
 	"context"
 	"errors"
+	"os"
 	"time"
 
 	"tunnelkit/fortivpn"
@@ -16,11 +17,16 @@ func (s *Service) recoverNetwork(ctx context.Context, prior helperclient.Ticket)
 	if err := s.waitForHelper(ctx); err != nil {
 		return err
 	}
+	legacy, err := helperclient.ReadLegacyJournal(s.rootDir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	saved := false
 	conn, ticket, err := s.launcher.Launch(ctx, helperclient.LaunchRequest{
-		ProfileID:    prior.ProfileID,
-		ProfileName:  prior.ProfileName,
-		RecoveryOnly: true,
+		ProfileID:       prior.ProfileID,
+		ProfileName:     prior.ProfileName,
+		RecoveryOnly:    true,
+		RecoveryJournal: legacy,
 		OnReady: func(ticket helperclient.Ticket) error {
 			if err := s.tickets.Save(ticket); err != nil {
 				return err
@@ -54,6 +60,11 @@ func (s *Service) recoverNetwork(ctx context.Context, prior helperclient.Ticket)
 	if final := s.State(); final.Error != nil {
 		return errors.New(final.Error.Message)
 	}
+	if len(legacy) > 0 {
+		if err := helperclient.ClearLegacyJournal(s.rootDir); err != nil {
+			return err
+		}
+	}
 	return s.tickets.Clear()
 }
 
@@ -63,8 +74,13 @@ func (s *Service) finishSession(ctx context.Context, conn Conn, snapshot *fortiv
 		s.waitHelper = process.WaitForExit
 		s.mu.Unlock()
 	}
-	_ = conn.Close()
+	if conn != nil {
+		_ = conn.Close()
+	}
 	if err := s.waitForHelper(ctx); err != nil {
+		return err
+	}
+	if recovered, err := s.recoverLegacyNetwork(ctx, ticket); recovered {
 		return err
 	}
 	if snapshot.Err != nil && snapshot.Err.Code == fortivpn.CodeNetcfgFailed {

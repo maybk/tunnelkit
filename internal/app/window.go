@@ -54,10 +54,10 @@ func MainWindowOptions(darkMode bool) application.WebviewWindowOptions {
 // macOS 使用 HiddenInset 原生交通灯 + 52pt 透明标题栏；
 // Windows 使用 Frameless + NonClientRegionSupport + WebView2CompositionHosting 原生命中测试。
 func MainWindowOptionsForPlatform(platform string, darkMode bool) application.WebviewWindowOptions {
-	// 与前端 --background 一致，避免 WebView 加载前在深色模式下闪白。
-	background := application.NewRGB(244, 246, 250)
+	// 设置 WebView 加载前的画布底色，减少深色模式下的闪白。
+	background := application.NewRGB(248, 250, 252)
 	if darkMode {
-		background = application.NewRGB(13, 17, 28)
+		background = application.NewRGB(10, 14, 22)
 	}
 
 	options := application.WebviewWindowOptions{

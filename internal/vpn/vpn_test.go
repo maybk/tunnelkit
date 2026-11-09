@@ -650,6 +650,9 @@ func TestShutdownTimeoutKeepsRecoverableSession(t *testing.T) {
 	svc, prof := setupTestService(t, &fakeLauncher{launchFn: func(_ context.Context, req helperclient.LaunchRequest) (Conn, helperclient.Ticket, error) {
 		conn.sendEvent(fortivpn.Event{Phase: fortivpn.PhaseConnected})
 		return conn, helperclient.Ticket{Endpoint: "/tmp/s", Token: "t", ProfileID: req.ProfileID}, nil
+	}, attachFn: func(context.Context, helperclient.Ticket) (Conn, *fortivpn.Event, error) {
+		// 终态事件可能先被消费；重接时返回已停止快照，不能落入默认的未知 helper 错误。
+		return newFakeConn(), &fortivpn.Event{Phase: fortivpn.PhaseDisconnected}, nil
 	}})
 	if err := svc.Connect(context.Background(), prof.ID); err != nil {
 		t.Fatal(err)
@@ -732,6 +735,9 @@ func TestDisconnectWaitsForHelperProcessExit(t *testing.T) {
 	case err := <-done:
 		t.Fatalf("stop acknowledgement bypassed process wait: %v", err)
 	default:
+	}
+	if _, err := svc.tickets.Load(); err != nil {
+		t.Fatalf("ticket must survive until confirmed process exit: %v", err)
 	}
 	close(conn.exited)
 	if err := <-done; err != nil {

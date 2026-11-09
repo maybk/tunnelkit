@@ -253,7 +253,7 @@ func TestHelperRecoversWithoutVPNConfigAndExits(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cli.Close()
-	if err := cli.RecoverNetwork(ctx); err != nil {
+	if err := cli.RecoverNetwork(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	select {

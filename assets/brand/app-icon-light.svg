@@ -1,92 +1,110 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <title>TunnelKit 纵深圆环隧道：冰川极昼浅色底</title>
-  <desc>TunnelKit 应用图标浅色主版本，1024x1024 满幅圆角无四周留白，采用白底空气透视衬托三层 3D 钴蓝隧道圆环与极光翠绿穿环数据流。</desc>
+  <title>TunnelKit 黄金圆规切线叠面盾：冰川极昼浅色底</title>
+  <desc>TunnelKit 应用图标浅色主版本，1024x1024 满幅圆角无四周留白，以黄金圆规切线几何构建亮天蓝顶冠、深海蓝左护翼与右下极光翠绿大弧翼三色实心叠面盾。</desc>
 
   <defs>
-    <!-- 纯净瓷白 -> 极浅冷灰蓝底板 -->
+    <!-- 冰川极昼浅色底板 -->
     <linearGradient id="background" x1="128" y1="64" x2="896" y2="960" gradientUnits="userSpaceOnUse">
       <stop stop-color="#FFFFFF"/>
-      <stop offset="0.62" stop-color="#F8FAFC"/>
+      <stop offset="0.65" stop-color="#F8FAFC"/>
       <stop offset="1" stop-color="#EEF4FF"/>
     </linearGradient>
 
-    <!-- 浅色中心环境柔光 -->
-    <radialGradient id="tunnel-glow" cx="520" cy="504" r="440" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#10B981" stop-opacity=".12"/>
-      <stop offset="0.52" stop-color="#3B82F6" stop-opacity=".1"/>
+    <!-- 中心蓝绿环境柔光 -->
+    <radialGradient id="ambient-glow" cx="512" cy="512" r="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#10B981" stop-opacity=".11"/>
+      <stop offset="0.55" stop-color="#3B82F6" stop-opacity=".09"/>
       <stop offset="1" stop-color="#EEF4FF" stop-opacity="0"/>
     </radialGradient>
 
-    <!-- 近景第一层大环（白底空气透视：前拱高饱和皇家钴蓝 -> 后拱柔和冰川蓝） -->
-    <linearGradient id="ring-outer" x1="56" y1="-40" x2="-290" y2="40" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#1D4ED8"/>
-      <stop offset="0.35" stop-color="#2563EB"/>
-      <stop offset="0.7" stop-color="#60A5FA"/>
-      <stop offset="1" stop-color="#93C5FD"/>
+    <filter id="drop-shadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#0F172A" flood-opacity="0.11"/>
+    </filter>
+
+    <filter id="layer-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="-6" stdDeviation="10" flood-color="#0F172A" flood-opacity="0.14"/>
+    </filter>
+
+    <!-- 1. 顶冠与右肩亮天蓝 -> 皇家钴蓝渐变 -->
+    <linearGradient id="tk-cobalt" x1="280" y1="136" x2="840" y2="560" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#60A5FA"/>
+      <stop offset="0.45" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#2563EB"/>
     </linearGradient>
 
-    <!-- 中景第二层环（前拱亮钴蓝 -> 后拱清透天蓝） -->
-    <linearGradient id="ring-mid" x1="152" y1="-35" x2="-136" y2="35" gradientUnits="userSpaceOnUse">
+    <!-- 2. 左护翼深海皇家蓝渐变 -->
+    <linearGradient id="tk-navy" x1="184" y1="180" x2="480" y2="740" gradientUnits="userSpaceOnUse">
       <stop stop-color="#2563EB"/>
-      <stop offset="0.38" stop-color="#3B82F6"/>
-      <stop offset="0.72" stop-color="#60A5FA"/>
-      <stop offset="1" stop-color="#A5C8FF"/>
+      <stop offset="0.42" stop-color="#1D4ED8"/>
+      <stop offset="1" stop-color="#1E3A8A"/>
     </linearGradient>
 
-    <!-- 远景第三层环（前拱电光蓝 -> 后拱雾感浅蓝） -->
-    <linearGradient id="ring-inner" x1="236" y1="-30" x2="20" y2="30" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#3B82F6"/>
-      <stop offset="0.42" stop-color="#60A5FA"/>
-      <stop offset="0.75" stop-color="#93C5FD"/>
-      <stop offset="1" stop-color="#BFDBFE"/>
-    </linearGradient>
-
-    <!-- 贯穿三层圆环的极光翠绿数据流（尾柔头浓：左下清透薄荷绿 -> 右上清澈翡翠绿核心） -->
-    <linearGradient id="emerald-stream" x1="-312" y1="0" x2="288" y2="0" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#6EE7B7"/>
-      <stop offset="0.3" stop-color="#34D399"/>
-      <stop offset="0.68" stop-color="#10B981"/>
+    <!-- 3. 下盾尖与右下角极光翠绿大弧翼渐变 -->
+    <linearGradient id="tk-emerald" x1="284" y1="860" x2="840" y2="428" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#34D399"/>
+      <stop offset="0.46" stop-color="#10B981"/>
       <stop offset="1" stop-color="#059669"/>
     </linearGradient>
+
+    <!-- 黄金比例护盾总轮廓裁剪蒙版（外盾 656×744，内盾窗 240×328，顶肩与内角连续圆角） -->
+    <clipPath id="tk-clip">
+      <path fill-rule="evenodd" clip-rule="evenodd"
+            d="M 284 188
+               C 368 184 444 164 498 140
+               Q 512 134 526 140
+               C 580 164 656 184 740 188
+               A 100 100 0 0 1 840 288
+               L 840 436
+               C 840 676 624 880 512 880
+               C 400 880 184 676 184 436
+               L 184 288
+               A 100 100 0 0 1 284 188
+               Z
+               M 430 356
+               A 38 38 0 0 0 392 394
+               L 392 436
+               C 392 556 460 652 512 652
+               C 564 652 632 556 632 436
+               L 632 394
+               A 38 38 0 0 0 594 356
+               C 560 352 536 340 512 324
+               C 488 340 464 352 430 356
+               Z"/>
+    </clipPath>
   </defs>
 
-  <!-- 1024x1024 满幅圆角背景（四周 0 留白，彻底消除边缘空隙） -->
+  <!-- 1024x1024 满幅圆角背景（四周 0 留白） -->
   <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#background)"/>
   <rect x="2" y="2" width="1020" height="1020" rx="226" fill="none" stroke="#0F172A" stroke-opacity=".05" stroke-width="4"/>
-  <circle cx="520" cy="504" r="440" fill="url(#tunnel-glow)"/>
+  <circle cx="512" cy="512" r="440" fill="url(#ambient-glow)"/>
 
-  <!-- 3D 纵深圆环隧道 -->
-  <g transform="translate(524 500) rotate(-42) scale(1.16)">
-    <!-- 1. 三层椭圆环底层（后拱位于极光翠绿光束后方，按远 -> 中 -> 近顺序叠放） -->
-    <path fill-rule="evenodd" clip-rule="evenodd"
-          d="M 128 -202 A 108 202 0 1 0 128 202 A 108 202 0 1 0 128 -202 Z
-             M 120 -140 A 66 140 0 1 1 120 140 A 66 140 0 1 1 120 -140 Z"
-          fill="url(#ring-inner)"/>
+  <!-- 黄金圆规切线叠面盾主体 -->
+  <g filter="url(#drop-shadow)">
+    <g clip-path="url(#tk-clip)">
+      <!-- 1. 顶冠与右肩：顺光亮天蓝 -> 皇家钴蓝主丝带 -->
+      <rect x="160" y="120" width="704" height="780" fill="url(#tk-cobalt)"/>
 
-    <path fill-rule="evenodd" clip-rule="evenodd"
-          d="M 8 -254 A 136 254 0 1 0 8 254 A 136 254 0 1 0 8 -254 Z
-             M 0 -184 A 86 184 0 1 1 0 184 A 86 184 0 1 1 0 -184 Z"
-          fill="url(#ring-mid)"/>
+      <!-- 2. 左护翼：深海皇家蓝基座（沿 R=210 正圆弧顺滑切入内窗顶峰 512,324） -->
+      <path d="M 326 136
+               A 210 210 0 0 0 512 324
+               L 512 652
+               L 284 760
+               L 160 760
+               L 160 136 Z"
+            fill="url(#tk-navy)"/>
 
-    <path fill-rule="evenodd" clip-rule="evenodd"
-          d="M -118 -312 A 166 312 0 1 0 -118 312 A 166 312 0 1 0 -118 -312 Z
-             M -126 -232 A 108 232 0 1 1 -126 232 A 108 232 0 1 1 -126 -232 Z"
-          fill="url(#ring-outer)"/>
-
-    <!-- 2. 居中贯穿三道圆环的【极光翠绿透视数据流 + 连通核心】 -->
-    <path d="M -256 -56
-             L 248 -40
-             A 40 40 0 1 1 248 40
-             L -256 56
-             A 56 56 0 0 1 -256 -56 Z"
-          fill="url(#emerald-stream)"/>
-
-    <!-- 3. 三层圆环的【前拱高饱和钴蓝壁】 -->
-    <path d="M 128 -202 A 108 202 0 0 1 128 202 L 120 140 A 66 140 0 0 0 120 -140 Z"
-          fill="url(#ring-inner)"/>
-    <path d="M 8 -254 A 136 254 0 0 1 8 254 L 0 184 A 86 184 0 0 0 0 -184 Z"
-          fill="url(#ring-mid)"/>
-    <path d="M -118 -312 A 166 312 0 0 1 -118 312 L -126 232 A 108 232 0 0 0 -126 -232 Z"
-          fill="url(#ring-outer)"/>
+      <!-- 3. 下盾尖与右下角：极光翠绿大弧翼（左下沿 R=397 在内窗底尖 512,652 严格水平相切，右下沿 R=228 扬起） -->
+      <path d="M 160 724
+               L 284 724
+               A 397 397 0 0 1 512 652
+               L 580 488
+               L 629 488
+               A 228 228 0 0 0 840 428
+               L 860 428
+               L 860 900
+               L 160 900 Z"
+            fill="url(#tk-emerald)"
+            filter="url(#layer-shadow)"/>
+    </g>
   </g>
 </svg>

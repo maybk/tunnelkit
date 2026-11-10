@@ -1,5 +1,6 @@
 import { DEFAULT_VPN_PORT } from '@/constants/profile'
 import { createInitialVpnState } from '@/domain/vpn'
+import { PROMPT_KINDS } from '@/constants/vpn'
 import type { LogViewSnapshot } from '@/types/log'
 import type {
   AuthType,
@@ -166,14 +167,18 @@ export function mapVpnStateFromDto(dto: Partial<vpnModels.State> | null | undefi
       }
     : null
 
-  const prompt: VpnPrompt | null = dto.prompt
-    ? {
-        id: dto.prompt.id ?? '',
-        kind: (dto.prompt.kind as PromptKind) ?? '',
-        message: dto.prompt.message ?? '',
-        url: dto.prompt.url ?? '',
-      }
-    : null
+  const prompt: VpnPrompt | null =
+    dto.status === 'connecting' &&
+    dto.phase === 'waiting_input' &&
+    dto.prompt?.id &&
+    PROMPT_KINDS.some((kind) => kind === dto.prompt?.kind)
+      ? {
+          id: dto.prompt.id ?? '',
+          kind: (dto.prompt.kind as PromptKind) ?? '',
+          message: dto.prompt.message ?? '',
+          url: dto.prompt.url ?? '',
+        }
+      : null
 
   const error: VpnError | null = dto.error
     ? {
@@ -184,6 +189,7 @@ export function mapVpnStateFromDto(dto: Partial<vpnModels.State> | null | undefi
     : null
 
   return {
+    revision: Number(dto.revision ?? 0),
     status: normalizeStatus(dto.status),
     phase: (dto.phase as ConnectionPhase) ?? 'disconnected',
     profileId: dto.profileId ?? '',

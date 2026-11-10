@@ -8,6 +8,7 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/ipc"
@@ -28,6 +29,7 @@ type Client struct {
 	protocol    int
 	processExit <-chan error
 	eventsCh    chan Message
+	eventsMu    sync.Mutex
 
 	seq       atomic.Uint64
 	mu        sync.Mutex
@@ -91,6 +93,8 @@ func (c *Client) Close() error {
 }
 
 func (c *Client) call(ctx context.Context, msgType ipc.MessageType, payload any) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	id := c.seq.Add(1) + 1
 	ch := make(chan ipc.ResultData, 1)
 
@@ -108,7 +112,9 @@ func (c *Client) call(ctx context.Context, msgType ipc.MessageType, payload any)
 		c.mu.Unlock()
 	}()
 
-	if err := c.conn.Send(msgType, id, payload); err != nil {
+	if err := c.conn.SendContext(ctx, msgType, id, payload); err != nil {
+		// A partially written frame makes the stream unusable; retain recovery data.
+		_ = c.Close()
 		return err
 	}
 
@@ -140,13 +146,13 @@ func (c *Client) readLoop() {
 		switch env.Type {
 		case ipc.TypeEvent:
 			ev, err := ipc.DecodeStrict[fortivpn.Event](env.Data)
-			if err == nil {
-				c.pushMessage(Message{Event: &ev})
+			if err != nil || !c.pushMessage(Message{Event: &ev}) {
+				return
 			}
 		case ipc.TypePrompt:
 			p, err := ipc.DecodeStrict[fortivpn.Prompt](env.Data)
-			if err == nil {
-				c.pushMessage(Message{Prompt: &p})
+			if err != nil || !c.pushMessage(Message{Prompt: &p}) {
+				return
 			}
 		case ipc.TypeLog:
 			entry, err := ipc.DecodeStrict[ipc.LogData](env.Data)
@@ -168,25 +174,6 @@ func (c *Client) readLoop() {
 					}
 				}
 				c.mu.Unlock()
-			}
-		}
-	}
-}
-
-func (c *Client) pushMessage(m Message) {
-	select {
-	case c.eventsCh <- m:
-	default:
-		// If channel is full and the incoming message is a phase change or prompt,
-		// drop the oldest message to guarantee state transitions are never lost.
-		if m.Prompt != nil || (m.Event != nil && m.Event.Stats == nil) {
-			select {
-			case <-c.eventsCh:
-			default:
-			}
-			select {
-			case c.eventsCh <- m:
-			default:
 			}
 		}
 	}

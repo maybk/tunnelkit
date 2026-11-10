@@ -3,12 +3,55 @@ package ipc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
+
+type writeNotification struct {
+	net.Conn
+	started chan struct{}
+	once    sync.Once
+}
+
+func (c *writeNotification) Write(p []byte) (int, error) {
+	c.once.Do(func() { close(c.started) })
+	return c.Conn.Write(p)
+}
+
+func TestSendContextCancelsBlockedWriteAndResetsDeadline(t *testing.T) {
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	raw := &writeNotification{Conn: left, started: make(chan struct{})}
+	conn := NewConn(raw)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- conn.SendContext(ctx, TypeStop, 1, StopData{}) }()
+	<-raw.started
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled write: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled write remained blocked")
+	}
+	read := make(chan error, 1)
+	go func() { _, err := NewConn(right).ReadEnvelope(); read <- err }()
+	if err := conn.Send(TypeStop, 2, StopData{}); err != nil {
+		t.Fatalf("previous cancellation left a write deadline: %v", err)
+	}
+	if err := <-read; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestTokenHashAndDecodeStrict(t *testing.T) {
 	tok, err := GenerateToken()

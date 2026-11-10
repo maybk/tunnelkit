@@ -54,7 +54,7 @@ func (s *Service) disconnectLocked(ctx context.Context) error {
 				return err
 			}
 			conn = attached
-			_, streamDone = s.startEventStream(conn, ticket)
+			_, streamDone = s.startEventStream(conn, ticket, nil)
 			curState = s.State()
 		} else if !errors.Is(loadErr, os.ErrNotExist) {
 			return loadErr
@@ -80,24 +80,23 @@ func (s *Service) disconnectLocked(ctx context.Context) error {
 		return nil
 	}
 
-	disconnecting := curState
-	disconnecting.Status = StatusDisconnecting
-	disconnecting.Phase = fortivpn.PhaseDisconnecting
-	disconnecting.Prompt = nil
-	disconnecting.Error = nil
-	s.setState(disconnecting)
+	s.updateState(conn, func(state *State) bool {
+		state.Status = StatusDisconnecting
+		state.Phase = fortivpn.PhaseDisconnecting
+		state.Prompt = nil
+		state.Error = nil
+		return true
+	})
 
 	stopCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	err := conn.Stop(stopCtx)
 	cancel()
 	if err != nil {
-		if errors.Is(err, helperclient.ErrElevationCancelled) {
-			curState.Error = nil
-			s.setState(curState)
-			return nil
-		}
-		curState.Error = &Error{Message: "断开连接失败", Hint: err.Error()}
-		s.setState(curState)
+		// 不能以早先快照恢复状态：停止请求失败并不证明隧道仍连接或旧挑战仍有效。
+		s.updateState(conn, func(state *State) bool {
+			state.Error = &Error{Message: "断开连接失败", Hint: err.Error()}
+			return true
+		})
 		return err
 	}
 

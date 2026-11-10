@@ -22,7 +22,19 @@ export const useVpnStore = defineStore('vpn', () => {
   const busyAction = ref(false)
   const pendingAction = ref<VpnPendingAction | null>(null)
   const cancelingConnect = ref(false)
-  const answeringPrompt = ref(false)
+  const answeringPromptId = ref('')
+  const acceptedPromptId = ref('')
+  const cancelingPromptId = ref('')
+  const answeringPrompt = computed(() =>
+    Boolean(
+      state.value.prompt?.id &&
+      (answeringPromptId.value === state.value.prompt.id ||
+        acceptedPromptId.value === state.value.prompt.id),
+    ),
+  )
+  const cancelingPrompt = computed(() =>
+    Boolean(state.value.prompt?.id && cancelingPromptId.value === state.value.prompt.id),
+  )
   const promptError = ref('')
   const switchConfirmOpen = ref(false)
   const pendingSwitchProfileId = ref('')
@@ -43,8 +55,12 @@ export const useVpnStore = defineStore('vpn', () => {
   }
 
   const applyState = (next: VpnState) => {
+    if (next.revision < state.value.revision) return
     const prevProfileId = state.value.profileId
-    if (next.prompt?.id !== state.value.prompt?.id) promptError.value = ''
+    if (next.prompt?.id !== state.value.prompt?.id) {
+      promptError.value = ''
+      acceptedPromptId.value = ''
+    }
     const action = pendingAction.value
     if (
       action &&
@@ -87,7 +103,7 @@ export const useVpnStore = defineStore('vpn', () => {
   const loadState = async (): Promise<VpnState> => {
     const latest = await vpnApi.getState()
     applyState(latest)
-    return latest
+    return state.value
   }
 
   const startWatching = () => {
@@ -157,6 +173,10 @@ export const useVpnStore = defineStore('vpn', () => {
   }
 
   const cancel = async () => {
+    if (state.value.prompt) {
+      await answerChallenge('', true)
+      return
+    }
     if (cancelingConnect.value) return
     cancelingConnect.value = true
     try {
@@ -183,23 +203,32 @@ export const useVpnStore = defineStore('vpn', () => {
     await requestConnect(profileId)
   }
 
-  const answerChallenge = async (value: string, cancelPrompt: boolean = false) => {
-    const promptId = state.value.prompt?.id
-    if (cancelPrompt) {
-      await cancel()
+  const answerChallenge = async (
+    value: string,
+    cancelPrompt: boolean = false,
+    promptId = state.value.prompt?.id,
+  ) => {
+    if (!promptId || state.value.prompt?.id !== promptId) return
+    const requestId = cancelPrompt ? cancelingPromptId : answeringPromptId
+    if (
+      requestId.value === promptId ||
+      (!cancelPrompt && (answeringPrompt.value || cancelingPrompt.value))
+    )
       return
-    }
-    if (!promptId || answeringPrompt.value) return
-    answeringPrompt.value = true
+    requestId.value = promptId
     promptError.value = ''
     try {
       await vpnApi.answerPrompt(promptId, value, cancelPrompt)
+      if (!cancelPrompt && state.value.prompt?.id === promptId) acceptedPromptId.value = promptId
+      await loadState()
     } catch (err) {
+      // helper 可能已完成/撤销挑战，先同步事实状态再决定是否显示本次错误。
+      await loadState().catch(() => {})
       if (state.value.prompt?.id === promptId) {
         promptError.value = formatErrorMessage(err, '提交身份验证失败')
       }
     } finally {
-      answeringPrompt.value = false
+      if (requestId.value === promptId) requestId.value = ''
     }
   }
 
@@ -230,6 +259,7 @@ export const useVpnStore = defineStore('vpn', () => {
     pendingAction,
     cancelingConnect,
     answeringPrompt,
+    cancelingPrompt,
     promptError,
     switchConfirmOpen,
     pendingSwitchProfileId,

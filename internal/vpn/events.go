@@ -12,51 +12,42 @@ import (
 	"tunnelkit/internal/storage"
 )
 
-func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-chan *Error, <-chan struct{}) {
+func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket, initial *State) (<-chan *Error, <-chan struct{}) {
 	readyCh := make(chan *Error, 1)
 	doneCh := make(chan struct{})
-
-	s.mu.Lock()
-	oldConn := s.conn
-	s.conn = conn
-	if process, ok := conn.(interface{ WaitForExit(context.Context) error }); ok {
-		s.waitHelper = process.WaitForExit
-	}
-	s.streamDone = doneCh
-	s.mu.Unlock()
-
+	var oldConn Conn
+	s.updateState(nil, func(state *State) bool {
+		oldConn = s.conn
+		s.conn = conn
+		if process, ok := conn.(interface{ WaitForExit(context.Context) error }); ok {
+			s.waitHelper = process.WaitForExit
+		}
+		s.streamDone = doneCh
+		if initial != nil {
+			*state = *initial
+		}
+		return true
+	})
 	if oldConn != nil && oldConn != conn {
 		_ = oldConn.Close()
 	}
 
 	var readyOnce sync.Once
-	signalReady := func(vpnErr *Error) {
-		readyOnce.Do(func() {
-			readyCh <- vpnErr
-		})
-	}
-
+	signalReady := func(vpnErr *Error) { readyOnce.Do(func() { readyCh <- vpnErr }) }
 	go func() {
 		defer close(doneCh)
-
 		logFile, logErr := os.OpenFile(storage.LogPath(s.rootDir, ticket.ProfileID), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 		if logErr != nil {
 			slog.Warn("无法打开连接日志", "error", logErr)
 		} else {
 			defer logFile.Close()
 		}
-		var sawDisconnected bool
 		for msg := range conn.Events() {
-			s.mu.RLock()
-			isCurrent := s.conn == conn
-			cur := s.state
-			s.mu.RUnlock()
-			if !isCurrent {
-				continue
-			}
-
 			if msg.LogLine != "" {
-				if logFile != nil {
+				s.mu.RLock()
+				current := s.conn == conn
+				s.mu.RUnlock()
+				if current && logFile != nil {
 					if _, err := logFile.WriteString(msg.LogLine); err != nil {
 						slog.Warn("写入连接日志失败", "error", err)
 						_ = logFile.Close()
@@ -65,121 +56,120 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket) (<-cha
 				}
 				continue
 			}
-			if msg.Prompt != nil {
-				if cur.Status == StatusDisconnecting {
-					continue
+			state, applied := s.updateState(conn, func(state *State) bool {
+				if !applyMessage(state, msg, ticket) {
+					return false
 				}
-				cur.Status = StatusConnecting
-				cur.Phase = fortivpn.PhaseWaitingInput
-				cp := *msg.Prompt
-				cur.Prompt = &cp
-				s.setState(cur)
-				continue
-			}
-
-			if msg.Event == nil {
-				continue
-			}
-			ev := msg.Event
-			if cur.Status == StatusDisconnecting && ev.Phase != fortivpn.PhaseDisconnected {
-				continue
-			}
-			cur.ProfileID = ticket.ProfileID
-			cur.ProfileName = ticket.ProfileName
-			cur.Phase = ev.Phase
-			cur.Status = statusForPhase(ev.Phase)
-			if ev.Phase != fortivpn.PhaseWaitingInput {
-				cur.Prompt = nil
-			}
-			if ev.Info != nil {
-				cp := *ev.Info
-				cur.Info = &cp
-			}
-			if ev.Stats != nil {
-				cp := *ev.Stats
-				cur.Stats = &cp
-			}
-
-			switch ev.Phase {
-			case fortivpn.PhaseConnected:
-				if cur.ConnectedAt == "" {
-					if ticket.StartedAt != "" {
-						cur.ConnectedAt = ticket.StartedAt
-					} else {
-						cur.ConnectedAt = time.Now().Format(time.RFC3339)
-					}
-				}
-				cur.Error = nil
-				s.setState(cur)
-				signalReady(nil)
-
-			case fortivpn.PhaseDisconnected:
-				sawDisconnected = true
-				// 终态事件不等于进程已退出；票据由确认清理完成的收尾流程删除。
-				s.mu.Lock()
-				if s.conn == conn {
+				if state.Phase == fortivpn.PhaseDisconnected {
 					s.conn = nil
 				}
-				s.mu.Unlock()
+				return true
+			})
+			if !applied {
+				continue
+			}
+			switch state.Phase {
+			case fortivpn.PhaseConnected:
+				signalReady(nil)
+			case fortivpn.PhaseDisconnected:
+				// 终态事件不等于进程已退出；恢复票据由确认清理完成的收尾流程删除。
 				_ = conn.Close()
-
-				var vpnErr *Error
-				if ev.Err != nil {
-					vpnErr = MapError(ev.Err)
-				}
-				cur.ConnectedAt = ""
-				cur.Info = nil
-				cur.Stats = nil
-				cur.Prompt = nil
-				cur.Error = vpnErr
-				s.setState(cur)
-				if vpnErr == nil {
-					signalReady(&Error{Message: "连接未能建立", Hint: "请在「日志」中查看详细输出。"})
+				if state.Error != nil {
+					signalReady(state.Error)
 				} else {
-					signalReady(vpnErr)
+					signalReady(&Error{Message: "连接未能建立", Hint: "请在「日志」中查看详细输出。"})
 				}
 				return
-
-			default:
-				if ev.Err != nil {
-					cur.Error = MapError(ev.Err)
-				}
-				s.setState(cur)
 			}
 		}
-
-		// Events channel closed without an explicit PhaseDisconnected event.
-		s.mu.Lock()
-		isCurrent := s.conn == conn
-		if isCurrent {
+		state, applied := s.updateState(conn, func(state *State) bool {
 			s.conn = nil
-		}
-		cur := s.state
-		s.mu.Unlock()
-
-		if !sawDisconnected && isCurrent {
-			dropErr := &Error{
-				Message: "连接已意外断开",
-				Hint:    "隧道控制通道已断开，恢复票据已保留；请重试断开或连接，并查看日志。",
+			message := "连接已意外断开"
+			if state.Status == StatusConnecting {
+				message = "连接未能建立"
 			}
-			if cur.Status == StatusConnecting {
-				dropErr = &Error{
-					Message: "连接未能建立",
-					Hint:    "隧道控制通道已断开，恢复票据已保留；请重试断开或连接，并查看日志。",
-				}
+			*state = State{
+				Status: StatusDisconnected, Phase: fortivpn.PhaseDisconnected,
+				ProfileID: ticket.ProfileID, ProfileName: ticket.ProfileName,
+				Error: &Error{Message: message, Hint: "隧道控制通道已断开，恢复票据已保留；请重试断开或连接，并查看日志。"},
 			}
-			s.setState(State{
-				Status:      StatusDisconnected,
-				Phase:       fortivpn.PhaseDisconnected,
-				ProfileID:   ticket.ProfileID,
-				ProfileName: ticket.ProfileName,
-				Error:       dropErr,
-			})
-			signalReady(dropErr)
+			return true
+		})
+		if applied {
+			signalReady(state.Error)
 		} else {
 			signalReady(&Error{Message: "连接已取消"})
 		}
 	}()
-
 	return readyCh, doneCh
+}
+
+// applyMessage 只计算当前连接的状态；调用方在同一临界区校验连接归属并发布。
+func applyMessage(state *State, msg helperclient.Message, ticket helperclient.Ticket) bool {
+	if msg.Prompt != nil {
+		if state.Status != StatusConnecting || !promptPhase(state.Phase) || !msg.Prompt.Valid() {
+			return false
+		}
+		if state.Prompt != nil && state.Prompt.ID == msg.Prompt.ID {
+			return false
+		}
+		cp := *msg.Prompt
+		state.Phase, state.Prompt = fortivpn.PhaseWaitingInput, &cp
+		return true
+	}
+	ev := msg.Event
+	if ev == nil {
+		return false
+	}
+	if state.Status == StatusDisconnecting && ev.Phase != fortivpn.PhaseDisconnected {
+		return false
+	}
+	// 已连接只能进入重连或收尾；统计消息不能把重认证中的会话重新标为已连接。
+	if state.Status == StatusConnected && ev.Phase != fortivpn.PhaseConnected && ev.Phase != fortivpn.PhaseReconnecting && ev.Phase != fortivpn.PhaseDisconnecting && ev.Phase != fortivpn.PhaseDisconnected {
+		return false
+	}
+	if ev.Phase == fortivpn.PhaseConnected && ev.Stats != nil && ev.Info == nil && state.Status != StatusConnected {
+		return false
+	}
+	state.ProfileID, state.ProfileName = ticket.ProfileID, ticket.ProfileName
+	state.Phase, state.Status = ev.Phase, statusForPhase(ev.Phase)
+	state.Prompt = nil
+	if ev.Phase == fortivpn.PhaseWaitingInput && ev.Prompt != nil && ev.Prompt.Valid() {
+		cp := *ev.Prompt
+		state.Prompt = &cp
+	}
+	if ev.Info != nil {
+		cp := *ev.Info
+		state.Info = &cp
+	}
+	if ev.Stats != nil {
+		cp := *ev.Stats
+		state.Stats = &cp
+	}
+	if ev.Err != nil {
+		state.Error = MapError(ev.Err)
+	}
+	switch ev.Phase {
+	case fortivpn.PhaseConnected:
+		if state.ConnectedAt == "" {
+			state.ConnectedAt = ticket.StartedAt
+			if state.ConnectedAt == "" {
+				state.ConnectedAt = time.Now().Format(time.RFC3339)
+			}
+		}
+		state.Error = nil
+	case fortivpn.PhaseDisconnected:
+		state.ConnectedAt, state.Info, state.Stats = "", nil, nil
+		state.Error = MapError(ev.Err)
+	}
+	return true
+}
+
+func promptPhase(phase fortivpn.Phase) bool {
+	switch phase {
+	case fortivpn.PhaseConnecting, fortivpn.PhaseAuthenticating, fortivpn.PhaseWaitingInput, fortivpn.PhaseReconnecting:
+		return true
+	default:
+		return false
+	}
 }

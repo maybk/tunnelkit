@@ -52,6 +52,7 @@ export function createTestProfileInput(overrides: Partial<ProfileInput> = {}): P
 
 export function createTestVpnState(overrides: Partial<VpnState> = {}): VpnState {
   return {
+    revision: 0,
     status: 'disconnected',
     phase: 'disconnected',
     profileId: '',

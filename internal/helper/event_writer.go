@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ type eventWriter struct {
 	done   chan struct{}
 	once   sync.Once
 	queue  []outboundFrame
+	failed bool
 }
 
 func newEventWriter(client *ipc.Conn) *eventWriter {
@@ -60,14 +62,17 @@ func (s *sessionState) enqueueFrameLocked(f outboundFrame) bool {
 	if w == nil {
 		return false
 	}
+	if w.failed {
+		return false
+	}
 	if len(w.queue) >= maxQueuedFrames {
 		if isDroppableStatsEvent(f) {
 			return true
 		}
-		// 优先淘汰队列中已有的纯流量统计事件，确保状态跃迁、交互提示与日志不丢失。
+		// 优先淘汰可替代的统计与日志；关键消息满队列时断开控制流，避免静默失序。
 		dropped := false
 		for i, item := range w.queue {
-			if isDroppableStatsEvent(item) {
+			if isDroppableStatsEvent(item) || item.msgType == ipc.TypeLog {
 				w.queue = append(w.queue[:i], w.queue[i+1:]...)
 				dropped = true
 				break
@@ -77,7 +82,9 @@ func (s *sessionState) enqueueFrameLocked(f outboundFrame) bool {
 			if f.msgType == ipc.TypeLog {
 				return false
 			}
-			w.queue = w.queue[1:]
+			w.failed = true
+			w.signal()
+			return false
 		}
 	}
 	w.queue = append(w.queue, f)
@@ -98,6 +105,12 @@ func (s *sessionState) writeEvents(w *eventWriter) {
 				s.mu.Unlock()
 				return
 			}
+			if w.failed {
+				s.mu.Unlock()
+				s.ClearClient(w.client)
+				_ = w.client.Close()
+				return
+			}
 			if len(w.queue) == 0 {
 				s.mu.Unlock()
 				break
@@ -111,9 +124,9 @@ func (s *sessionState) writeEvents(w *eventWriter) {
 			if frame.msgType == ipc.TypeLog {
 				deadline = 2 * time.Second
 			}
-			_ = w.client.SetWriteDeadline(time.Now().Add(deadline))
-			err := w.client.Send(frame.msgType, 0, frame.payload)
-			_ = w.client.SetWriteDeadline(time.Time{})
+			ctx, cancel := context.WithTimeout(context.Background(), deadline)
+			err := w.client.SendContext(ctx, frame.msgType, 0, frame.payload)
+			cancel()
 			if err != nil {
 				if frame.logLine != "" {
 					s.mu.Lock()

@@ -15,12 +15,13 @@ import { validateOtpCode } from '@/validate/vpn'
 const props = defineProps<{
   prompt: VpnPrompt | null
   submitting?: boolean
+  canceling?: boolean
   submitError?: string
 }>()
 
 const emit = defineEmits<{
-  submit: [value: string]
-  cancel: []
+  submit: [value: string, promptId: string]
+  cancel: [promptId: string]
   openSaml: [url: string]
 }>()
 
@@ -31,7 +32,7 @@ const dialogOpen = computed({
   get: () => Boolean(props.prompt),
   set: (val: boolean) => {
     if (!val && props.prompt) {
-      emit('cancel')
+      handleCancel()
     }
   },
 })
@@ -64,13 +65,17 @@ const handleSubmit = () => {
     return
   }
   localError.value = ''
-  emit('submit', check.code)
+  emit('submit', check.code, props.prompt.id)
 }
 
 const handlePushContinue = () => {
   if (props.prompt?.kind !== 'ftm_push') return
   localError.value = ''
-  emit('submit', otpCode.value.trim())
+  emit('submit', otpCode.value.trim(), props.prompt.id)
+}
+
+const handleCancel = () => {
+  if (props.prompt && !props.canceling) emit('cancel', props.prompt.id)
 }
 </script>
 
@@ -145,15 +150,17 @@ const handlePushContinue = () => {
             type="button"
             variant="outline"
             data-testid="challenge-cancel-btn"
-            @click="emit('cancel')"
+            :disabled="canceling"
+            @click="handleCancel"
           >
-            取消连接
+            <Loader2 v-if="canceling" class="size-3.5 animate-spin" aria-hidden="true" />
+            {{ canceling ? '正在取消…' : '取消连接' }}
           </AppButton>
           <AppButton
             v-if="prompt?.kind !== 'saml'"
             type="submit"
             data-testid="challenge-submit-btn"
-            :disabled="submitting || (prompt?.kind === 'otp' && !otpCode.trim())"
+            :disabled="submitting || canceling || (prompt?.kind === 'otp' && !otpCode.trim())"
           >
             <Loader2 v-if="submitting" class="size-3.5 animate-spin" aria-hidden="true" />
             {{ prompt?.kind === 'ftm_push' && !otpCode.trim() ? '已批准推送 / 继续' : '提交验证' }}

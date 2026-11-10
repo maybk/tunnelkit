@@ -72,6 +72,7 @@ export class LogView {
  * State 是前端与菜单栏共用的唯一连接状态视图。
  */
 export class State {
+    "revision": number;
     "status": Status;
     "phase"?: fortivpn$0.Phase;
     "profileId"?: string;
@@ -84,6 +85,9 @@ export class State {
 
     /** Creates a new State instance. */
     constructor($$source: Partial<State> = {}) {
+        if (!("revision" in $$source)) {
+            this["revision"] = 0;
+        }
         if (!("status" in $$source)) {
             this["status"] = Status.$zero;
         }
@@ -95,22 +99,22 @@ export class State {
      * Creates a new State instance from a string or object.
      */
     static createFrom($$source: any = {}): State {
-        const $$createField5_0 = $$createType1;
-        const $$createField6_0 = $$createType3;
-        const $$createField7_0 = $$createType5;
-        const $$createField8_0 = $$createType7;
+        const $$createField6_0 = $$createType1;
+        const $$createField7_0 = $$createType3;
+        const $$createField8_0 = $$createType5;
+        const $$createField9_0 = $$createType7;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("info" in $$parsedSource) {
-            $$parsedSource["info"] = $$createField5_0($$parsedSource["info"]);
+            $$parsedSource["info"] = $$createField6_0($$parsedSource["info"]);
         }
         if ("stats" in $$parsedSource) {
-            $$parsedSource["stats"] = $$createField6_0($$parsedSource["stats"]);
+            $$parsedSource["stats"] = $$createField7_0($$parsedSource["stats"]);
         }
         if ("prompt" in $$parsedSource) {
-            $$parsedSource["prompt"] = $$createField7_0($$parsedSource["prompt"]);
+            $$parsedSource["prompt"] = $$createField8_0($$parsedSource["prompt"]);
         }
         if ("error" in $$parsedSource) {
-            $$parsedSource["error"] = $$createField8_0($$parsedSource["error"]);
+            $$parsedSource["error"] = $$createField9_0($$parsedSource["error"]);
         }
         return new State($$parsedSource as Partial<State>);
     }

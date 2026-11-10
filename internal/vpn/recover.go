@@ -102,7 +102,7 @@ func (s *Service) adoptSession(conn Conn, snap *fortivpn.Event, ticket helpercli
 		prompt = snap.Prompt
 	}
 
-	recovered := s.setState(State{
+	initial := State{
 		Status:      statusForPhase(phase),
 		Phase:       phase,
 		ProfileID:   ticket.ProfileID,
@@ -111,8 +111,8 @@ func (s *Service) adoptSession(conn Conn, snap *fortivpn.Event, ticket helpercli
 		Info:        info,
 		Stats:       stats,
 		Prompt:      prompt,
-	})
+	}
 
-	s.startEventStream(conn, ticket)
-	return recovered
+	s.startEventStream(conn, ticket, &initial)
+	return s.State()
 }

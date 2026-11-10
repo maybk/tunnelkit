@@ -69,6 +69,7 @@ type Service struct {
 	emitMu            sync.Mutex
 	mu                sync.RWMutex
 	state             State
+	stateChanged      chan struct{}
 	conn              Conn
 	waitHelper        func(context.Context) error
 	streamDone        <-chan struct{}
@@ -93,6 +94,7 @@ func NewService(rootDir string, profiles *profile.Store, launcher Launcher) *Ser
 		readyTimeout: 60 * time.Second,
 		shutdownGate: make(chan struct{}, 1),
 		state:        State{Status: StatusDisconnected, Phase: fortivpn.PhaseDisconnected},
+		stateChanged: make(chan struct{}),
 	}
 }
 
@@ -108,36 +110,6 @@ func (s *Service) State() State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.state
-}
-
-// Cancel 中止正在进行的连接；没有进行中的连接时无操作。
-func (s *Service) Cancel() {
-	s.mu.Lock()
-	cancel := s.cancelConnect
-	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-}
-
-// Answer 向当前活动 helper 提交 OTP / FTM / SAML 交互验证响应。
-func (s *Service) Answer(ctx context.Context, promptID, value string, cancel bool) error {
-	s.mu.RLock()
-	conn := s.conn
-	s.mu.RUnlock()
-	if conn == nil {
-		if cancel {
-			s.Cancel()
-			return nil
-		}
-		return ErrNoActivePrompt
-	}
-	err := conn.Answer(ctx, promptID, value, cancel)
-	if cancel {
-		s.Cancel()
-		return nil
-	}
-	return err
 }
 
 func (s *Service) begin() (func(), error) {
@@ -165,18 +137,39 @@ func (s *Service) begin() (func(), error) {
 }
 
 func (s *Service) setState(next State) State {
+	state, _ := s.updateState(nil, func(current *State) bool {
+		*current = next
+		return true
+	})
+	return state
+}
+
+// updateState 将连接归属检查、状态计算与发布串行化，拒绝已被替换的事件流。
+// change 在 mu 内执行，不得阻塞或调用外部代码。
+func (s *Service) updateState(conn Conn, change func(*State) bool) (State, bool) {
 	s.emitMu.Lock()
 	defer s.emitMu.Unlock()
 
 	s.mu.Lock()
+	next := s.state
+	if (conn != nil && s.conn != conn) || !change(&next) {
+		s.mu.Unlock()
+		return next, false
+	}
+	next.Revision = s.state.Revision + 1
+	if next.Status != StatusConnecting || next.Phase != fortivpn.PhaseWaitingInput || next.Prompt == nil || !next.Prompt.Valid() {
+		next.Prompt = nil
+	}
 	s.state = next
+	close(s.stateChanged)
+	s.stateChanged = make(chan struct{})
 	listener := s.listener
 	s.mu.Unlock()
 
 	if listener != nil {
 		listener(next)
 	}
-	return next
+	return next, true
 }
 
 func (s *Service) detachConn() {

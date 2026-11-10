@@ -2,6 +2,7 @@ import type { ConnectionStatus, VpnState } from '@/types/vpn'
 
 export function createInitialVpnState(): VpnState {
   return {
+    revision: 0,
     status: 'disconnected',
     phase: 'disconnected',
     profileId: '',

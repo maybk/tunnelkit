@@ -22,6 +22,7 @@ type Error struct {
 
 // State 是前端与菜单栏共用的唯一连接状态视图。
 type State struct {
+	Revision    uint64               `json:"revision"`
 	Status      Status               `json:"status"`
 	Phase       fortivpn.Phase       `json:"phase,omitempty"`
 	ProfileID   string               `json:"profileId,omitempty"`

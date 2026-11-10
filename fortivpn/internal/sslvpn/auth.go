@@ -2,11 +2,12 @@ package sslvpn
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
+	"net/http/cookiejar"
 	"strings"
 	"time"
 
@@ -28,6 +29,8 @@ const (
 // Login authenticates against the FortiGate gateway (password + optional 2FA, or SAML)
 // and returns the SVPNCOOKIE session value.
 func (c *Client) Login(ctx context.Context, promptFn func(ctx context.Context, p fortivpn.Prompt) (string, error)) (string, error) {
+	// Each authentication attempt starts without cookies from an earlier login.
+	c.hc.Jar, _ = cookiejar.New(nil)
 	if c.cfg.Auth == fortivpn.AuthSAML {
 		return c.AuthenticateSAML(ctx, promptFn)
 	}
@@ -38,7 +41,7 @@ func (c *Client) Login(ctx context.Context, promptFn func(ctx context.Context, p
 		return "", err
 	}
 
-	if res.IsChallenge() {
+	if !(res.Ret == 1 && respCookie != "") && res.IsChallenge() {
 		chal := res.Challenge()
 		if promptFn == nil {
 			return "", fortivpn.NewError(fortivpn.CodeOTPRequired, chal.Message)
@@ -54,13 +57,16 @@ func (c *Client) Login(ctx context.Context, promptFn func(ctx context.Context, p
 			msg = "Enter one-time verification code"
 		}
 
-		promptID := fmt.Sprintf("otp-%d", c.promptSeq.Add(1))
+		promptID := "otp-" + rand.Text()
 		code, err := promptFn(ctx, fortivpn.Prompt{
 			ID:      promptID,
 			Kind:    kind,
 			Message: msg,
 		})
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return "", context.Canceled
+			}
 			if errors.Is(err, context.DeadlineExceeded) {
 				return "", fortivpn.WrapError(fortivpn.CodePromptTimeout, "timed out waiting for verification code", err)
 			}
@@ -75,7 +81,7 @@ func (c *Client) Login(ctx context.Context, promptFn func(ctx context.Context, p
 			}
 			return "", err
 		}
-		if res.IsChallenge() || res.Ret != 1 {
+		if res.Ret != 1 || respCookie == "" {
 			return "", fortivpn.NewError(fortivpn.CodeOTPInvalid, "gateway rejected the verification code")
 		}
 	}
@@ -85,9 +91,6 @@ func (c *Client) Login(ctx context.Context, promptFn func(ctx context.Context, p
 	}
 
 	cookie := respCookie
-	if cookie == "" {
-		cookie = c.jarCookie()
-	}
 	if cookie == "" {
 		return "", fortivpn.NewError(fortivpn.CodeAuthFailed, "gateway did not issue SVPNCOOKIE")
 	}
@@ -148,12 +151,12 @@ func (c *Client) postLogin(ctx context.Context, form string) (LoginResult, strin
 		return LoginResult{}, "", fortivpn.NewError(fortivpn.CodeAuthFailed, "gateway reported permission denied")
 	}
 
-	cookie := c.extractCookie(resp)
+	cookie := responseCookie(resp)
 	res, err := ParseLoginResult(bodyStr)
 	if err != nil {
 		// FortiOS 6.x and custom portal configurations may respond to /remote/logincheck
 		// with an HTML/JS redirect while issuing SVPNCOOKIE in Set-Cookie.
-		if cookie != "" {
+		if cookie != "" && strings.HasPrefix(strings.TrimSpace(bodyStr), "<") {
 			return LoginResult{
 				Ret:    1,
 				Redir:  "/sslvpn/portal.html",
@@ -165,31 +168,25 @@ func (c *Client) postLogin(ctx context.Context, form string) (LoginResult, strin
 	return res, cookie, nil
 }
 
-func (c *Client) extractCookie(resp *http.Response) string {
-	var last string
-	for _, ck := range resp.Cookies() {
-		if ck.Name == CookieName && ck.Value != "" {
-			last = ck.Value
-		}
-	}
-	if last != "" {
-		return last
-	}
-	return c.jarCookie()
-}
-
-func (c *Client) jarCookie() string {
-	if c.hc.Jar == nil {
-		return ""
-	}
-	u, err := url.Parse(c.baseURL())
-	if err != nil {
-		return ""
-	}
-	for _, ck := range c.hc.Jar.Cookies(u) {
-		if ck.Name == CookieName && ck.Value != "" {
+// responseCookie inspects this request's response chain, never cached cookies
+// from a previous authentication exchange.
+func responseCookie(resp *http.Response) string {
+	for resp != nil {
+		cookies := resp.Cookies()
+		for i := len(cookies) - 1; i >= 0; i-- {
+			ck := cookies[i]
+			if ck.Name != CookieName {
+				continue
+			}
+			if ck.Value == "" || ck.MaxAge < 0 || (!ck.Expires.IsZero() && !ck.Expires.After(time.Now())) {
+				return ""
+			}
 			return ck.Value
 		}
+		if resp.Request == nil {
+			break
+		}
+		resp = resp.Request.Response
 	}
 	return ""
 }

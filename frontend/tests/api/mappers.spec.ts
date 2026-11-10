@@ -13,6 +13,33 @@ import * as vpnModels from '@bindings/tunnelkit/internal/vpn/models.js'
 import { createTestProfileInput } from '../fixtures/profiles'
 
 describe('api mappers', () => {
+  it('only exposes a supported challenge in the waiting-input state', () => {
+    const prompt = new fortivpnModels.Prompt({
+      id: 'synthetic',
+      kind: fortivpnModels.PromptKind.PromptOTP,
+    })
+    expect(
+      mapVpnStateFromDto({
+        status: vpnModels.Status.StatusConnected,
+        phase: fortivpnModels.Phase.PhaseConnected,
+        prompt,
+      }).prompt,
+    ).toBeNull()
+    expect(
+      mapVpnStateFromDto({
+        status: vpnModels.Status.StatusConnecting,
+        phase: fortivpnModels.Phase.PhaseWaitingInput,
+        prompt,
+      }).prompt?.id,
+    ).toBe('synthetic')
+    expect(
+      mapVpnStateFromDto({
+        status: vpnModels.Status.StatusConnecting,
+        phase: fortivpnModels.Phase.PhaseWaitingInput,
+        prompt: new fortivpnModels.Prompt(),
+      }).prompt,
+    ).toBeNull()
+  })
   it('maps binding profile and profile input models cleanly', () => {
     const profile = mapProfileFromDto({
       id: 'p1',

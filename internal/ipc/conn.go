@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,12 @@ func NewConn(raw net.Conn) *Conn {
 
 // WriteEnvelope serializes and writes an Envelope with a 4-byte big-endian length prefix.
 func (c *Conn) WriteEnvelope(env Envelope) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return c.writeEnvelope(ctx, env)
+}
+
+func (c *Conn) writeEnvelope(ctx context.Context, env Envelope) error {
 	payload, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("ipc: marshal envelope: %w", err)
@@ -39,7 +46,27 @@ func (c *Conn) WriteEnvelope(env Envelope) error {
 
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	_, err = c.raw.Write(frame)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = c.raw.SetWriteDeadline(deadline)
+	}
+	finished := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { _ = c.raw.SetWriteDeadline(time.Now()); close(finished) })
+	defer func() {
+		if !stop() {
+			<-finished
+		}
+		_ = c.raw.SetWriteDeadline(time.Time{})
+	}()
+	n, err := c.raw.Write(frame)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err == nil && n != len(frame) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 
@@ -50,6 +77,16 @@ func (c *Conn) Send(msgType MessageType, id uint64, payload any) error {
 		return err
 	}
 	return c.WriteEnvelope(env)
+}
+
+// SendContext bounds a complete frame write. The write lock protects deadline
+// changes so cancellation cannot leave a deadline on a subsequent write.
+func (c *Conn) SendContext(ctx context.Context, msgType MessageType, id uint64, payload any) error {
+	env, err := NewEnvelope(msgType, id, payload)
+	if err != nil {
+		return err
+	}
+	return c.writeEnvelope(ctx, env)
 }
 
 // ReadEnvelope reads and decodes the next length-prefixed Envelope from the connection.

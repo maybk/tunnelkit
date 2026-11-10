@@ -33,7 +33,7 @@ type sessionState struct {
 
 func newSessionState(promptTimeout time.Duration) *sessionState {
 	if promptTimeout <= 0 {
-		promptTimeout = 3 * time.Minute
+		promptTimeout = fortivpn.PromptTimeout
 	}
 	return &sessionState{
 		lastPhase:     fortivpn.PhaseConnecting,
@@ -120,6 +120,10 @@ func (s *sessionState) CloseClient() {
 
 func (s *sessionState) OnEvent(ev fortivpn.Event) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ev.Phase == fortivpn.PhaseConnected && ev.Stats != nil && ev.Info == nil && s.lastPhase != fortivpn.PhaseConnected {
+		return
+	}
 	s.lastPhase = ev.Phase
 	if ev.Info != nil {
 		cp := *ev.Info
@@ -133,22 +137,43 @@ func (s *sessionState) OnEvent(ev fortivpn.Event) {
 		cp := *ev.Err
 		s.lastErr = &cp
 	}
+	if ev.Phase != fortivpn.PhaseWaitingInput {
+		s.revokePromptLocked()
+	}
+	if ev.Phase == fortivpn.PhaseConnected {
+		s.lastErr = nil
+	}
 	if ev.Phase == fortivpn.PhaseDisconnected {
-		s.pendingPrompt = nil
+		s.lastInfo, s.lastStats = nil, nil
+	}
+	// Prompt 注册应答通道后才发布交互事件，避免前端先回答、helper 尚不可回答。
+	if ev.Phase == fortivpn.PhaseWaitingInput && ev.Prompt != nil {
+		return
 	}
 	s.enqueueFrameLocked(outboundFrame{
 		msgType: ipc.TypeEvent,
 		payload: ev,
 	})
-	s.mu.Unlock()
 }
 
 func (s *sessionState) Prompt(ctx context.Context, p fortivpn.Prompt) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if !p.Valid() {
+		return "", errors.New("invalid authentication prompt")
+	}
 	ch := make(chan promptResponse, 1)
 
 	s.mu.Lock()
+	s.revokePromptLocked()
+	s.lastPhase = fortivpn.PhaseWaitingInput
 	s.pendingPrompt = &p
 	s.promptCh = ch
+	s.enqueueFrameLocked(outboundFrame{
+		msgType: ipc.TypeEvent,
+		payload: fortivpn.Event{Phase: fortivpn.PhaseWaitingInput, Prompt: &p},
+	})
 	s.enqueueFrameLocked(outboundFrame{
 		msgType: ipc.TypePrompt,
 		payload: p,
@@ -170,7 +195,7 @@ func (s *sessionState) Prompt(ctx context.Context, p fortivpn.Prompt) (string, e
 	select {
 	case resp := <-ch:
 		if resp.cancel {
-			return "", errors.New("prompt cancelled by user")
+			return "", context.Canceled
 		}
 		return resp.value, nil
 	case <-timer.C:
@@ -186,11 +211,12 @@ func (s *sessionState) DeliverAnswer(promptID, value string, cancel bool) error 
 	if s.pendingPrompt == nil || s.promptCh == nil {
 		return errors.New("no active prompt")
 	}
-	if promptID != "" && s.pendingPrompt.ID != promptID {
+	if promptID == "" || s.pendingPrompt.ID != promptID {
 		return errors.New("prompt ID mismatch")
 	}
 	select {
 	case s.promptCh <- promptResponse{value: value, cancel: cancel}:
+		s.pendingPrompt, s.promptCh = nil, nil
 		return nil
 	default:
 		return errors.New("prompt already answered")
@@ -213,11 +239,21 @@ func (s *sessionState) snapshotLocked() *fortivpn.Event {
 		cp := *s.lastErr
 		ev.Err = &cp
 	}
-	if s.pendingPrompt != nil {
+	if s.lastPhase == fortivpn.PhaseWaitingInput && s.pendingPrompt != nil {
 		cp := *s.pendingPrompt
 		ev.Prompt = &cp
 	}
 	return ev
+}
+
+func (s *sessionState) revokePromptLocked() {
+	if s.promptCh != nil {
+		select {
+		case s.promptCh <- promptResponse{cancel: true}:
+		default:
+		}
+	}
+	s.pendingPrompt, s.promptCh = nil, nil
 }
 
 func (s *sessionState) HasClient() bool {

@@ -18,12 +18,11 @@ func (s *Service) Shutdown(ctx context.Context) (err error) {
 	defer func() { <-s.shutdownGate }()
 	defer func() {
 		if err != nil {
-			s.mu.Lock()
-			s.closing = false
-			s.mu.Unlock()
-			state := s.State()
-			state.Error = &Error{Message: "清理 VPN 会话失败，请稍后重试断开或退出", Hint: err.Error()}
-			s.setState(state)
+			s.updateState(nil, func(state *State) bool {
+				s.closing = false
+				state.Error = &Error{Message: "清理 VPN 会话失败，请稍后重试断开或退出", Hint: err.Error()}
+				return true
+			})
 		}
 	}()
 	s.mu.Lock()

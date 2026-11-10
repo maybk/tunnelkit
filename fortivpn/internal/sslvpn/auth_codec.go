@@ -90,8 +90,12 @@ type Challenge struct {
 // FTMPush identifies a FortiToken Mobile challenge that supports push approval.
 func (c Challenge) FTMPush() bool { return c.TokenInfo == "ftm_push" }
 
-// IsChallenge reports whether the gateway supplied a second-factor challenge.
-func (r LoginResult) IsChallenge() bool { _, present := r.Fields["tokeninfo"]; return present }
+// IsChallenge reports potential second-factor metadata; Login prioritizes a
+// successful result carrying a fresh session cookie.
+func (r LoginResult) IsChallenge() bool {
+	_, present := r.Fields["tokeninfo"]
+	return r.Ret != 0 && present
+}
 
 // Challenge selects the protocol echo fields and sanitizes the displayed prompt.
 func (r LoginResult) Challenge() Challenge {

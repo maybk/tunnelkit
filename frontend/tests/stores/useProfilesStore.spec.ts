@@ -77,9 +77,11 @@ describe('useProfilesStore and useVpnStore', () => {
     const vpnStore = useVpnStore()
     vpnStore.state = createTestVpnState({
       status: 'connecting',
+      phase: 'waiting_input',
       profileId: 'p1',
       prompt: { id: 'challenge-1', kind: 'otp', message: 'OTP', url: '' },
     })
+    vi.spyOn(vpnApi, 'getState').mockImplementation(async () => vpnStore.state)
 
     await vpnStore.answerChallenge('123456')
     expect(vpnStore.promptError).toContain('temporary IPC failure')

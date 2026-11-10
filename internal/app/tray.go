@@ -183,7 +183,7 @@ func (t *trayController) init(
 			case vpn.StatusConnected:
 				runAsync("disconnect", vpnService.Disconnect)
 			case vpn.StatusConnecting:
-				vpnService.Cancel()
+				runAsync("cancel", func(context.Context) error { return vpnService.Cancel() })
 			case vpn.StatusDisconnected:
 				if selectedID != "" {
 					runAsync("connect", func(ctx context.Context) error {

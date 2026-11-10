@@ -108,9 +108,10 @@ const handleOpenAbout = () => {
     <VpnChallengeDialog
       :prompt="vpnStore.state.prompt"
       :submitting="vpnStore.answeringPrompt"
+      :canceling="vpnStore.cancelingPrompt"
       :submit-error="vpnStore.promptError"
-      @submit="(code) => vpnStore.answerChallenge(code, false)"
-      @cancel="vpnStore.answerChallenge('', true)"
+      @submit="(code, id) => vpnStore.answerChallenge(code, false, id)"
+      @cancel="(id) => vpnStore.answerChallenge('', true, id)"
       @open-saml="vpnStore.openSamlPrompt"
     />
 

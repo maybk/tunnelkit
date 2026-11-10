@@ -2,6 +2,7 @@ package sslvpn
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net"
@@ -77,12 +78,17 @@ func (c *Client) AuthenticateSAML(ctx context.Context, promptFn func(ctx context
 	}()
 
 	promptCtx, cancelPrompt := context.WithCancel(ctx)
-	defer cancelPrompt()
+	promptDone := make(chan struct{})
+	defer func() {
+		cancelPrompt()
+		<-promptDone
+	}()
 
 	promptErrCh := make(chan error, 1)
 	go func() {
+		defer close(promptDone)
 		val, err := promptFn(promptCtx, fortivpn.Prompt{
-			ID:      "saml-login",
+			ID:      "saml-" + rand.Text(),
 			Kind:    fortivpn.PromptSAML,
 			Message: "Complete SAML Single Sign-On in your browser",
 			URL:     c.baseURL() + PathSAMLStart,
@@ -100,7 +106,11 @@ func (c *Client) AuthenticateSAML(ctx context.Context, promptFn func(ctx context
 	select {
 	case samlID = <-idCh:
 		cancelPrompt()
+		<-promptDone
 	case err := <-promptErrCh:
+		if errors.Is(err, context.Canceled) {
+			return "", context.Canceled
+		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			return "", fortivpn.WrapError(fortivpn.CodePromptTimeout, "SAML login timed out", err)
 		}
@@ -125,7 +135,7 @@ func (c *Client) AuthenticateSAML(ctx context.Context, promptFn func(ctx context
 	if resp.StatusCode != http.StatusOK {
 		return "", fortivpn.NewError(fortivpn.CodeAuthFailed, fmt.Sprintf("SAML auth_id rejected with HTTP %d", resp.StatusCode))
 	}
-	cookie := c.extractCookie(resp)
+	cookie := responseCookie(resp)
 	if cookie == "" {
 		return "", fortivpn.NewError(fortivpn.CodeAuthFailed, "gateway did not issue SVPNCOOKIE after SAML authentication")
 	}

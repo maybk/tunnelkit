@@ -1,5 +1,10 @@
 package fortivpn
 
+import "time"
+
+// PromptTimeout bounds one interactive authentication step across hosts.
+const PromptTimeout = 2 * time.Minute
+
 // Phase represents a fine-grained lifecycle stage of a VPN session.
 type Phase string
 
@@ -66,4 +71,17 @@ type Prompt struct {
 	Kind    PromptKind `json:"kind"`
 	Message string     `json:"message,omitempty"`
 	URL     string     `json:"url,omitempty"`
+}
+
+// Valid reports whether a prompt has an identity and a supported interaction kind.
+func (p Prompt) Valid() bool {
+	if p.ID == "" {
+		return false
+	}
+	switch p.Kind {
+	case PromptOTP, PromptFTMPush, PromptSAML:
+		return true
+	default:
+		return false
+	}
 }

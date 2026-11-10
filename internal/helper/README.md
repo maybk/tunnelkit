@@ -5,8 +5,8 @@
 ## 目录结构
 
 - `server.go`：IPC 监听、对端身份（UID/SID）与一次性令牌摘要联合鉴权，分发 `start`、`recover`、`answer` 与 `stop` 指令。
-- `session.go`：驱动 `fortivpn/engine` 执行 VPN 会话，管理挂起的交互挑战并在会话结束后触发服务退出。
-- `event_writer.go`：有界异步事件与脱敏日志发送队列，满队列时优先保留阶段状态变迁与认证挑战。
+- `session.go`：会话快照维护与交互挑战管理。
+- `event_writer.go`：异步发送事件与脱敏日志，优先保留状态和挑战；关键消息溢出时断开连接。
 - `logfile.go`：辅助进程结构化日志处理器与密码、Cookie、令牌、验证码实时脱敏格式化器。
 - `cli.go`：解析并校验 `serve` 启动参数。
 - `privilege_unix.go`：macOS 与 Linux 启动时将 `setuid-root` 进程的真实 UID/GID 同步至 `0` 并净化环境变量与工作目录。

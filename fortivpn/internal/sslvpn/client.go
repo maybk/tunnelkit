@@ -12,7 +12,6 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"tunnelkit/fortivpn"
@@ -30,7 +29,6 @@ type Client struct {
 
 	mu        sync.Mutex
 	gatewayIP netip.Addr
-	promptSeq atomic.Uint64
 }
 
 // ClientOption configures optional parameters for Client (such as custom RootCAs in tests).

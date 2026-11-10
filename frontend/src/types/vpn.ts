@@ -43,6 +43,7 @@ export interface VpnError {
 }
 
 export interface VpnState {
+  revision: number
   status: ConnectionStatus
   phase: ConnectionPhase
   profileId: string

@@ -50,7 +50,7 @@ func (s *Service) recoverNetwork(ctx context.Context, prior helperclient.Ticket)
 		ProfileID:   prior.ProfileID,
 		ProfileName: prior.ProfileName,
 	})
-	_, done := s.startEventStream(conn, ticket)
+	_, done := s.startEventStream(conn, ticket, nil)
 	if err := s.waitStreamDoneContext(ctx, done); err != nil {
 		return err
 	}

@@ -16,3 +16,4 @@
 
 - **防腐调用**：所有宿主交互统一通过 `src/api/*` 完成，禁止直接导入 `@bindings/*`、`@wailsio/runtime` 或视图组件。
 - **操作状态**：`busyAction` 保留到 API 返回；`pendingAction` 在对应事件确认后清除，避免终态重新显示加载图标。
+- **状态顺序**：按 `revision` 接收查询与推送；应答、取消及请求状态与挑战 ID 关联。

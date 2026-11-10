@@ -41,10 +41,13 @@ describe('VPN challenge dialog', () => {
       global: { stubs },
     })
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.emitted('submit')).toEqual([['']])
+    expect(wrapper.emitted('submit')).toEqual([['', 'push-1']])
     await wrapper.find('[data-testid="challenge-otp-input"]').setValue('123456')
     await wrapper.find('form').trigger('submit')
-    expect(wrapper.emitted('submit')).toEqual([[''], ['123456']])
+    expect(wrapper.emitted('submit')).toEqual([
+      ['', 'push-1'],
+      ['123456', 'push-1'],
+    ])
     wrapper.unmount()
   })
 

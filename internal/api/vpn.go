@@ -25,8 +25,8 @@ func (a *VPNAPI) Connect(ctx context.Context, profileID string) error {
 }
 
 // Cancel 中止正在进行的连接。
-func (a *VPNAPI) Cancel() {
-	a.service.Cancel()
+func (a *VPNAPI) Cancel() error {
+	return a.service.Cancel()
 }
 
 // Answer 提交 OTP / FTM Push / SAML 交互验证响应。

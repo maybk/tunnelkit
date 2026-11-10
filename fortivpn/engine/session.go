@@ -84,7 +84,7 @@ func (s *session) run(ctx context.Context) error {
 	const (
 		dialTimeout       = 15 * time.Second
 		authTimeout       = 30 * time.Second
-		promptTimeout     = 2 * time.Minute
+		promptTimeout     = fortivpn.PromptTimeout
 		handshakeTimeout  = 15 * time.Second
 		disconnectTimeout = 3 * time.Second
 	)
@@ -110,7 +110,7 @@ func (s *session) run(ctx context.Context) error {
 
 			authCtx, authCancel := context.WithTimeout(ctx, authTimeout+promptTimeout)
 			cookie, err = client.Login(authCtx, func(pCtx context.Context, p fortivpn.Prompt) (string, error) {
-				return s.promptUser(ctx, p)
+				return s.promptUser(pCtx, p)
 			})
 			authCancel()
 			if err != nil {
@@ -269,13 +269,13 @@ func (s *session) promptUser(ctx context.Context, p fortivpn.Prompt) (string, er
 		Phase:  fortivpn.PhaseWaitingInput,
 		Prompt: &p,
 	})
-	defer s.emit(fortivpn.Event{
-		Phase: fortivpn.PhaseAuthenticating,
-	})
-
-	promptCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	promptCtx, cancel := context.WithTimeout(ctx, fortivpn.PromptTimeout)
 	defer cancel()
-	return s.handler.Prompt(promptCtx, p)
+	value, err := s.handler.Prompt(promptCtx, p)
+	if err == nil {
+		s.emit(fortivpn.Event{Phase: fortivpn.PhaseAuthenticating})
+	}
+	return value, err
 }
 
 func (s *session) failAndCleanup(client *sslvpn.Client, cookie string, cause error) error {

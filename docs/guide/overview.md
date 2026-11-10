@@ -24,8 +24,6 @@ Vue 前端 -> Wails bindings -> internal/api -> internal/vpn -> internal/helperc
 | [`internal/update`](../../internal/update/README.md) | 版本更新检查、多源降级、语义化版本比较与三端原子自更新 | 零业务耦合，严格校验发布页域名与安装包 SHA-256 |
 | [`fortivpn`](../../fortivpn/README.md) | 纯 Go Fortinet SSL-VPN 协议内核与独立 CLI | 严禁引用 `tunnelkit/internal/**` 或 Wails |
 
-协议编解码与会话编排分离；三端共享配置与恢复契约，平台操作独立实现。
-
 ## 目录结构
 
 ```text

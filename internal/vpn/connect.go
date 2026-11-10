@@ -170,55 +170,32 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 		return err
 	}
 
-	readyCh, _ := s.startEventStream(conn, ticket)
+	readyCh, _ := s.startEventStream(conn, ticket, nil)
 
-	timer := time.NewTimer(s.readyTimeout)
-	defer timer.Stop()
-
-	select {
-	case vpnErr := <-readyCh:
-		if opCtx.Err() != nil {
-			priorError := s.State().Error
-			stopCtx, stopCancel := context.WithTimeout(context.Background(), 12*time.Second)
-			err := s.disconnectLocked(stopCtx)
-			stopCancel()
-			if err != nil {
-				return err
-			}
-			if priorError != nil {
-				s.failConnect(prof.ID, prof.Name, priorError)
-				return errors.New(priorError.Message)
-			}
-			return cancelled()
-		}
+	vpnErr, timedOut := s.waitReady(opCtx, readyCh)
+	if opCtx.Err() == nil && !timedOut {
 		if vpnErr != nil {
 			return errors.New(vpnErr.Message)
 		}
 		return nil
-
-	case <-opCtx.Done():
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 12*time.Second)
-		err := s.disconnectLocked(stopCtx)
-		stopCancel()
-		if err != nil {
-			return err
+	}
+	priorError := s.State().Error
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 12*time.Second)
+	err = s.disconnectLocked(stopCtx)
+	stopCancel()
+	if err != nil {
+		return err
+	}
+	if opCtx.Err() != nil {
+		if priorError != nil {
+			s.failConnect(prof.ID, prof.Name, priorError)
+			return errors.New(priorError.Message)
 		}
 		return cancelled()
-
-	case <-timer.C:
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 12*time.Second)
-		err := s.disconnectLocked(stopCtx)
-		stopCancel()
-		if err != nil {
-			return err
-		}
-		timeoutErr := &Error{
-			Message: "连接超时",
-			Hint:    "等待网关建立隧道超时，请检查网关状态或查看连接日志。",
-		}
-		s.failConnect(prof.ID, prof.Name, timeoutErr)
-		return errors.New(timeoutErr.Message)
 	}
+	timeoutErr := &Error{Message: "连接超时", Hint: "等待网关建立隧道超时，请检查网关状态或查看连接日志。"}
+	s.failConnect(prof.ID, prof.Name, timeoutErr)
+	return errors.New(timeoutErr.Message)
 }
 
 func (s *Service) disconnectIfActive(ctx context.Context, targetProfileID string) (bool, error) {

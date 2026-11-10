@@ -32,8 +32,8 @@ func TestLinuxDNSKeepsUnconfirmedChangesForRecovery(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(loaded.Entries()) == 0 {
-				t.Fatal("unconfirmed DNS changes lost their recovery record")
+			if len(loaded.Entries()) != 1 {
+				t.Fatalf("expected exactly 1 recovery record for %s failure, got %d", failure, len(loaded.Entries()))
 			}
 			if err := loaded.Rollback(func(entry JournalEntry) error {
 				return removeLinuxDNS(context.Background(), runner, entry.Iface, entry.Key)

@@ -1,5 +1,5 @@
 // Package netdev provides a minimal cross-platform TUN device wrapper over
-// golang.zx2c4.com/wireguard/tun.
+// golang.zx2c4.com/wireguard/tun with in-place headroom support.
 package netdev
 
 import (
@@ -8,7 +8,12 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-const packetOffset = 16
+// Headroom is the leading byte offset reserved before the Layer-3 IPv4 packet
+// so kernel TUN headers (4B BSD utun or 10B Linux virtio_net_hdr) and
+// Fortinet/PPP framing (6B 0x5050 + 4B PPP = 10B) can be written in place.
+const Headroom = 16
+
+const packetOffset = Headroom
 
 // Device represents an opened virtual network interface.
 type Device interface {
@@ -77,6 +82,30 @@ func (t *tunDevice) SetMTU(mtu int) {
 	t.writeMu.Unlock()
 }
 
+// ReadPacketAt reads an outbound IP packet directly into buf[offset : offset+n]
+// without intermediate buffer copying when offset >= Headroom.
+func (t *tunDevice) ReadPacketAt(buf []byte, offset int) (int, error) {
+	if offset < packetOffset || len(buf) <= offset {
+		if len(buf) <= offset {
+			return 0, nil
+		}
+		return t.ReadPacket(buf[offset:])
+	}
+	t.readMu.Lock()
+	defer t.readMu.Unlock()
+
+	t.readBufs[0] = buf
+	t.readSizes[0] = 0
+	n, err := t.dev.Read(t.readBufs, t.readSizes, offset)
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 || t.readSizes[0] <= 0 {
+		return 0, nil
+	}
+	return t.readSizes[0], nil
+}
+
 func (t *tunDevice) ReadPacket(buf []byte) (int, error) {
 	t.readMu.Lock()
 	defer t.readMu.Unlock()
@@ -93,6 +122,23 @@ func (t *tunDevice) ReadPacket(buf []byte) (int, error) {
 	size := t.readSizes[0]
 	copied := copy(buf, t.readBuf[packetOffset:packetOffset+size])
 	return copied, nil
+}
+
+// WritePacketAt writes an inbound IP packet located at buf[offset:] directly to
+// the kernel TUN interface using buf[:offset] as kernel header scratch space.
+func (t *tunDevice) WritePacketAt(buf []byte, offset int) error {
+	if len(buf) <= offset {
+		return nil
+	}
+	if offset < packetOffset {
+		return t.WritePacket(buf[offset:])
+	}
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+
+	t.writeBufs[0] = buf
+	_, err := t.dev.Write(t.writeBufs, offset)
+	return err
 }
 
 func (t *tunDevice) WritePacket(pkt []byte) error {

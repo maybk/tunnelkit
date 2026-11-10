@@ -4,18 +4,20 @@ package privilege
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 )
 
-func elevateInstall(ctx context.Context, source string) error {
-	if os.Geteuid() == 0 {
-		return Install(source)
+// RunElevatedDarwinShell runs shellCmd via /usr/bin/osascript "do shell script ... with administrator privileges".
+// Returns ErrCancelled if the user cancels the authorization dialog.
+func RunElevatedDarwinShell(ctx context.Context, shellCmd string) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	command := shellQuoteCommand(source, []string{"install"})
-	script := "do shell script " + appleScriptString(command) + " with administrator privileges"
+	script := "do shell script " + appleScriptString(shellCmd) + " with administrator privileges"
 	out, err := exec.CommandContext(ctx, "/usr/bin/osascript", "-e", script).CombinedOutput()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -29,7 +31,21 @@ func elevateInstall(ctx context.Context, source string) error {
 			strings.Contains(text, "用户已取消") {
 			return ErrCancelled
 		}
-		return fmt.Errorf("辅助组件安装失败: %s", text)
+		return fmt.Errorf("%s (%w)", text, err)
+	}
+	return nil
+}
+
+func elevateInstall(ctx context.Context, source string) error {
+	if os.Geteuid() == 0 {
+		return Install(source)
+	}
+	command := ShellQuoteCommand(source, []string{"install"})
+	if err := RunElevatedDarwinShell(ctx, command); err != nil {
+		if errors.Is(err, ErrCancelled) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return fmt.Errorf("辅助组件安装失败: %w", err)
 	}
 	return nil
 }

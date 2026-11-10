@@ -148,27 +148,48 @@ func (j *Journal) Clear() error {
 	return nil
 }
 
-// Rollback executes fn for each recorded entry in LIFO order, removing each entry
-// from the journal as soon as its rollback succeeds and deleting the journal file
-// once all entries have been rolled back.
+// Rollback executes fn for each recorded entry in LIFO order, retaining any
+// entries whose rollback fails and deleting the journal file once all succeed.
 func (j *Journal) Rollback(fn func(JournalEntry) error) error {
 	if j == nil {
 		return nil
 	}
-	var errs []error
-	for _, entry := range j.Entries() {
+	entries := j.Entries()
+	if len(entries) == 0 {
+		return j.Clear()
+	}
+	var (
+		errs      []error
+		succeeded = make(map[JournalEntry]bool, len(entries))
+	)
+	for _, entry := range entries {
 		if err := fn(entry); err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if err := j.Remove(entry); err != nil {
-			errs = append(errs, err)
-		}
+		succeeded[entry] = true
 	}
 	if len(errs) == 0 {
 		if err := j.Clear(); err != nil {
 			errs = append(errs, err)
 		}
+		return errors.Join(errs...)
+	}
+	if len(succeeded) > 0 {
+		j.mu.Lock()
+		previous := j.list
+		remaining := make([]JournalEntry, 0, len(j.list))
+		for _, existing := range j.list {
+			if !succeeded[existing] {
+				remaining = append(remaining, existing)
+			}
+		}
+		j.list = remaining
+		if err := j.flushLocked(); err != nil {
+			j.list = previous
+			errs = append(errs, err)
+		}
+		j.mu.Unlock()
 	}
 	return errors.Join(errs...)
 }

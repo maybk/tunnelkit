@@ -9,9 +9,7 @@
 - `fsm_handlers.go`：`Configure-Request`、`Configure-Ack`、`Configure-Nak/Reject`、`Terminate-Request/Ack` 状态转换处理器。
 - `lcp.go`：LCP 协议处理器，协商 MRU 与 Magic-Number 并拒绝隧道内二次密码认证请求。
 - `ipcp.go`：IPCP 协议处理器，遵循网关 `Configure-Nak` 收敛分配客户端 IPv4 地址与主备 DNS。
-- `echo.go`：周期性发送 `Echo-Request` 并校验对端 `Echo-Reply`，连续超时判定死链。
-- `server.go`：供单元测试与 `fortitest` 内存假网关复用的服务端 PPP 会话实现。
-- `UPSTREAM.md`：PPP 报文编解码与测试服务端部分参考上游开源实现的版权与来源说明。
+- `session.go`：客户端会话生命周期、LCP/IPCP 编排、Echo 保活与优雅关闭。
 
 ## 开发规范
 

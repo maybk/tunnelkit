@@ -5,6 +5,8 @@
 ## 目录结构
 
 - `gateway.go`：基于 `httptest.Server` 的内存假 FortiGate 网关，支持密码认证、双因素挑战、SAML 回调、XML 隧道配置下发、`0x5050` 隧道升级与服务端 PPP 回环。
+- `protocol.go`：假网关 XML 配置渲染、ICMP Echo/IPv4 反射回包与校验和计算辅助。
+- `ppp_peer.go`：模拟网关侧 LCP/IPCP 协商与 Echo 应答。
 - `memdev.go`：实现 `engine.Device` 接口的内存双向三层报文通道，用于注入宿主机出站包并断言入站回包。
 
 ## 开发规范

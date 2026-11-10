@@ -8,16 +8,14 @@
 - `version.go`：语义化版本号解析、归一化与新旧版本比较。
 - `updater.go`：更新包下载、SHA-256 摘要校验、安装前置与结束维护钩子协调及状态流转。
 - `archive.go`：更新归档安全解压、路径穿越防护、目标可执行组件提取与备份回滚原语。
-- `install_script.go`：生成 Linux shell 与 Windows `cmd.exe` 的双组件事务性替换与失败回滚脚本。
+- `script_sh.go`：生成 `sh` 多组件替换与回滚脚本。
+- `script_cmd.go`：生成 `cmd.exe` 多组件替换与回滚脚本。
 - `apply_darwin.go`：macOS `.dmg` 挂载校验、`.app` 应用包备份替换、失败回滚、辅助组件同步更新与 `osascript` 提权回退。
 - `apply_linux.go`：Linux 客户端与 `tunnelkit-helper` 二进制备份、原子替换、回滚与 `pkexec` 提权安装。
 - `apply_windows.go`：Windows 客户端与辅助进程分阶段重命名替换、失败回滚及 `TunnelKitHelper` 服务同步刷新。
+- `apply_other.go`：不支持平台的更新报错实现。
 - `apply_elevated_windows.go`：Windows 安装目录受限时的 UAC 提权更新脚本执行。
-- `apply_other.go`：非支持平台下的原地更新能力判定与拒绝实现。
-- `restart_parent.go`：更新后新进程等待旧父进程退出的 `--wait-parent` 参数解析与轮询等待入口。
-- `restart_parent_unix.go`：macOS 与 Linux 基于 `kill(pid, 0)` 的父进程存活探测。
-- `restart_parent_windows.go`：Windows 基于 `SYNCHRONIZE` 进程句柄等待的父进程存活探测。
-- `restart_parent_other.go`：非支持平台下的父进程存活探测空实现。
+- `restart_parent.go`：更新重启参数解析，通过公共进程查询等待旧父进程退出。
 
 ## 开发规范
 

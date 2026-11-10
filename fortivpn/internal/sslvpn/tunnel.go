@@ -1,9 +1,8 @@
 package sslvpn
 
 import (
-	"bytes"
+	"bufio"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -13,10 +12,13 @@ import (
 	"tunnelkit/fortivpn"
 )
 
-const maxUpgradeHTTPHeader = 16 * 1024
+const (
+	maxUpgradeHTTPHeader = 16 * 1024
+	tunnelReadBufSize    = 16 * 1024
+)
 
-// TunnelRequest builds the raw HTTP GET request that switches a TLS connection
-// into the Fortinet 6-byte framed PPP tunnel.
+// TunnelRequest builds the raw HTTP/1.1 GET request that switches a TLS connection
+// into the Fortinet 6-octet 0x5050 framed PPP stream.
 func TunnelRequest(host string, port int, cookie, userAgent string) []byte {
 	if userAgent == "" {
 		userAgent = fortivpn.DefaultUserAgent
@@ -25,34 +27,37 @@ func TunnelRequest(host string, port int, cookie, userAgent string) []byte {
 	if port > 0 && port != 443 {
 		hostHeader = fmt.Sprintf("%s:%d", host, port)
 	}
-	return []byte("GET " + PathTunnel + " HTTP/1.1\r\n" +
-		"Host: " + hostHeader + "\r\n" +
-		"User-Agent: " + userAgent + "\r\n" +
-		"Accept: */*\r\n" +
-		"Accept-Encoding: identity\r\n" +
-		"Pragma: no-cache\r\n" +
-		"Cache-Control: no-store, no-cache, must-revalidate\r\n" +
-		"Cookie: " + CookieName + "=" + cookie + "\r\n" +
-		"Content-Length: 0\r\n" +
-		"\r\n")
+	var b strings.Builder
+	b.Grow(256 + len(cookie))
+	b.WriteString("GET ")
+	b.WriteString(PathTunnel)
+	b.WriteString(" HTTP/1.1\r\nHost: ")
+	b.WriteString(hostHeader)
+	b.WriteString("\r\nUser-Agent: ")
+	b.WriteString(userAgent)
+	b.WriteString("\r\nAccept: */*\r\nAccept-Encoding: identity\r\nPragma: no-cache\r\nCache-Control: no-store, no-cache, must-revalidate\r\nCookie: ")
+	b.WriteString(CookieName)
+	b.WriteByte('=')
+	b.WriteString(cookie)
+	b.WriteString("\r\nContent-Length: 0\r\n\r\n")
+	return []byte(b.String())
 }
 
-// TunnelConn wraps the upgraded TLS connection and handles the transition from
-// an optional HTTP status response (e.g. 403/302 rejection or 200 OK header)
-// to the 6-octet Fortinet PPP frame stream.
+// TunnelConn wraps an upgraded TLS connection, handling any optional HTTP response
+// header before transitioning to the 6-octet Fortinet PPP frame stream.
 type TunnelConn struct {
 	conn           net.Conn
-	reader         io.Reader
+	br             *bufio.Reader
 	upgradeChecked bool
 	writeMu        sync.Mutex
 	writeBuf       []byte
 }
 
-// NewTunnelConn wraps an upgraded TLS connection.
+// NewTunnelConn wraps an upgraded TLS connection with a buffered reader.
 func NewTunnelConn(conn net.Conn) *TunnelConn {
 	return &TunnelConn{
 		conn:     conn,
-		reader:   conn,
+		br:       bufio.NewReaderSize(conn, tunnelReadBufSize),
 		writeBuf: make([]byte, FrameHeaderLen+2048),
 	}
 }
@@ -64,17 +69,17 @@ func (t *TunnelConn) ReadFrame() ([]byte, error) {
 			return nil, err
 		}
 	}
-	return ReadFrame(t.reader)
+	return ReadFrame(t.br)
 }
 
-// ReadFrameInto reads the next PPP frame into scratch if large enough.
+// ReadFrameInto reads the next PPP frame into scratch when capacity suffices.
 func (t *TunnelConn) ReadFrameInto(scratch []byte) ([]byte, error) {
 	if !t.upgradeChecked {
 		if err := t.ensureUpgraded(); err != nil {
 			return nil, err
 		}
 	}
-	return ReadFrameInto(t.reader, scratch)
+	return ReadFrameInto(t.br, scratch)
 }
 
 // WriteFrame encodes pppFrame with the 6-octet Fortinet header and writes it to the tunnel.
@@ -89,6 +94,15 @@ func (t *TunnelConn) WriteFrame(pppFrame []byte) error {
 	buf := t.writeBuf[:needed]
 	EncodeFrameInto(buf, pppFrame)
 	_, err := t.conn.Write(buf)
+	return err
+}
+
+// WritePreframed writes a buffer that already starts with the 6-octet Fortinet header
+// directly to the underlying TLS connection without copying into writeBuf.
+func (t *TunnelConn) WritePreframed(framed []byte) error {
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+	_, err := t.conn.Write(framed)
 	return err
 }
 
@@ -111,45 +125,50 @@ func (t *TunnelConn) Close() error {
 func (t *TunnelConn) ensureUpgraded() error {
 	t.upgradeChecked = true
 
-	var prefix [5]byte
-	if _, err := io.ReadFull(t.conn, prefix[:]); err != nil {
+	prefix, err := t.br.Peek(5)
+	if err != nil {
 		return err
 	}
-
-	// If the stream does not start with "HTTP/", it is already Fortinet binary framing.
-	if string(prefix[:]) != "HTTP/" {
-		t.reader = io.MultiReader(bytes.NewReader(prefix[:]), t.conn)
+	// If the stream does not begin with "HTTP/", it is already binary Fortinet framing.
+	if string(prefix) != "HTTP/" {
 		return nil
 	}
 
-	// Read until the end of the HTTP response header (\r\n\r\n).
-	buf := bytes.NewBuffer(prefix[:])
-	var one [1]byte
-	for !bytes.HasSuffix(buf.Bytes(), []byte("\r\n\r\n")) {
-		if buf.Len() >= maxUpgradeHTTPHeader {
-			return fortivpn.NewError(fortivpn.CodeTunnelDenied, "gateway returned oversized HTTP response on tunnel endpoint")
-		}
-		if _, err := t.conn.Read(one[:]); err != nil {
+	var hdrBuilder strings.Builder
+	for {
+		line, err := t.br.ReadString('\n')
+		if err != nil {
 			return err
 		}
-		buf.WriteByte(one[0])
+		hdrBuilder.WriteString(line)
+		if hdrBuilder.Len() > maxUpgradeHTTPHeader {
+			return fortivpn.NewError(fortivpn.CodeTunnelDenied, "gateway returned oversized HTTP response on tunnel endpoint")
+		}
+		if line == "\r\n" || line == "\n" {
+			break
+		}
 	}
 
-	hdrText := buf.String()
-	firstLine, _, _ := strings.Cut(hdrText, "\r\n")
-	fields := strings.Fields(firstLine)
+	hdrText := hdrBuilder.String()
+	firstLine, _, _ := strings.Cut(hdrText, "\n")
+	fields := strings.Fields(strings.TrimSpace(firstLine))
 	status := 0
 	if len(fields) >= 2 {
 		status, _ = strconv.Atoi(fields[1])
 	}
 
-	if status == 401 || status == 403 || (status >= 300 && status < 400 && strings.Contains(strings.ToLower(hdrText), "/remote/login")) {
+	lowerHdr := strings.ToLower(hdrText)
+	if status == 401 || status == 403 || (status >= 300 && status < 400 && strings.Contains(lowerHdr, "/remote/login")) {
 		return fortivpn.NewError(fortivpn.CodeAuthFailed, fmt.Sprintf("gateway rejected tunnel cookie with HTTP %d", status))
 	}
 	if status < 200 || status >= 300 {
 		return fortivpn.NewError(fortivpn.CodeTunnelDenied, fmt.Sprintf("gateway refused SSL-VPN tunnel upgrade with HTTP %d", status))
 	}
-
-	// HTTP 200 OK header consumed; subsequent bytes are Fortinet frames.
+	if strings.Contains(lowerHdr, "content-type: text/html") {
+		return fortivpn.NewError(fortivpn.CodeTunnelDenied, "gateway returned HTML page instead of binary tunnel (tunnel mode disabled)")
+	}
+	if next, peekErr := t.br.Peek(1); peekErr == nil && len(next) == 1 && next[0] == '<' {
+		return fortivpn.NewError(fortivpn.CodeTunnelDenied, "gateway returned HTML page instead of binary tunnel (tunnel mode disabled)")
+	}
 	return nil
 }

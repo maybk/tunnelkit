@@ -1,20 +1,16 @@
-// Package fortitest provides an in-process fake FortiGate SSL-VPN gateway and
-// an in-memory TUN device for rootless end-to-end testing of fortivpn.
-//
-// Portions of gateway.go are adapted from xen0bit/veepin (internal/fortinet/server.go,
-// MIT License, commit bcac1789f0a7eaa7687b2777d6d6765fb87158e0).
+// Package fortitest provides an in-process simulated FortiGate SSL-VPN gateway
+// and an in-memory TUN device for rootless end-to-end testing of fortivpn.
 package fortitest
 
 import (
-	"crypto/rand"
 	"crypto/x509"
-	"encoding/binary"
-	"encoding/hex"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,7 +20,7 @@ import (
 	"tunnelkit/fortivpn/internal/sslvpn"
 )
 
-// GatewayConfig configures a test FortiGate SSL-VPN server.
+// GatewayConfig configures a simulated FortiGate SSL-VPN server.
 type GatewayConfig struct {
 	Users                  map[string]string
 	OTPCode                map[string]string
@@ -50,13 +46,14 @@ type challengeRecord struct {
 
 type activeTunnel struct {
 	conn net.Conn
-	srv  *ppp.ServerSession
+	peer *gatewayPPPPeer
 }
 
-// Gateway is an in-process HTTPS + PPP-over-TLS fake FortiGate server.
+// Gateway is an in-process HTTPS + PPP-over-TLS simulated FortiGate server.
 type Gateway struct {
 	cfg    GatewayConfig
 	server *httptest.Server
+	routes *http.ServeMux
 
 	mu         sync.Mutex
 	challenges map[string]challengeRecord
@@ -68,7 +65,7 @@ type Gateway struct {
 	logoutCount atomic.Int32
 }
 
-// NewGateway starts a new TLS-enabled fake FortiGate gateway on 127.0.0.1.
+// NewGateway starts a TLS-enabled simulated FortiGate gateway on 127.0.0.1.
 func NewGateway(cfg GatewayConfig) *Gateway {
 	if !cfg.AssignedIP.IsValid() {
 		cfg.AssignedIP = netip.MustParseAddr("10.212.0.10")
@@ -81,10 +78,16 @@ func NewGateway(cfg GatewayConfig) *Gateway {
 	}
 	gw := &Gateway{
 		cfg:        cfg,
+		routes:     http.NewServeMux(),
 		challenges: make(map[string]challengeRecord),
 		sessions:   make(map[string]string),
 		tunnels:    make(map[*activeTunnel]struct{}),
 	}
+	gw.routes.HandleFunc(sslvpn.PathLoginCheck, gw.handleLogin)
+	gw.routes.HandleFunc(sslvpn.PathSAMLAuthID, gw.handleSAMLAuthID)
+	gw.routes.HandleFunc(sslvpn.PathConfigXML, gw.handleConfigXML)
+	gw.routes.HandleFunc(sslvpn.PathTunnel, gw.handleTunnel)
+	gw.routes.HandleFunc(sslvpn.PathLogout, gw.handleLogout)
 	gw.server = httptest.NewTLSServer(gw)
 	return gw
 }
@@ -114,7 +117,7 @@ func (g *Gateway) CertFingerprint() string {
 	return sslvpn.CertFingerprint(cert.Raw)
 }
 
-// RootCAs returns a *x509.CertPool containing the server's self-signed certificate.
+// RootCAs returns an *x509.CertPool containing the server's self-signed certificate.
 func (g *Gateway) RootCAs() *x509.CertPool {
 	pool := x509.NewCertPool()
 	pool.AddCert(g.server.Certificate())
@@ -165,56 +168,44 @@ func (g *Gateway) SetDropEcho(drop bool) {
 	g.mu.Lock()
 	g.dropEcho = drop
 	for t := range g.tunnels {
-		t.srv.SetDropEcho(drop)
+		t.peer.setDropEcho(drop)
 	}
 	g.mu.Unlock()
 }
 
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case sslvpn.PathLoginCheck:
-		g.handleLogin(w, r)
-	case "/remote/saml/auth_id":
-		g.handleSAMLAuthID(w, r)
-	case sslvpn.PathConfigXML:
-		g.handleConfigXML(w, r)
-	case sslvpn.PathTunnel:
-		g.handleTunnel(w, r)
-	case sslvpn.PathLogout:
-		g.handleLogout(w, r)
-	default:
-		http.NotFound(w, r)
-	}
+	g.routes.ServeHTTP(w, r)
 }
 
 func (g *Gateway) handleLogin(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
-	body := string(bodyBytes)
-
-	if sslvpn.IsChallengeForm(body) {
-		g.handleChallenge(w, body)
-		return
-	}
-
-	req, err := sslvpn.ParseLoginForm(body)
+	values, err := url.ParseQuery(string(bodyBytes))
 	if err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	wantPass, ok := g.cfg.Users[req.Username]
-	if !ok || wantPass != req.Password {
+
+	if values.Has("reqid") {
+		g.handleChallenge(w, values)
+		return
+	}
+
+	username := values.Get("username")
+	password := values.Get("credential")
+	wantPass, ok := g.cfg.Users[username]
+	if !ok || wantPass != password {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "ret=0,redir=/remote/login?&err=sslvpn_login_permission_denied")
 		return
 	}
 
-	_, needsOTP := g.cfg.OTPCode[req.Username]
-	supportsPush := g.cfg.FTMPush[req.Username]
+	_, needsOTP := g.cfg.OTPCode[username]
+	supportsPush := g.cfg.FTMPush[username]
 	if needsOTP || supportsPush {
 		reqID := randomHex(8)
 		g.mu.Lock()
 		g.challenges[reqID] = challengeRecord{
-			username: req.Username,
+			username: username,
 			ftmPush:  supportsPush,
 		}
 		g.mu.Unlock()
@@ -225,37 +216,31 @@ func (g *Gateway) handleLogin(w http.ResponseWriter, r *http.Request) {
 			tokenInfo = "ftm_push"
 			msg = "Approve FortiToken push or enter code"
 		}
-		_, _ = io.WriteString(w, sslvpn.BuildChallengeResponse(tokenInfo, msg, map[string]string{
-			"reqid":  reqID,
-			"polid":  "1",
-			"grp":    "sslvpn",
-			"portal": "full-access",
-			"magic":  "magic-" + reqID,
-		}))
+		_, _ = fmt.Fprintf(w, "ret=2,tokeninfo=%s,reqid=%s,polid=1,grp=sslvpn,portal=full-access,magic=magic-%s,chal_msg=%s",
+			tokenInfo, reqID, reqID, msg)
 		return
 	}
 
-	g.issueSession(w, req.Username)
+	g.issueSession(w, username)
 }
 
-func (g *Gateway) handleChallenge(w http.ResponseWriter, body string) {
-	req, err := sslvpn.ParseChallengeForm(body)
-	if err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	reqID := req.Echo["reqid"]
+func (g *Gateway) handleChallenge(w http.ResponseWriter, values url.Values) {
+	reqID := values.Get("reqid")
+	username := values.Get("username")
+	code := values.Get("code")
+	ftmPush := values.Get("ftmpush") == "1"
+
 	g.mu.Lock()
 	rec, ok := g.challenges[reqID]
 	delete(g.challenges, reqID)
 	g.mu.Unlock()
 
-	if !ok || rec.username != req.Username {
+	if !ok || rec.username != username {
 		http.Error(w, "ret=4", http.StatusForbidden)
 		return
 	}
 
-	if req.FTMPush {
+	if ftmPush {
 		if !rec.ftmPush {
 			http.Error(w, "ret=4", http.StatusForbidden)
 			return
@@ -265,7 +250,7 @@ func (g *Gateway) handleChallenge(w http.ResponseWriter, body string) {
 	}
 
 	wantCode := g.cfg.OTPCode[rec.username]
-	if wantCode == "" || req.Code != wantCode {
+	if wantCode == "" || code != wantCode {
 		_, _ = io.WriteString(w, "ret=0")
 		return
 	}
@@ -292,7 +277,7 @@ func (g *Gateway) issueSession(w http.ResponseWriter, username string) {
 		Value: cookie,
 		Path:  "/",
 	})
-	_, _ = io.WriteString(w, sslvpn.BuildLoginSuccess(sslvpn.PathConfigXML))
+	_, _ = io.WriteString(w, "ret=1,redir="+sslvpn.PathConfigXML)
 }
 
 func (g *Gateway) handleConfigXML(w http.ResponseWriter, r *http.Request) {
@@ -303,16 +288,8 @@ func (g *Gateway) handleConfigXML(w http.ResponseWriter, r *http.Request) {
 	routes := append([]netip.Prefix(nil), g.cfg.SplitRoutes...)
 	routes = append(routes, g.cfg.DuplicateRoutes...)
 
-	xmlBytes := sslvpn.BuildConfigXML(sslvpn.TunnelConfig{
-		AssignedIP:             g.cfg.AssignedIP,
-		DNS:                    g.cfg.DNS,
-		DNSDomains:             g.cfg.DNSDomains,
-		SplitRoutes:            routes,
-		FortiOS:                g.cfg.FortiOS,
-		ReconnectWithoutReauth: g.cfg.ReconnectWithoutReauth,
-	})
 	w.Header().Set("Content-Type", "application/xml")
-	_, _ = w.Write(xmlBytes)
+	_, _ = w.Write(g.renderConfigXML(routes))
 }
 
 func (g *Gateway) handleTunnel(w http.ResponseWriter, r *http.Request) {
@@ -352,18 +329,9 @@ func (g *Gateway) handleTunnel(w http.ResponseWriter, r *http.Request) {
 	dropEcho := g.dropEcho
 	g.mu.Unlock()
 
-	var srv *ppp.ServerSession
-	srv = ppp.NewServerSession(ppp.ServerConfig{
-		ClientIP: g.cfg.AssignedIP,
-		ServerIP: g.cfg.ServerIP,
-		DNS:      g.cfg.IPCPDNS,
-		MRU:      ppp.DefaultMRU,
-		DropEcho: dropEcho,
-	}, ppp.ServerEvents{
-		Send: sendFrame,
-	})
+	peer := newGatewayPPPPeer(g.cfg.AssignedIP, g.cfg.ServerIP, g.cfg.IPCPDNS, ppp.DefaultMRU, dropEcho, sendFrame)
 
-	active := &activeTunnel{conn: conn, srv: srv}
+	active := &activeTunnel{conn: conn, peer: peer}
 	g.mu.Lock()
 	g.tunnels[active] = struct{}{}
 	g.mu.Unlock()
@@ -375,7 +343,7 @@ func (g *Gateway) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close()
 	}()
 
-	srv.Start()
+	peer.start()
 
 	reader := io.Reader(conn)
 	if buf != nil && buf.Reader.Buffered() > 0 {
@@ -392,7 +360,7 @@ func (g *Gateway) handleTunnel(w http.ResponseWriter, r *http.Request) {
 			sendFrame(ppp.EncapsulateIP(reflected))
 			continue
 		}
-		srv.Input(pppFrame)
+		peer.input(pppFrame)
 	}
 }
 
@@ -416,53 +384,4 @@ func (g *Gateway) validCookie(r *http.Request) bool {
 	_, ok := g.sessions[ck.Value]
 	g.mu.Unlock()
 	return ok
-}
-
-// reflectIPv4 swaps the source and destination IPv4 addresses (and converts
-// ICMP Echo Request type 8 into Echo Reply type 0) so data-plane tests can
-// verify end-to-end packet reflection without a host network stack.
-func reflectIPv4(pkt []byte) []byte {
-	out := make([]byte, len(pkt))
-	copy(out, pkt)
-	ihl := int(out[0]&0x0f) * 4
-	if len(out) < 20 || ihl < 20 || len(out) < ihl {
-		return out
-	}
-	// Swap src (12..16) and dst (16..20).
-	for i := 0; i < 4; i++ {
-		out[12+i], out[16+i] = out[16+i], out[12+i]
-	}
-	// Recompute IPv4 header checksum.
-	out[10], out[11] = 0, 0
-	csum := ipv4Checksum(out[:ihl])
-	binary.BigEndian.PutUint16(out[10:12], csum)
-
-	// If ICMP Echo Request (proto 1, type 8), turn into Echo Reply (type 0).
-	if out[9] == 1 && len(out) >= ihl+8 && out[ihl] == 8 {
-		out[ihl] = 0
-		out[ihl+2], out[ihl+3] = 0, 0
-		icmpSum := ipv4Checksum(out[ihl:])
-		binary.BigEndian.PutUint16(out[ihl+2:ihl+4], icmpSum)
-	}
-	return out
-}
-
-func ipv4Checksum(b []byte) uint16 {
-	var sum uint32
-	for i := 0; i+1 < len(b); i += 2 {
-		sum += uint32(binary.BigEndian.Uint16(b[i : i+2]))
-	}
-	if len(b)%2 == 1 {
-		sum += uint32(b[len(b)-1]) << 8
-	}
-	for (sum >> 16) > 0 {
-		sum = (sum & 0xffff) + (sum >> 16)
-	}
-	return ^uint16(sum)
-}
-
-func randomHex(nBytes int) string {
-	b := make([]byte, nBytes)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
 }

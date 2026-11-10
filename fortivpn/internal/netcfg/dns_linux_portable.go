@@ -17,7 +17,7 @@ const (
 )
 
 func applyLinuxDNS(ctx context.Context, run cmdRunner, iface string, plan DNSPlan, journal *Journal) (string, error) {
-	if plan.Mode == fortivpn.DNSOff || len(plan.Servers) == 0 || SplitDNSNeedsDomains(plan) {
+	if !HasEffectiveDNS(plan) {
 		return "", nil
 	}
 
@@ -26,9 +26,6 @@ func applyLinuxDNS(ctx context.Context, run cmdRunner, iface string, plan DNSPla
 		if s.IsValid() && !s.IsUnspecified() {
 			servers = append(servers, s.String())
 		}
-	}
-	if len(servers) == 0 {
-		return "", nil
 	}
 
 	// 1. Prefer systemd-resolved via resolvectl (per-link DNS + routing domains).
@@ -45,9 +42,13 @@ func applyLinuxDNS(ctx context.Context, run cmdRunner, iface string, plan DNSPla
 		}
 		dnsArgs := append([]string{"dns", iface}, servers...)
 		_, dnsErr = run(ctx, "", "resolvectl", dnsArgs...)
-		if commandDidNotStart(dnsErr) {
-			if err := journal.Remove(entry); err != nil {
-				return "", err
+		if dnsErr != nil {
+			if commandDidNotStart(dnsErr) {
+				if err := journal.Remove(entry); err != nil {
+					return "", err
+				}
+			} else {
+				return "", dnsErr
 			}
 		}
 	}

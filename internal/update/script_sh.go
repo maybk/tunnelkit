@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"tunnelkit/internal/privilege"
 )
 
-func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+func shellQuote(s string) string { return privilege.ShellQuote(s) }
 
 // buildPOSIXFileUpdate 与普通安装器保持同一事务：先备份全部组件，再替换，失败时按逆序恢复。
 func buildPOSIXFileUpdate(stageDir, targetDir string, names []string, installBin string) string {
@@ -42,36 +44,22 @@ func buildPOSIXFileUpdate(stageDir, targetDir string, names []string, installBin
 	return strings.Join(lines, "\n")
 }
 
-// cmdQuote 配合禁用延迟展开，保留 Windows 路径中的百分号和感叹号。
-func cmdQuote(s string) string { return `"` + strings.ReplaceAll(s, "%", "%%") + `"` }
-
-func buildWindowsFileUpdate(stageDir, targetDir string, names []string, okFile, errFile string) string {
-	lines := []string{"@echo off", "setlocal DisableDelayedExpansion"}
-	for i := range names {
-		lines = append(lines, fmt.Sprintf("set backed_%d=0", i), fmt.Sprintf("set installed_%d=0", i))
-	}
-	for i, name := range names {
-		dst := filepath.Join(targetDir, name)
-		lines = append(lines,
-			"if exist "+cmdQuote(dst+".old")+" (", "del /f /q "+cmdQuote(dst+".old")+" || goto rollback", ")",
-			"if exist "+cmdQuote(dst)+" (", "move /y "+cmdQuote(dst)+" "+cmdQuote(dst+".old")+" >nul || goto rollback",
-			fmt.Sprintf("set backed_%d=1", i), ")",
-		)
-	}
-	for i, name := range names {
-		lines = append(lines,
-			fmt.Sprintf("set installed_%d=1", i),
-			"copy /y "+cmdQuote(filepath.Join(stageDir, name))+" "+cmdQuote(filepath.Join(targetDir, name))+" >nul || goto rollback",
-		)
-	}
-	lines = append(lines, "echo ok > "+cmdQuote(okFile), "exit /b 0", ":rollback")
-	for i := len(names) - 1; i >= 0; i-- {
-		dst := filepath.Join(targetDir, names[i])
-		lines = append(lines,
-			fmt.Sprintf(`if "%%installed_%d%%"=="1" del /f /q %s >nul 2>&1`, i, cmdQuote(dst)),
-			fmt.Sprintf(`if "%%backed_%d%%"=="1" move /y %s %s >nul`, i, cmdQuote(dst+".old"), cmdQuote(dst)),
-		)
-	}
-	lines = append(lines, "echo fail > "+cmdQuote(errFile), "exit /b 1")
-	return strings.Join(lines, "\r\n") + "\r\n"
+// buildMacElevatedUpdateShellCmd 生成 macOS .app 应用包备份、ditto 替换、隔离属性清理与失败回滚脚本。
+func buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath string) string {
+	srcQ := shellQuote(srcAppPath)
+	dstQ := shellQuote(dstAppPath)
+	bakQ := shellQuote(backupPath)
+	return strings.Join([]string{
+		"set -eu",
+		"/bin/rm -rf " + bakQ,
+		"/bin/mv " + dstQ + " " + bakQ,
+		"if /usr/bin/ditto " + srcQ + " " + dstQ + "; then",
+		"  /usr/bin/xattr -dr com.apple.quarantine " + dstQ + " || true;",
+		"  /bin/rm -rf " + bakQ + ";",
+		"else",
+		"  /bin/rm -rf " + dstQ + ";",
+		"  /bin/mv " + bakQ + " " + dstQ + ";",
+		"  exit 1;",
+		"fi",
+	}, "\n")
 }

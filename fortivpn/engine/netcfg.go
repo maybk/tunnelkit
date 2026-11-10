@@ -23,7 +23,7 @@ func (s *session) applyOrUpdateNetcfg(ctx context.Context, desired netcfg.Desire
 
 	if applied == nil {
 		s.log.Info("Setting new routes...")
-		if desired.DNS.Mode != fortivpn.DNSOff && len(desired.DNS.Servers) > 0 && !netcfg.SplitDNSNeedsDomains(desired.DNS) {
+		if netcfg.HasEffectiveDNS(desired.DNS) {
 			s.log.Info("Adding VPN nameservers...")
 		}
 		ap, err := netcfg.Apply(ctx, desired, s.opts.journalPath)
@@ -52,7 +52,7 @@ func (s *session) buildDesiredAndInfo(
 	}
 	peerIP := neg.ipCfg.PeerIP
 	if !peerIP.IsValid() || peerIP.IsUnspecified() || peerIP == gatewayIP || peerIP == localIP {
-		peerIP = netip.MustParseAddr("169.254.2.1")
+		peerIP = netcfg.DefaultPeerIP
 	}
 
 	excludes := append([]netip.Prefix(nil), tunCfg.ExcludeRoutes...)

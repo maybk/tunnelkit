@@ -5,16 +5,141 @@ import (
 	"context"
 	"encoding/binary"
 	"net/netip"
+	"sync"
 	"testing"
 	"time"
 )
 
+// testPeer is a minimal in-package PPP peer simulator used exclusively by unit tests.
+type testPeer struct {
+	mu       sync.Mutex
+	clientIP netip.Addr
+	serverIP netip.Addr
+	dns      []netip.Addr
+	mru      uint16
+	send     func([]byte)
+
+	seq       byte
+	lcpReqID  byte
+	lcpAcked  bool
+	lcpPeerOK bool
+	ipcpReqID byte
+}
+
+func newTestPeer(clientIP, serverIP netip.Addr, mru uint16, send func([]byte)) *testPeer {
+	return &testPeer{
+		clientIP: clientIP,
+		serverIP: serverIP,
+		mru:      mru,
+		send:     send,
+	}
+}
+
+func (p *testPeer) start() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sendLCPReqLocked()
+}
+
+func (p *testPeer) sendLCPReqLocked() {
+	p.seq++
+	p.lcpReqID = p.seq
+	var mru [2]byte
+	binary.BigEndian.PutUint16(mru[:], p.mru)
+	opts := []Option{
+		{Type: OptMRU, Value: mru[:]},
+		{Type: OptMagic, Value: []byte{0xde, 0xad, 0xbe, 0xef}},
+	}
+	p.emitLocked(ProtocolLCP, Packet{Code: CodeConfigureRequest, ID: p.lcpReqID, Body: MarshalOptions(opts)})
+}
+
+func (p *testPeer) sendIPCPReqLocked() {
+	p.seq++
+	p.ipcpReqID = p.seq
+	srv := p.serverIP.As4()
+	opts := []Option{{Type: OptIPAddress, Value: srv[:]}}
+	p.emitLocked(ProtocolIPCP, Packet{Code: CodeConfigureRequest, ID: p.ipcpReqID, Body: MarshalOptions(opts)})
+}
+
+func (p *testPeer) emitLocked(proto uint16, pkt Packet) {
+	if p.send != nil {
+		p.send(EncodeFrame(proto, pkt.Marshal()))
+	}
+}
+
+func (p *testPeer) input(frame []byte) {
+	proto, payload, ok := DecodeFrame(frame)
+	if !ok {
+		return
+	}
+	pkt, ok := ParsePacket(payload)
+	if !ok {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	switch proto {
+	case ProtocolLCP:
+		switch pkt.Code {
+		case CodeConfigureRequest:
+			retransmitted := p.lcpPeerOK
+			p.lcpPeerOK = true
+			p.emitLocked(ProtocolLCP, Packet{Code: CodeConfigureAck, ID: pkt.ID, Body: pkt.Body})
+			if retransmitted && !p.lcpAcked {
+				p.sendLCPReqLocked()
+			}
+			if p.lcpAcked && p.lcpPeerOK {
+				p.sendIPCPReqLocked()
+			}
+		case CodeConfigureAck:
+			if pkt.ID == p.lcpReqID {
+				p.lcpAcked = true
+				if p.lcpPeerOK {
+					p.sendIPCPReqLocked()
+				}
+			}
+		case CodeEchoRequest:
+			replyBody := append([]byte{0xde, 0xad, 0xbe, 0xef}, pkt.Body[min(4, len(pkt.Body)):]...)
+			p.emitLocked(ProtocolLCP, Packet{Code: CodeEchoReply, ID: pkt.ID, Body: replyBody})
+		case CodeTerminateRequest:
+			p.emitLocked(ProtocolLCP, Packet{Code: CodeTerminateAck, ID: pkt.ID})
+		}
+	case ProtocolIPCP:
+		if pkt.Code == CodeConfigureRequest {
+			opts, ok := ParseOptions(pkt.Body)
+			if !ok {
+				return
+			}
+			wantIP := p.clientIP.As4()
+			var nak []Option
+			for _, o := range opts {
+				switch o.Type {
+				case OptIPAddress:
+					if !bytes.Equal(o.Value, wantIP[:]) {
+						nak = append(nak, Option{Type: OptIPAddress, Value: wantIP[:]})
+					}
+				case OptPrimaryDNS, OptSecondaryDNS:
+					if !bytes.Equal(o.Value, []byte{0, 0, 0, 0}) {
+						nak = append(nak, Option{Type: o.Type, Value: []byte{0, 0, 0, 0}})
+					}
+				}
+			}
+			if len(nak) > 0 {
+				p.emitLocked(ProtocolIPCP, Packet{Code: CodeConfigureNak, ID: pkt.ID, Body: MarshalOptions(nak)})
+				return
+			}
+			p.emitLocked(ProtocolIPCP, Packet{Code: CodeConfigureAck, ID: pkt.ID, Body: pkt.Body})
+		}
+	}
+}
+
 func TestClientServerHandshakeAndEcho(t *testing.T) {
 	var client *Session
-	var server *ServerSession
+	var peer *testPeer
 	var queue []struct {
-		toServer bool
-		frame    []byte
+		toPeer bool
+		frame  []byte
 	}
 
 	var gotCfg IPConfig
@@ -28,9 +153,9 @@ func TestClientServerHandshakeAndEcho(t *testing.T) {
 	client = NewSession(Events{
 		Send: func(frame []byte) {
 			queue = append(queue, struct {
-				toServer bool
-				frame    []byte
-			}{toServer: true, frame: append([]byte(nil), frame...)})
+				toPeer bool
+				frame  []byte
+			}{toPeer: true, frame: append([]byte(nil), frame...)})
 		},
 		NetworkUp: func(c IPConfig, mru int, ns1, ns2 string) {
 			up = true
@@ -40,28 +165,26 @@ func TestClientServerHandshakeAndEcho(t *testing.T) {
 		},
 	}, cfg)
 
-	server = NewServerSession(ServerConfig{
-		ClientIP: netip.MustParseAddr("10.212.0.10"),
-		ServerIP: netip.MustParseAddr("169.254.2.1"),
-		DNS:      nil, // simulates gateway returning 0.0.0.0 for IPCP DNS
-		MRU:      1400,
-	}, ServerEvents{
-		Send: func(frame []byte) {
+	peer = newTestPeer(
+		netip.MustParseAddr("10.212.0.10"),
+		netip.MustParseAddr("169.254.2.1"),
+		1400,
+		func(frame []byte) {
 			queue = append(queue, struct {
-				toServer bool
-				frame    []byte
-			}{toServer: false, frame: append([]byte(nil), frame...)})
+				toPeer bool
+				frame  []byte
+			}{toPeer: false, frame: append([]byte(nil), frame...)})
 		},
-	})
+	)
 
 	client.Start()
-	server.Start()
+	peer.start()
 
 	for len(queue) > 0 {
 		item := queue[0]
 		queue = queue[1:]
-		if item.toServer {
-			server.Input(item.frame)
+		if item.toPeer {
+			peer.input(item.frame)
 		} else {
 			client.Input(item.frame)
 		}
@@ -86,13 +209,14 @@ func TestClientServerHandshakeAndEcho(t *testing.T) {
 		t.Fatalf("MRU = %d, want 1400", gotMRU)
 	}
 
-	// Test Echo-Request / Echo-Reply using direct delivery.
 	client.ev.Send = func(frame []byte) {
-		go server.Input(append([]byte(nil), frame...))
+		go peer.input(append([]byte(nil), frame...))
 	}
-	server.ev.Send = func(frame []byte) {
+	peer.mu.Lock()
+	peer.send = func(frame []byte) {
 		go client.Input(append([]byte(nil), frame...))
 	}
+	peer.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -104,14 +228,13 @@ func TestClientServerHandshakeAndEcho(t *testing.T) {
 		t.Fatalf("negative RTT: %v", rtt)
 	}
 
-	// Test graceful Terminate.
 	if err := client.Terminate(ctx); err != nil {
 		t.Fatalf("Terminate: %v", err)
 	}
 }
 
-func TestServerSessionResendsLCPOnClientRetransmit(t *testing.T) {
-	toServerCh := make(chan []byte, 32)
+func TestPeerResendsLCPOnClientRetransmit(t *testing.T) {
+	toPeerCh := make(chan []byte, 32)
 	toClientCh := make(chan []byte, 32)
 	doneCh := make(chan struct{})
 	defer close(doneCh)
@@ -125,7 +248,7 @@ func TestServerSessionResendsLCPOnClientRetransmit(t *testing.T) {
 		Send: func(frame []byte) {
 			cp := append([]byte(nil), frame...)
 			select {
-			case toServerCh <- cp:
+			case toPeerCh <- cp:
 			case <-doneCh:
 			}
 		},
@@ -137,15 +260,14 @@ func TestServerSessionResendsLCPOnClientRetransmit(t *testing.T) {
 		},
 	}, cfg)
 
-	dropFirstServerFrame := true
-	server := NewServerSession(ServerConfig{
-		ClientIP: netip.MustParseAddr("10.212.0.10"),
-		ServerIP: netip.MustParseAddr("169.254.2.1"),
-		MRU:      1400,
-	}, ServerEvents{
-		Send: func(frame []byte) {
-			if dropFirstServerFrame {
-				dropFirstServerFrame = false
+	dropFirstPeerFrame := true
+	peer := newTestPeer(
+		netip.MustParseAddr("10.212.0.10"),
+		netip.MustParseAddr("169.254.2.1"),
+		1400,
+		func(frame []byte) {
+			if dropFirstPeerFrame {
+				dropFirstPeerFrame = false
 				return
 			}
 			cp := append([]byte(nil), frame...)
@@ -154,13 +276,13 @@ func TestServerSessionResendsLCPOnClientRetransmit(t *testing.T) {
 			case <-doneCh:
 			}
 		},
-	})
+	)
 
 	go func() {
 		for {
 			select {
-			case f := <-toServerCh:
-				server.Input(f)
+			case f := <-toPeerCh:
+				peer.input(f)
 			case <-doneCh:
 				return
 			}
@@ -177,14 +299,14 @@ func TestServerSessionResendsLCPOnClientRetransmit(t *testing.T) {
 		}
 	}()
 
-	server.Start() // Initial server LCP Configure-Request is dropped.
+	peer.start() // Initial peer LCP Configure-Request is dropped.
 	client.Start()
 	defer client.Close()
 
 	select {
 	case <-upCh:
 	case <-time.After(time.Second):
-		t.Fatal("PPP session did not recover when initial server LCP Configure-Request was dropped")
+		t.Fatal("PPP session did not recover when initial peer LCP Configure-Request was dropped")
 	}
 }
 
@@ -232,13 +354,11 @@ func TestProtocolRejectOnCCP(t *testing.T) {
 	}, DefaultFSMConfig())
 
 	s.Start()
-	// Drive LCP to Opened manually.
 	_, lcpPayload, _ := DecodeFrame(lastFrame)
 	reqPkt, _ := ParsePacket(lcpPayload)
 	s.Input(EncodeFrame(ProtocolLCP, Packet{Code: CodeConfigureAck, ID: reqPkt.ID, Body: reqPkt.Body}.Marshal()))
 	s.Input(EncodeFrame(ProtocolLCP, Packet{Code: CodeConfigureRequest, ID: 7, Body: nil}.Marshal()))
 
-	// Now send an unsupported CCP (0x80FD) frame; client must reply with LCP Protocol-Reject.
 	s.Input(EncodeFrame(ProtocolCCP, []byte{1, 1, 0, 4}))
 	proto, payload, ok := DecodeFrame(lastFrame)
 	if !ok || proto != ProtocolLCP {
@@ -275,7 +395,6 @@ func TestIPCPAcceptsPeerDNSAndLCPRejectsIPCP(t *testing.T) {
 		Closed: func(e error) { closedErr = e },
 	}, DefaultFSMConfig())
 	s.Start()
-	// Peer sends LCP Protocol-Reject for IPCP (0x8021)
 	var body [2]byte
 	binary.BigEndian.PutUint16(body[:], ProtocolIPCP)
 	s.Input(EncodeFrame(ProtocolLCP, Packet{Code: CodeProtocolReject, ID: 1, Body: body[:]}.Marshal()))
@@ -285,19 +404,16 @@ func TestIPCPAcceptsPeerDNSAndLCPRejectsIPCP(t *testing.T) {
 }
 
 func TestFSMNakLoopCapAndFallbackLocalIP(t *testing.T) {
-	// 1. Verify FallbackLocalIP is used when peer Acks 0.0.0.0 without sending a Configure-Nak.
 	h := NewIPCPHandler()
 	h.SetFallbackIP(netip.MustParseAddr("10.200.0.77"))
 	if got := h.Config().LocalIP; got != netip.MustParseAddr("10.200.0.77") {
 		t.Fatalf("LocalIP with fallback = %v, want 10.200.0.77", got)
 	}
-	// Verify ApplyNak ignores 0.0.0.0.
 	_ = h.ApplyNak([]Option{{Type: OptIPAddress, Value: []byte{0, 0, 0, 0}}})
 	if got := h.Config().LocalIP; got != netip.MustParseAddr("10.200.0.77") {
 		t.Fatalf("LocalIP after 0.0.0.0 Nak = %v, want 10.200.0.77", got)
 	}
 
-	// 2. Verify FSM aborts when peer sends more than MaxConfigure Configure-Naks.
 	var lastSent Packet
 	var failedErr error
 	fsm := NewFSM(NewIPCPHandler(), FSMCallbacks{
@@ -348,6 +464,33 @@ func TestExtractIPv4AndPaddingTrim(t *testing.T) {
 	}
 }
 
+func TestHotPathZeroAllocations(t *testing.T) {
+	lcp := NewLCPHandler(1400, nil)
+	ipcp := NewIPCPHandler()
+	rawOpts := MarshalOptions(ipcp.BuildRequestOptions())
+	buf := make([]byte, HeaderLen+28)
+	buf[HeaderLen] = 0x45
+	binary.BigEndian.PutUint16(buf[HeaderLen+2:HeaderLen+4], 28)
+
+	allocs := testing.AllocsPerRun(100, func() {
+		_ = lcp.BuildRequestOptions()
+		_ = ipcp.BuildRequestOptions()
+		cur := NewOptionCursor(rawOpts)
+		for {
+			_, ok := cur.Next()
+			if !ok {
+				break
+			}
+		}
+		_ = cur.Valid()
+		PutFrameHeader(buf, ProtocolIP)
+		_, _ = ExtractIPv4(buf)
+	})
+	if allocs > 0 {
+		t.Fatalf("PPP hot-path helpers allocated %.2f times per run, want 0", allocs)
+	}
+}
+
 func FuzzPPPDecode(f *testing.F) {
 	f.Add([]byte{0xff, 0x03, 0xc0, 0x21, 0x01, 0x01, 0x00, 0x08, 0x01, 0x04, 0x05, 0x78})
 	f.Add([]byte{0xff, 0x03, 0x00, 0x21, 0x45, 0x00, 0x00, 0x14})
@@ -362,6 +505,13 @@ func FuzzPPPDecode(f *testing.F) {
 		}
 		if pkt, ok := ParsePacket(payload); ok {
 			_, _ = ParseOptions(pkt.Body)
+			cur := NewOptionCursor(pkt.Body)
+			for {
+				if _, ok := cur.Next(); !ok {
+					break
+				}
+			}
+			_ = cur.Valid()
 		}
 	})
 }

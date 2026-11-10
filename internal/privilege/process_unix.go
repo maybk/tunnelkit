@@ -1,13 +1,17 @@
 //go:build darwin || linux
 
-package helperclient
+package privilege
 
 import (
 	"errors"
 	"syscall"
 )
 
-func processPresent(pid int) (bool, error) {
+func isProcessAlive(pid int) (bool, error) {
+	if int64(pid) > 1<<31-1 {
+		return false, nil
+	}
+	// EPERM still confirms a process exists under a different identity.
 	err := syscall.Kill(pid, 0)
 	if err == nil || errors.Is(err, syscall.EPERM) {
 		return true, nil

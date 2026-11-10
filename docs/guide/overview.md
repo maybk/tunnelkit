@@ -16,13 +16,15 @@ Vue 前端 -> Wails bindings -> internal/api -> internal/vpn -> internal/helperc
 | [`internal/vpn`](../../internal/vpn/README.md) | 桌面端连接状态机、交互挑战桥接、连接切换、维护门禁与网络恢复 | 通过 `helperclient` 控制辅助进程，不导入 `fortivpn/engine` |
 | [`internal/helper`](../../internal/helper/README.md) | 单会话特权辅助服务、异步事件流推送、脱敏日志与网络恢复 | 仅响应通过本机身份与一次性令牌校验的连接 |
 | [`internal/helperclient`](../../internal/helperclient/README.md) | 按需拉起辅助进程、客户端证书预读、加密会话票据与 IPC 客户端 | 凭据仅经鉴权 IPC 传输，不写入命令行或临时文件 |
-| [`internal/privilege`](../../internal/privilege/README.md) | 受保护辅助组件安装、完整性与权限校验、系统授权、平台服务与运行路径 | 不依赖 `vpn`、`update`、`fortivpn` 或 GUI |
+| [`internal/privilege`](../../internal/privilege/README.md) | 受保护辅助组件安装、完整性与权限校验、系统授权、平台服务、进程查询与运行路径 | 不依赖 `vpn`、`update`、`fortivpn` 或 GUI |
 | [`internal/ipc`](../../internal/ipc/README.md) | 本地 IPC 长度前缀帧协议与调用方身份（UID/SID）及令牌摘要校验 | 传输层强校验对端身份与单帧大小上限 |
 | [`internal/credentials`](../../internal/credentials/README.md) | 本地凭据加密密封器与平台主密钥保护 | 供 `profile` 与 `helperclient` 复用，不依赖上层业务 |
 | [`internal/profile`](../../internal/profile/README.md) | 配置增删改查、字段校验与密码加密存储 | 不感知运行期隧道会话 |
 | [`internal/storage`](../../internal/storage/README.md) | `~/.tunnelkit` 目录布局、原子文件写入与日志尾部脱敏读取 | 不依赖上层业务模型 |
 | [`internal/update`](../../internal/update/README.md) | 版本更新检查、多源降级、语义化版本比较与三端原子自更新 | 零业务耦合，严格校验发布页域名与安装包 SHA-256 |
 | [`fortivpn`](../../fortivpn/README.md) | 纯 Go Fortinet SSL-VPN 协议内核与独立 CLI | 严禁引用 `tunnelkit/internal/**` 或 Wails |
+
+协议编解码与会话编排分离；三端共享配置与恢复契约，平台操作独立实现。
 
 ## 目录结构
 

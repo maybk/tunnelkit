@@ -51,7 +51,7 @@ func TestDarwinBundleDiscoveryAndReplace(t *testing.T) {
 		t.Fatalf("expected backup bundle %s.bak to be cleaned up, err=%v", dstApp, err)
 	}
 
-	if got := darwinShellQuote("/Applications/it's.app"); got != "'/Applications/it'\\''s.app'" {
-		t.Fatalf("unexpected darwinShellQuote: %q", got)
+	if got := shellQuote("/Applications/it's.app"); got != "'/Applications/it'\\''s.app'" {
+		t.Fatalf("unexpected shellQuote: %q", got)
 	}
 }

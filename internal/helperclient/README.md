@@ -13,10 +13,7 @@
 - `launch_unix.go`：macOS 与 Linux 直接拉起已受保护安装的 `setuid-root` 辅助进程并监听退出状态。
 - `launch_windows.go`：Windows 通过服务控制管理器（SCM）按需启动 `TunnelKitHelper` 服务并传入会话参数。
 - `launch_other.go`：非支持平台下的辅助进程启动空实现。
-- `process.go`：等待辅助进程真实退出的轮询与通道同步入口。
-- `process_unix.go`：Unix 平台基于 `kill(pid, 0)` 的辅助进程存活探测。
-- `process_windows.go`：Windows 平台基于 Toolhelp 进程快照的辅助进程存活探测。
-- `process_other.go`：非支持平台下的辅助进程存活探测空实现。
+- `process.go`：通过退出通知或进程查询，等待辅助进程退出。
 - `certificate.go`：在桌面进程内以当前用户权限读取并校验客户端证书与私钥，转换为内存 `Secret` 后通过 IPC 下发。
 - `certificate_unix.go`：Unix 平台以非阻塞方式打开用户文件，交由调用方检查普通文件类型与大小。
 - `certificate_windows.go`：Windows 平台以当前桌面用户权限打开文件，交由调用方检查类型与大小。

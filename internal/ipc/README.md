@@ -7,10 +7,11 @@
 - `message.go`：IPC 协议版本号、消息信封类型、严格 JSON 解码器与恒定时间令牌 SHA-256 校验。
 - `conn.go`：4 字节大端长度前缀与 JSON 载荷帧读写封装，内置 1 MiB 最大帧限制与写互斥锁。
 - `unavailable.go`：区分本地 IPC 端点不存在与超时、鉴权失败等传输错误。
-- `transport_darwin.go`：macOS Unix Domain Socket 监听、拨号及基于 `LOCAL_PEERCRED` 的对端 UID 校验。
-- `transport_linux.go`：Linux Unix Domain Socket 监听、拨号及基于 `SO_PEERCRED` 的对端 UID 校验。
+- `transport_unix.go`：macOS 与 Linux 共享的 Unix Domain Socket 监听、拨号、权限收敛与连接接收封装。
 - `transport_windows.go`：Windows Named Pipe 监听、拨号、DACL 安全描述符及对端 SID 校验。
 - `transport_other.go`：非支持平台下的 IPC 传输空实现。
+- `peercred_darwin.go`：macOS 基于 `LOCAL_PEERCRED` 的对端 UID 校验。
+- `peercred_linux.go`：Linux 基于 `SO_PEERCRED` 的对端 UID 校验。
 
 ## 开发规范
 

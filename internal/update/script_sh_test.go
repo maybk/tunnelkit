@@ -50,24 +50,57 @@ func TestBuildPOSIXFileUpdateSuccessAndRollback(t *testing.T) {
 	}
 }
 
-func TestBuildWindowsFileUpdateStructure(t *testing.T) {
-	script := buildWindowsFileUpdate(
-		`C:\Temp\stage%1`,
-		`C:\Program Files\TunnelKit`,
-		[]string{"tunnelkit.exe", "tunnelkit-helper.exe", "wintun.dll"},
-		`C:\Temp\done.ok`,
-		`C:\Temp\done.err`,
+func TestBuildMacElevatedUpdateShellCmdSuccessAndRollback(t *testing.T) {
+	script := buildMacElevatedUpdateShellCmd(
+		"/Volumes/TunnelKit/TunnelKit's.app",
+		"/Applications/TunnelKit.app",
+		"/Applications/TunnelKit.app.bak",
 	)
 	for _, want := range []string{
-		"setlocal DisableDelayedExpansion",
-		"%%1",
-		":rollback",
-		"wintun.dll.old",
-		"exit /b 0",
-		"exit /b 1",
+		"set -eu",
+		`'/Volumes/TunnelKit/TunnelKit'\''s.app'`,
+		`'/Applications/TunnelKit.app'`,
+		`'/Applications/TunnelKit.app.bak'`,
+		"/usr/bin/ditto",
 	} {
 		if !strings.Contains(script, want) {
-			t.Fatalf("expected Windows update script to contain %q, got:\n%s", want, script)
+			t.Fatalf("expected macOS update script to contain %q, got:\n%s", want, script)
 		}
+	}
+
+	if runtime.GOOS != "darwin" {
+		return
+	}
+
+	tmp := t.TempDir()
+	srcApp := filepath.Join(tmp, "src.app")
+	dstApp := filepath.Join(tmp, "TunnelKit.app")
+	bakApp := dstApp + ".bak"
+
+	_ = os.MkdirAll(dstApp, 0o755)
+	_ = os.WriteFile(filepath.Join(dstApp, "version.txt"), []byte("old-bundle"), 0o644)
+
+	// 1. 源 .app 不存在时，ditto 失败应自动恢复原 .app。
+	cmdText := buildMacElevatedUpdateShellCmd(srcApp, dstApp, bakApp)
+	if err := exec.Command("/bin/sh", "-c", cmdText).Run(); err == nil {
+		t.Fatal("expected script to fail when srcApp does not exist")
+	}
+	gotOld, err := os.ReadFile(filepath.Join(dstApp, "version.txt"))
+	if err != nil || string(gotOld) != "old-bundle" {
+		t.Fatalf("expected rollback to restore old-bundle, got %q (err=%v)", gotOld, err)
+	}
+
+	// 2. 源 .app 存在时，应完成替换并清理 .bak。
+	_ = os.MkdirAll(srcApp, 0o755)
+	_ = os.WriteFile(filepath.Join(srcApp, "version.txt"), []byte("new-bundle"), 0o644)
+	if out, err := exec.Command("/bin/sh", "-c", cmdText).CombinedOutput(); err != nil {
+		t.Fatalf("expected macOS update script to succeed, got %v: %s", err, out)
+	}
+	gotNew, err := os.ReadFile(filepath.Join(dstApp, "version.txt"))
+	if err != nil || string(gotNew) != "new-bundle" {
+		t.Fatalf("expected updated bundle content 'new-bundle', got %q (err=%v)", gotNew, err)
+	}
+	if _, err := os.Stat(bakApp); !os.IsNotExist(err) {
+		t.Fatalf("expected backup bundle to be removed after success, err=%v", err)
 	}
 }

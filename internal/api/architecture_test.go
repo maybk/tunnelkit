@@ -137,6 +137,60 @@ func TestBackendArchitectureBoundaries(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("non-test production packages do not import fortivpn/fortitest", func(t *testing.T) {
+		err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() {
+				name := d.Name()
+				if name == ".git" || name == "frontend" || name == "node_modules" || name == "fortitest" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go") {
+				return nil
+			}
+			for _, imp := range parseFileImports(t, path) {
+				if imp == "tunnelkit/fortivpn/fortitest" || strings.HasPrefix(imp, "tunnelkit/fortivpn/fortitest/") {
+					rel, _ := filepath.Rel(repoRoot, path)
+					t.Errorf("non-test file %s imports test harness package %q", rel, imp)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk repoRoot: %v", err)
+		}
+	})
+
+	t.Run("internal/update only imports allowed lower-layer packages", func(t *testing.T) {
+		updateDir := filepath.Join(repoRoot, "internal", "update")
+		err := filepath.WalkDir(updateDir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() || !strings.HasSuffix(d.Name(), ".go") || strings.HasSuffix(d.Name(), "_test.go") {
+				return nil
+			}
+			for _, imp := range parseFileImports(t, path) {
+				if strings.Contains(imp, "wailsapp/wails") ||
+					strings.HasPrefix(imp, "tunnelkit/fortivpn") ||
+					(strings.HasPrefix(imp, "tunnelkit/internal/") &&
+						imp != "tunnelkit/internal/privilege" &&
+						imp != "tunnelkit/internal/storage") {
+					rel, _ := filepath.Rel(repoRoot, path)
+					t.Errorf("%s imports forbidden package %q", rel, imp)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk internal/update: %v", err)
+		}
+	})
 }
 
 func parseFileImports(t *testing.T, path string) []string {

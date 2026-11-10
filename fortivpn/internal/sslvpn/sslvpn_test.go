@@ -38,6 +38,25 @@ func TestFrameLayoutAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestParseLoginResultPreservesCommasInChalMsg(t *testing.T) {
+	raw := "ret=2,tokeninfo=totp,reqid=101,polid=1,grp=vpn,chal_msg=Hello, please enter your 6-digit code, now,magic=m99"
+	res, err := sslvpn.ParseLoginResult(raw)
+	if err != nil {
+		t.Fatalf("ParseLoginResult: %v", err)
+	}
+	if res.Ret != 2 || !res.IsChallenge() {
+		t.Fatalf("unexpected LoginResult: %+v", res)
+	}
+	chal := res.Challenge()
+	wantMsg := "Hello, please enter your 6-digit code, now"
+	if chal.Message != wantMsg {
+		t.Fatalf("Challenge.Message = %q, want %q", chal.Message, wantMsg)
+	}
+	if chal.Echo["magic"] != "m99" || chal.Echo["reqid"] != "101" {
+		t.Fatalf("Challenge.Echo = %+v", chal.Echo)
+	}
+}
+
 func TestChallengeFormMagicOrderAndFTMPush(t *testing.T) {
 	c := sslvpn.Challenge{
 		TokenInfo: "ftm_push",
@@ -119,6 +138,7 @@ func TestParseConfigXMLLegacyFlatAndDNSSuffixAndRejectsIPDomain(t *testing.T) {
   </ipv4>
   <split-tunnel-info>
     <addr ip="10.20.0.0" mask="255.255.0.0"/>
+    <addr ip="10.30.0.0" mask="16"/>
   </split-tunnel-info>
 </sslvpn-tunnel>`
 
@@ -141,8 +161,27 @@ func TestParseConfigXMLLegacyFlatAndDNSSuffixAndRejectsIPDomain(t *testing.T) {
 			t.Fatalf("expected IP literal domain 10.10.1.1 to be rejected, got %v", cfg.DNSDomains)
 		}
 	}
-	if len(cfg.SplitRoutes) != 1 || cfg.SplitRoutes[0] != netip.MustParsePrefix("10.20.0.0/16") {
-		t.Fatalf("SplitRoutes = %v, want [10.20.0.0/16]", cfg.SplitRoutes)
+	if len(cfg.SplitRoutes) != 2 ||
+		cfg.SplitRoutes[0] != netip.MustParsePrefix("10.20.0.0/16") ||
+		cfg.SplitRoutes[1] != netip.MustParsePrefix("10.30.0.0/16") {
+		t.Fatalf("SplitRoutes = %v, want [10.20.0.0/16 10.30.0.0/16]", cfg.SplitRoutes)
+	}
+}
+
+func TestTunnelUpgradeDetectsHTMLResponseAsCodeTunnelDenied(t *testing.T) {
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+
+	go func() {
+		_, _ = c2.Write([]byte("HTTP/1.1 200 OK\r\n\r\n<html><body>Portal Only</body></html>"))
+		_ = c2.Close()
+	}()
+
+	tc := sslvpn.NewTunnelConn(c1)
+	_, err := tc.ReadFrame()
+	if !fortivpn.IsCode(err, fortivpn.CodeTunnelDenied) {
+		t.Fatalf("expected CodeTunnelDenied on HTML tunnel body, got %v", err)
 	}
 }
 
@@ -175,7 +214,6 @@ func TestControlPlaneFlowsAgainstFakeGateway(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// 1. Untrusted certificate without pin must fail with CodeCertUntrusted + Fingerprint.
 	untrustedClient, err := sslvpn.NewClient(fortivpn.Config{
 		Host:     gw.Host(),
 		Port:     gw.Port(),
@@ -191,7 +229,6 @@ func TestControlPlaneFlowsAgainstFakeGateway(t *testing.T) {
 		t.Fatalf("expected CodeCertUntrusted with fingerprint %s, got %+v", gw.CertFingerprint(), err)
 	}
 
-	// 2. Pinning the leaf fingerprint succeeds and fetches deduplicated XML config.
 	pinnedClient, err := sslvpn.NewClient(fortivpn.Config{
 		Host:         gw.Host(),
 		Port:         gw.Port(),
@@ -217,7 +254,6 @@ func TestControlPlaneFlowsAgainstFakeGateway(t *testing.T) {
 		t.Fatalf("Logout: %v", err)
 	}
 
-	// 3. OTP challenge flow.
 	otpClient, _ := sslvpn.NewClient(fortivpn.Config{
 		Host:         gw.Host(),
 		Port:         gw.Port(),
@@ -235,7 +271,6 @@ func TestControlPlaneFlowsAgainstFakeGateway(t *testing.T) {
 		t.Fatalf("OTP Login: %v", err)
 	}
 
-	// 4. FTM Push flow (empty code triggers &ftmpush=1).
 	pushClient, _ := sslvpn.NewClient(fortivpn.Config{
 		Host:         gw.Host(),
 		Port:         gw.Port(),
@@ -253,7 +288,6 @@ func TestControlPlaneFlowsAgainstFakeGateway(t *testing.T) {
 		t.Fatalf("FTM Push Login: %v", err)
 	}
 
-	// 5. SAML localhost callback flow.
 	samlClient, _ := sslvpn.NewClient(fortivpn.Config{
 		Host:         gw.Host(),
 		Port:         gw.Port(),
@@ -264,7 +298,6 @@ func TestControlPlaneFlowsAgainstFakeGateway(t *testing.T) {
 		if p.Kind != fortivpn.PromptSAML {
 			t.Fatalf("Prompt.Kind = %q, want saml", p.Kind)
 		}
-		// Simulate the browser hitting the localhost callback with ?id=saml-session-xyz.
 		resp, err := http.Get("http://127.0.0.1:18020/?id=saml-session-xyz")
 		if err != nil {
 			return "", err
@@ -319,11 +352,30 @@ func TestLoginAcceptsFortiOS6HTMLRedirectWithCookie(t *testing.T) {
 	}
 }
 
+func TestFrameHotPathZeroAllocations(t *testing.T) {
+	payload := []byte{0xff, 0x03, 0x00, 0x21, 0x45, 0x00, 0x00, 0x14}
+	frame := sslvpn.EncodeFrame(payload)
+	reader := bytes.NewReader(frame)
+	dst := make([]byte, 64)
+	var scratch [sslvpn.FrameHeaderLen]byte
+
+	allocs := testing.AllocsPerRun(100, func() {
+		reader.Reset(frame)
+		_, _ = sslvpn.ReadFrameInto(reader, dst)
+		sslvpn.PutFrameHeader(scratch[:], len(payload))
+		_, _, _ = sslvpn.ParseFrame(frame)
+	})
+	if allocs > 0 {
+		t.Fatalf("SSL-VPN frame hot path allocated %.2f times per run, want 0", allocs)
+	}
+}
+
 func FuzzFrameAndConfigXML(f *testing.F) {
 	f.Add([]byte{0x00, 0x0b, 0x50, 0x50, 0x00, 0x05, 0xff, 0x03, 0xc0, 0x21, 0x01})
 	f.Add([]byte(`<?xml version="1.0"?><sslvpn-tunnel><ipv4><assigned-addr ipv4="10.0.0.1"/></ipv4></sslvpn-tunnel>`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		_, _, _ = sslvpn.ParseFrame(data)
 		_, _ = sslvpn.ParseConfigXML(data)
+		_, _ = sslvpn.ParseLoginResult(string(data))
 	})
 }

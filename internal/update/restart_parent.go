@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"tunnelkit/internal/privilege"
 )
 
 const restartParentFlag = "--wait-for-parent"
@@ -27,7 +29,7 @@ func WaitForRestartParent(ctx context.Context, args []string) error {
 		}
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		return waitForParent(ctx, pid, processAlive)
+		return waitForParent(ctx, pid, privilege.IsProcessAlive)
 	}
 	return nil
 }

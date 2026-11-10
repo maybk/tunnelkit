@@ -9,10 +9,42 @@ import (
 	"tunnelkit/fortivpn"
 )
 
+const (
+	// DefaultMTU is the fallback tunnel MTU when none is specified.
+	DefaultMTU = 1400
+)
+
 var (
+	// DefaultPeerIP is the synthetic point-to-point peer address used when none is negotiated.
+	DefaultPeerIP   = netip.MustParseAddr("169.254.2.1")
 	halfDefaultLow  = netip.MustParsePrefix("0.0.0.0/1")
 	halfDefaultHigh = netip.MustParsePrefix("128.0.0.0/1")
 )
+
+// NormalizeDesired returns a copy of d with MTU and Peer normalized to safe defaults.
+func NormalizeDesired(d Desired) Desired {
+	if d.MTU <= 0 {
+		d.MTU = DefaultMTU
+	}
+	if !d.Peer.IsValid() || d.Peer.IsUnspecified() || d.Peer == d.Gateway || d.Peer == d.Local {
+		d.Peer = DefaultPeerIP
+	}
+	return d
+}
+
+// HasEffectiveDNS reports whether plan enables DNS and contains at least one valid,
+// non-unspecified DNS server (and has domains when in split-DNS mode).
+func HasEffectiveDNS(plan DNSPlan) bool {
+	if plan.Mode == fortivpn.DNSOff || SplitDNSNeedsDomains(plan) {
+		return false
+	}
+	for _, s := range plan.Servers {
+		if s.IsValid() && !s.IsUnspecified() {
+			return true
+		}
+	}
+	return false
+}
 
 // SanitizeRoutes deduplicates, filters, and sorts tunnel routes according to
 // the configured RouteMode and safety rules.
@@ -145,46 +177,38 @@ func DiffRoutes(oldRoutes, newRoutes []netip.Prefix) (toRemove, toKeep, toAdd []
 // Plan computes the ordered sequence of network configuration steps from Desired and Snapshot.
 func Plan(d Desired, snap Snapshot) []Step {
 	var steps []Step
-
-	mtu := d.MTU
-	if mtu <= 0 {
-		mtu = 1400
-	}
-	peer := d.Peer
-	if !peer.IsValid() || peer.IsUnspecified() || peer == d.Gateway || peer == d.Local {
-		peer = netip.MustParseAddr("169.254.2.1")
-	}
+	norm := NormalizeDesired(d)
 
 	steps = append(steps, Step{
 		Kind:  StepConfigureInterface,
-		Iface: d.Iface,
-		Local: d.Local,
-		Peer:  peer,
-		MTU:   mtu,
+		Iface: norm.Iface,
+		Local: norm.Local,
+		Peer:  norm.Peer,
+		MTU:   norm.MTU,
 	})
 
-	if NeedsGatewayHostRoute(d.Routes, d.Gateway) && (snap.GatewayNextHop.IsValid() || snap.GatewayIface != "" || snap.GatewayLUID != 0) {
+	if NeedsGatewayHostRoute(norm.Routes, norm.Gateway) && (snap.GatewayNextHop.IsValid() || snap.GatewayIface != "" || snap.GatewayLUID != 0) {
 		steps = append(steps, Step{
 			Kind:    StepHostRoute,
 			Iface:   snap.GatewayIface,
-			Prefix:  netip.PrefixFrom(d.Gateway, 32),
+			Prefix:  netip.PrefixFrom(norm.Gateway, 32),
 			NextHop: snap.GatewayNextHop,
 		})
 	}
 
-	for _, r := range d.Routes {
+	for _, r := range norm.Routes {
 		steps = append(steps, Step{
 			Kind:   StepTunnelRoute,
-			Iface:  d.Iface,
+			Iface:  norm.Iface,
 			Prefix: r,
 		})
 	}
 
-	if d.DNS.Mode != fortivpn.DNSOff && len(d.DNS.Servers) > 0 && !SplitDNSNeedsDomains(d.DNS) {
+	if HasEffectiveDNS(norm.DNS) {
 		steps = append(steps, Step{
 			Kind:  StepDNS,
-			Iface: d.Iface,
-			DNS:   d.DNS,
+			Iface: norm.Iface,
+			DNS:   norm.DNS,
 		})
 	}
 

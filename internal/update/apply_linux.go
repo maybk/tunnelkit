@@ -9,7 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+
+	"tunnelkit/internal/privilege"
 )
 
 func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc) (func() error, error) {
@@ -57,34 +58,16 @@ func replaceLinuxFilesElevated(ctx context.Context, stageDir, targetDir string) 
 	if err != nil {
 		return fmt.Errorf("未找到 install 命令: %w", err)
 	}
-	script := buildPOSIXFileUpdate(stageDir, targetDir, []string{"tunnelkit", "tunnelkit-helper"}, installBin)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	script := buildPOSIXFileUpdate(stageDir, targetDir, []string{"tunnelkit", "tunnelkit-helper"}, installBin)
 	// 授权后的文件事务必须完成或回滚，不因 GUI 请求取消而中断在两次替换之间。
-	if pkexecPath, pkErr := exec.LookPath("pkexec"); pkErr == nil {
-		out, runErr := exec.Command(pkexecPath, "/bin/sh", "-c", script).CombinedOutput()
-		if runErr == nil {
-			return nil
-		}
-		text := strings.ToLower(strings.TrimSpace(string(out)))
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) && exitErr.ExitCode() == 126 {
+	if err := privilege.RunElevatedLinux(context.Background(), "/bin/sh", "-c", script); err != nil {
+		if errors.Is(err, privilege.ErrCancelled) {
 			return ErrElevationCancelled
 		}
-		if strings.Contains(text, "dismissed") || strings.Contains(text, "cancel") {
-			return ErrElevationCancelled
-		}
-		if !errors.As(runErr, &exitErr) || exitErr.ExitCode() != 127 {
-			return fmt.Errorf("管理员更新失败: %s (%w)", strings.TrimSpace(string(out)), runErr)
-		}
+		return fmt.Errorf("管理员更新失败: %w", err)
 	}
-	if sudoPath, sudoErr := exec.LookPath("sudo"); sudoErr == nil {
-		out, runErr := exec.Command(sudoPath, "-n", "/bin/sh", "-c", script).CombinedOutput()
-		if runErr == nil {
-			return nil
-		}
-		return fmt.Errorf("管理员更新失败: %s (%w)", strings.TrimSpace(string(out)), runErr)
-	}
-	return fmt.Errorf("无权限写入 %s，请使用包管理器更新", targetDir)
+	return nil
 }

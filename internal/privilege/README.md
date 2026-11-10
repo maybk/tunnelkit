@@ -1,6 +1,6 @@
 # 特权组件安装与系统授权 (`internal/privilege`)
 
-负责三端特权辅助组件的受保护安装、完整性与权限校验、系统授权调用、服务注册及运行路径管理。
+负责三端特权辅助组件的受保护安装、完整性与权限校验、系统授权调用、服务注册、进程查询及运行路径管理。
 
 ## 目录结构
 
@@ -21,7 +21,11 @@
 - `lock_unix.go`：macOS 与 Linux 基于 `flock` 的非阻塞排他文件锁实现。
 - `lock_windows.go`：Windows 基于 `LockFileEx` 的非阻塞排他文件锁实现。
 - `lock_other.go`：非支持平台下的文件锁空实现。
-- `shell_unix.go`：Unix 单引号安全转义与命令行拼装辅助。
+- `process.go`：三端共用的进程存活查询入口与 PID 校验。
+- `process_unix.go`：macOS 与 Linux 基于 `kill(pid, 0)` 查询进程，权限不足仍视为存在。
+- `process_windows.go`：Windows 进程句柄查询，拒绝访问时回退进程快照。
+- `process_other.go`：非支持平台下的进程查询报错实现。
+- `quote_sh.go`：`sh` 参数转义与命令行拼装。
 
 ## 开发规范
 

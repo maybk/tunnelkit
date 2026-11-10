@@ -47,6 +47,14 @@ func (m *MemDevice) ReadPacket(buf []byte) (int, error) {
 	}
 }
 
+// ReadPacketAt reads an outbound IP packet into buf[offset:] to exercise the engine's headroom fast path.
+func (m *MemDevice) ReadPacketAt(buf []byte, offset int) (int, error) {
+	if offset < 0 || offset >= len(buf) {
+		return 0, nil
+	}
+	return m.ReadPacket(buf[offset:])
+}
+
 // WritePacket is called by the engine to deliver inbound IP packets arriving from the gateway.
 func (m *MemDevice) WritePacket(pkt []byte) error {
 	cp := make([]byte, len(pkt))
@@ -57,6 +65,14 @@ func (m *MemDevice) WritePacket(pkt []byte) error {
 	case m.inbound <- cp:
 		return nil
 	}
+}
+
+// WritePacketAt writes an inbound IP packet located at buf[offset:] to exercise the engine's headroom fast path.
+func (m *MemDevice) WritePacketAt(buf []byte, offset int) error {
+	if offset < 0 || offset >= len(buf) {
+		return nil
+	}
+	return m.WritePacket(buf[offset:])
 }
 
 // Close closes the in-memory device.

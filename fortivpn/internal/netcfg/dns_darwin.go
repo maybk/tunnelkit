@@ -21,7 +21,7 @@ func buildScutilSetScript(key string, plan DNSPlan) string {
 
 	addrs := make([]string, 0, len(plan.Servers))
 	for _, s := range plan.Servers {
-		if s.IsValid() {
+		if s.IsValid() && !s.IsUnspecified() {
 			addrs = append(addrs, s.String())
 		}
 	}
@@ -72,7 +72,7 @@ func buildScutilRemoveScript(key string) string {
 }
 
 func applyDarwinDNS(ctx context.Context, run cmdRunner, key string, plan DNSPlan) error {
-	if plan.Mode == fortivpn.DNSOff || len(plan.Servers) == 0 || SplitDNSNeedsDomains(plan) {
+	if !HasEffectiveDNS(plan) {
 		return nil
 	}
 	script := buildScutilSetScript(key, plan)

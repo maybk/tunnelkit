@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"golang.org/x/sys/windows"
@@ -25,7 +26,7 @@ const nrptRulePrefix = "TunnelKit-"
 
 func applyWindowsDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, journal *Journal) error {
 	_ = luid.FlushDNS(windows.AF_INET6)
-	if plan.Mode == fortivpn.DNSOff || len(plan.Servers) == 0 || SplitDNSNeedsDomains(plan) {
+	if !HasEffectiveDNS(plan) {
 		_ = luid.FlushDNS(windows.AF_INET)
 		_ = clearWindowsNRPT()
 		flushWindowsDNSCache(ctx)
@@ -49,14 +50,24 @@ func applyWindowsDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, jour
 			return err
 		}
 	} else {
-		if err := luid.SetDNS(windows.AF_INET, plan.Servers, plan.Domains); err != nil {
+		servers := make([]netip.Addr, 0, len(plan.Servers))
+		for _, s := range plan.Servers {
+			if s.IsValid() && !s.IsUnspecified() {
+				servers = append(servers, s)
+			}
+		}
+		if err := luid.SetDNS(windows.AF_INET, servers, plan.Domains); err != nil {
 			return fmt.Errorf("winipcfg SetDNS: %w", err)
 		}
-		_ = clearWindowsNRPT()
-		_ = journal.Remove(JournalEntry{
+		if err := clearWindowsNRPT(); err != nil {
+			return err
+		}
+		if err := journal.Remove(JournalEntry{
 			Kind: KindWindowsNRPT,
 			Key:  nrptRulePrefix,
-		})
+		}); err != nil {
+			return err
+		}
 	}
 
 	flushWindowsDNSCache(ctx)
@@ -85,7 +96,7 @@ func writeWindowsNRPT(plan DNSPlan) error {
 
 	servers := make([]string, 0, len(plan.Servers))
 	for _, s := range plan.Servers {
-		if s.IsValid() {
+		if s.IsValid() && !s.IsUnspecified() {
 			servers = append(servers, s.String())
 		}
 	}

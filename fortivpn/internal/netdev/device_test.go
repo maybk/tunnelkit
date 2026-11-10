@@ -84,10 +84,27 @@ func TestWrapTUNReadWriteAndIdempotentClose(t *testing.T) {
 		t.Fatalf("ReadPacket = %x, want %x", buf[:n], wantRead)
 	}
 
+	// Verify zero-copy ReadPacketAt and WritePacketAt with Headroom.
+	td := dev.(*tunDevice)
+	headBuf := make([]byte, Headroom+64)
+	n, err = td.ReadPacketAt(headBuf, Headroom)
+	if err != nil || !bytes.Equal(headBuf[Headroom:Headroom+n], wantRead) {
+		t.Fatalf("ReadPacketAt = %x (err=%v), want %x", headBuf[Headroom:Headroom+n], err, wantRead)
+	}
+
+	wantWrite := []byte{0x45, 0x00, 0x00, 0x20, 9, 8, 7, 6}
+	writeBuf := make([]byte, Headroom+len(wantWrite))
+	copy(writeBuf[Headroom:], wantWrite)
+	if err := td.WritePacketAt(writeBuf, Headroom); err != nil {
+		t.Fatalf("WritePacketAt failed: %v", err)
+	}
+	if !bytes.Equal(raw.lastWrite, wantWrite) {
+		t.Fatalf("WritePacketAt underlying Write got %x, want %x", raw.lastWrite, wantWrite)
+	}
+
 	if err := dev.WritePacket(nil); err != nil {
 		t.Fatalf("WritePacket(nil) failed: %v", err)
 	}
-	wantWrite := []byte{0x45, 0x00, 0x00, 0x20, 9, 8, 7, 6}
 	if err := dev.WritePacket(wantWrite); err != nil {
 		t.Fatalf("WritePacket failed: %v", err)
 	}

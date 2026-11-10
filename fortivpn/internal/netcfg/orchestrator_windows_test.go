@@ -20,7 +20,18 @@ type fakeWindowsOps struct {
 	calls           []string
 	hostRouteExists bool
 	deleteErr       error
+	dnsCleanupErr   error
 	appliedRoutes   []netip.Prefix
+	lookupSnap      Snapshot
+	lookupErr       error
+}
+
+func (f *fakeWindowsOps) lookupGatewayRoute(gateway netip.Addr, _ winipcfg.LUID) (Snapshot, error) {
+	f.calls = append(f.calls, "lookupGatewayRoute:"+gateway.String())
+	if f.lookupErr != nil {
+		return Snapshot{}, f.lookupErr
+	}
+	return f.lookupSnap, nil
 }
 
 func (f *fakeWindowsOps) disableIPv6(_ winipcfg.LUID) {
@@ -70,7 +81,60 @@ func (f *fakeWindowsOps) applyDNS(_ context.Context, _ winipcfg.LUID, _ DNSPlan,
 
 func (f *fakeWindowsOps) removeDNS(_ context.Context, _ winipcfg.LUID) error {
 	f.calls = append(f.calls, "removeDNS")
-	return nil
+	return f.dnsCleanupErr
+}
+
+func TestWindowsDNSOffRetainsFailedCleanupForRetry(t *testing.T) {
+	journal := NewJournal(filepath.Join(t.TempDir(), "journal.json"))
+	entry := JournalEntry{Kind: KindWindowsNRPT, Key: nrptRulePrefix}
+	if err := journal.Record(entry); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("DNS cleanup failed")
+	ops := &fakeWindowsOps{dnsCleanupErr: failure}
+	previous := Desired{Iface: "TunnelKit", Local: netip.MustParseAddr("10.0.0.10"), DNS: DNSPlan{Mode: fortivpn.DNSFull}}
+	a := &windowsApplied{luid: 18, journal: journal, ops: ops, desired: previous}
+	next := previous
+	next.DNS.Mode = fortivpn.DNSOff
+	if err := a.Update(context.Background(), next); !errors.Is(err, failure) {
+		t.Fatalf("lost DNS cleanup error: %v", err)
+	}
+	loaded, err := LoadJournal(journal.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Entries()) != 1 || a.desired.DNS.Mode != previous.DNS.Mode {
+		t.Fatal("lost pending DNS cleanup or committed failed update")
+	}
+	ops.dnsCleanupErr = nil
+	if err := a.Update(context.Background(), next); err != nil || len(journal.Entries()) != 0 {
+		t.Fatalf("DNS cleanup retry failed: %v", err)
+	}
+}
+
+func TestWindowsHostRouteCleanupFailureRetainsJournal(t *testing.T) {
+	journal := NewJournal(filepath.Join(t.TempDir(), "journal.json"))
+	entry := JournalEntry{Kind: KindHostRoute, Gateway: "198.51.100.10", LUID: 11}
+	if err := journal.Record(entry); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("route cleanup failed")
+	ops := &fakeWindowsOps{deleteErr: failure}
+	previous := Desired{Gateway: netip.MustParseAddr(entry.Gateway), Routes: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}}
+	a := &windowsApplied{journal: journal, desired: previous, ops: ops}
+	next := previous
+	next.Routes = nil
+	if err := a.Update(context.Background(), next); !errors.Is(err, failure) {
+		t.Fatalf("lost host route cleanup error: %v", err)
+	}
+	loaded, err := LoadJournal(journal.path)
+	if err != nil || len(loaded.Entries()) != 1 || len(a.desired.Routes) == 0 {
+		t.Fatal("host route cleanup failure lost retry state", err)
+	}
+	ops.deleteErr = nil
+	if err := a.Update(context.Background(), next); err != nil || len(journal.Entries()) != 0 {
+		t.Fatalf("host route cleanup retry failed: %v", err)
+	}
 }
 
 func (f *fakeWindowsOps) flushAdapter(_ winipcfg.LUID) {
@@ -175,5 +239,53 @@ func TestWindowsCloseRetainsPendingRecoveryOnFailure(t *testing.T) {
 	pending, err := LoadJournal(path)
 	if err != nil || len(pending.Entries()) != 1 {
 		t.Fatalf("lost pending recovery: %v", err)
+	}
+}
+
+func TestWindowsGatewayChangeUpdatesHostRouteAndSnapshot(t *testing.T) {
+	journal := NewJournal(filepath.Join(t.TempDir(), "journal.json"))
+	oldGW := netip.MustParseAddr("198.51.100.10")
+	newGW := netip.MustParseAddr("198.51.100.20")
+	if err := journal.Record(buildHostRouteEntry(oldGW, netip.MustParseAddr("192.168.1.1"), "", 11)); err != nil {
+		t.Fatal(err)
+	}
+	previous := NormalizeDesired(Desired{
+		Iface:   "TunnelKit",
+		Local:   netip.MustParseAddr("10.0.0.2"),
+		Gateway: oldGW,
+		Routes: []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/1"),
+			netip.MustParsePrefix("128.0.0.0/1"),
+		},
+	})
+	ops := &fakeWindowsOps{
+		lookupSnap: Snapshot{
+			GatewayNextHop: netip.MustParseAddr("192.168.2.1"),
+			GatewayLUID:    22,
+		},
+	}
+	a := &windowsApplied{
+		luid:    18,
+		ops:     ops,
+		journal: journal,
+		desired: previous,
+		snap: Snapshot{
+			GatewayNextHop: netip.MustParseAddr("192.168.1.1"),
+			GatewayLUID:    11,
+		},
+	}
+	next := previous
+	next.Gateway = newGW
+	if err := a.Update(context.Background(), next); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if !slices.Contains(ops.calls, "deleteHostRoute:198.51.100.10/32") ||
+		!slices.Contains(ops.calls, "lookupGatewayRoute:198.51.100.20") ||
+		!slices.Contains(ops.calls, "addHostRoute:198.51.100.20/32") {
+		t.Fatalf("unexpected calls on gateway change: %v", ops.calls)
+	}
+	entries := journal.Entries()
+	if len(entries) != 1 || entries[0].Gateway != newGW.String() || entries[0].LUID != 22 {
+		t.Fatalf("unexpected journal entries after gateway change: %+v", entries)
 	}
 }

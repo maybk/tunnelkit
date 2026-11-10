@@ -86,3 +86,26 @@ func TestSealerConcurrentFirstKeyCreation(t *testing.T) {
 		}
 	}
 }
+
+func TestSealerInvalidatesCacheOnKeyRotation(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	first, err := s.Encrypt("before-rotation")
+	if err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+	if err := os.Remove(storage.SecretKeyPath(root)); err != nil {
+		t.Fatalf("Remove secret.key: %v", err)
+	}
+	second, err := s.Encrypt("after-rotation")
+	if err != nil {
+		t.Fatalf("Encrypt after key removal failed: %v", err)
+	}
+	if _, err := s.Decrypt(first); err == nil {
+		t.Fatal("expected ciphertext from old rotated key to fail decryption")
+	}
+	got, err := s.Decrypt(second)
+	if err != nil || got != "after-rotation" {
+		t.Fatalf("Decrypt after rotation = %q, err = %v", got, err)
+	}
+}

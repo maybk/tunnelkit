@@ -6,12 +6,13 @@
 
 - `client.go`：HTTPS 控制面客户端、网关可达性 TLS 预检、已解析网关 IP 固定与 `/remote/sslvpn-tunnel` 隧道连接建立。
 - `trust.go`：TLS 配置构建、系统根证书池加载、双向 TLS 客户端证书装载与服务端叶子证书 SHA-256 指纹固定。
-- `auth.go`：`/remote/logincheck` 表单编码与解析、双因素挑战交互及 `/remote/logout` 注销。
+- `auth.go`：密码与双因素认证流程、登录响应处理及 `/remote/logout` 注销。
+- `auth_codec.go`：有序认证表单编码、登录响应解析与挑战提示清洗。
 - `saml.go`：本地回环 HTTP 监听接收 SAML 浏览器单点登录回调并提取 `SVPNCOOKIE`。
-- `tunconf.go`：请求并解析 `/remote/fortisslvpn_xml` 及旧版 `/remote/fortisslvpn` 回退，提取分配 IP、DNS、分流域名与拆分路由并对敏感字段脱敏。
+- `tunnel_config.go`：隧道配置模型、HTTPS 获取与旧版接口回退。
+- `tunnel_config_codec.go`：XML/HTML 配置解析、地址与路由转换及敏感字段脱敏。
 - `tunnel.go`：构造 `GET /remote/sslvpn-tunnel` 升级请求并封装底层 `net.Conn` 为带帧读写锁的 `TunnelConn`。
 - `frame.go`：Fortinet SSL-VPN 6 字节大端帧头读写器与粘包、半包重组。
-- `UPSTREAM.md`：协议帧与认证表单部分参考上游开源实现的版权与来源说明。
 
 ## 开发规范
 

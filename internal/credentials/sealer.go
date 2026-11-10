@@ -26,11 +26,12 @@ type Sealed struct {
 // Sealer 使用保存在本机 secret.key 的主密钥（Windows 下额外通过 DPAPI 保护）
 // 提供 AES-256-GCM 加解密能力。
 type Sealer struct {
+	mu        sync.Mutex
 	keyPath   string
 	cachedKey []byte
+	cachedGCM cipher.AEAD
+	keyInfo   os.FileInfo
 }
-
-var keyMu sync.Mutex
 
 // New 创建指向指定数据根目录的 Sealer。
 func New(root string) *Sealer {
@@ -38,7 +39,19 @@ func New(root string) *Sealer {
 }
 
 func (v *Sealer) cipher() (cipher.AEAD, error) {
-	key, err := v.loadOrCreateKey()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.cachedGCM != nil && v.keyInfo != nil {
+		if info, err := os.Stat(v.keyPath); err == nil &&
+			os.SameFile(info, v.keyInfo) &&
+			info.ModTime().Equal(v.keyInfo.ModTime()) {
+			return v.cachedGCM, nil
+		}
+		v.cachedKey = nil
+		v.cachedGCM = nil
+		v.keyInfo = nil
+	}
+	key, err := v.loadOrCreateKeyLocked()
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +59,12 @@ func (v *Sealer) cipher() (cipher.AEAD, error) {
 	if err != nil {
 		return nil, err
 	}
-	return cipher.NewGCM(block)
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	v.cachedGCM = gcm
+	return gcm, nil
 }
 
 // Encrypt 使用本机主密钥将明文密封为 AES-256-GCM 密文。
@@ -90,15 +108,18 @@ func (v *Sealer) Decrypt(sealed Sealed) (string, error) {
 	return string(plain), nil
 }
 
-func (v *Sealer) loadOrCreateKey() ([]byte, error) {
-	keyMu.Lock()
-	defer keyMu.Unlock()
+var errKeyFileIncomplete = errors.New("密钥文件正在写入中")
+
+func (v *Sealer) loadOrCreateKeyLocked() ([]byte, error) {
 	if len(v.cachedKey) == 32 {
 		return v.cachedKey, nil
 	}
-	if key, err := v.readKey(); err == nil {
+	if key, info, err := v.readKey(); err == nil {
 		v.cachedKey = key
+		v.keyInfo = info
 		return key, nil
+	} else if errors.Is(err, errKeyFileIncomplete) {
+		return v.waitForConcurrentKeyWriteLocked()
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
@@ -117,18 +138,7 @@ func (v *Sealer) loadOrCreateKey() ([]byte, error) {
 	// O_EXCL 防止并发首次创建时后写者覆盖密钥，导致已有密文无法解密。
 	f, err := os.OpenFile(v.keyPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if errors.Is(err, fs.ErrExist) {
-		for range 10 {
-			if key, readErr := v.readKey(); readErr == nil {
-				v.cachedKey = key
-				return key, nil
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-		key, readErr := v.readKey()
-		if readErr == nil {
-			v.cachedKey = key
-		}
-		return key, readErr
+		return v.waitForConcurrentKeyWriteLocked()
 	}
 	if err != nil {
 		return nil, err
@@ -141,28 +151,57 @@ func (v *Sealer) loadOrCreateKey() ([]byte, error) {
 		_ = f.Close()
 		return nil, err
 	}
+	info, statErr := f.Stat()
 	if err := f.Close(); err != nil {
 		return nil, err
 	}
 	v.cachedKey = newKey
+	if statErr == nil {
+		v.keyInfo = info
+	}
 	return newKey, nil
 }
 
-func (v *Sealer) readKey() ([]byte, error) {
+func (v *Sealer) waitForConcurrentKeyWriteLocked() ([]byte, error) {
+	for range 20 {
+		if key, info, readErr := v.readKey(); readErr == nil {
+			v.cachedKey = key
+			v.keyInfo = info
+			return key, nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	key, info, readErr := v.readKey()
+	if readErr == nil {
+		v.cachedKey = key
+		v.keyInfo = info
+	}
+	return key, readErr
+}
+
+func (v *Sealer) readKey() ([]byte, os.FileInfo, error) {
+	info, err := os.Stat(v.keyPath)
+	if err != nil {
+		return nil, nil, err
+	}
 	data, err := os.ReadFile(v.keyPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(data)))
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" {
+		return nil, nil, errKeyFileIncomplete
+	}
+	raw, err := base64.StdEncoding.DecodeString(trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("解析加密主密钥失败: %w", err)
+		return nil, nil, fmt.Errorf("解析加密主密钥失败: %w", err)
 	}
 	key, err := unsealKeyBytes(raw)
 	if err != nil {
-		return nil, fmt.Errorf("解封加密主密钥失败: %w", err)
+		return nil, nil, fmt.Errorf("解封加密主密钥失败: %w", err)
 	}
 	if len(key) != 32 {
-		return nil, errors.New("加密主密钥长度不正确")
+		return nil, nil, errors.New("加密主密钥长度不正确")
 	}
-	return key, nil
+	return key, info, nil
 }

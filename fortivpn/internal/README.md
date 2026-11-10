@@ -5,7 +5,7 @@
 ## 目录结构
 
 - `sslvpn/`：FortiGate HTTPS 控制面认证、隧道 XML 解析、裸 TLS 连接劫持与 `0x5050` 6 字节帧编解码。
-- `ppp/`：跑在 `0x5050` 隧道帧之上的 RFC 1661 PPP 状态机与测试服务端会话。
+- `ppp/`：跑在 `0x5050` 隧道帧之上的 RFC 1661 PPP 客户端状态机与链路保活。
 - `netdev/`：macOS `utun`、Windows Wintun 与 Linux `/dev/net/tun` 三端虚拟网卡适配。
 - `netcfg/`：三端宿主路由表、分流与全局 DNS 配置以及基于 `netcfg-journal.json` 的 LIFO 逆序异常恢复。
 

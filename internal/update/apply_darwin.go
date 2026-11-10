@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"tunnelkit/internal/privilege"
 )
 
 func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc) (func() error, error) {
@@ -113,47 +115,16 @@ func replaceMacAppBundle(ctx context.Context, srcAppPath, dstAppPath string) err
 }
 
 func replaceMacAppBundleElevated(ctx context.Context, srcAppPath, dstAppPath, backupPath string) error {
-	shellCmd := buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath)
-
-	escaped := strings.ReplaceAll(shellCmd, `\`, `\\`)
-	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-	script := `do shell script "` + escaped + `" with administrator privileges`
-
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	shellCmd := buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath)
 	// 提权后的脚本必须完成替换或回滚，不能在文件事务中途中断。
-	out, err := exec.Command("/usr/bin/osascript", "-e", script).CombinedOutput()
-	if err != nil {
-		text := strings.TrimSpace(string(out))
-		lower := strings.ToLower(text)
-		if strings.Contains(lower, "(-128)") || strings.Contains(lower, "canceled") || strings.Contains(lower, "cancelled") || strings.Contains(text, "用户已取消") {
+	if err := privilege.RunElevatedDarwinShell(context.Background(), shellCmd); err != nil {
+		if errors.Is(err, privilege.ErrCancelled) {
 			return ErrElevationCancelled
 		}
-		return fmt.Errorf("管理员授权安装更新失败: %s (%w)", text, err)
+		return fmt.Errorf("管理员授权安装更新失败: %w", err)
 	}
 	return nil
-}
-
-func buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath string) string {
-	srcQ := darwinShellQuote(srcAppPath)
-	dstQ := darwinShellQuote(dstAppPath)
-	bakQ := darwinShellQuote(backupPath)
-	return strings.Join([]string{
-		"set -eu",
-		"/bin/rm -rf " + bakQ,
-		"/bin/mv " + dstQ + " " + bakQ,
-		"if /usr/bin/ditto " + srcQ + " " + dstQ + "; then",
-		"  /usr/bin/xattr -dr com.apple.quarantine " + dstQ + " || true;",
-		"  /bin/rm -rf " + bakQ + ";",
-		"else",
-		"  /bin/rm -rf " + dstQ + ";",
-		"  /bin/mv " + bakQ + " " + dstQ + ";",
-		"  exit 1;",
-		"fi",
-	}, "\n")
-}
-
-func darwinShellQuote(value string) string {
-	return shellQuote(value)
 }

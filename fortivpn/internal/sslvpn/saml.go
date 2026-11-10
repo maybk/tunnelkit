@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -108,7 +109,7 @@ func (c *Client) AuthenticateSAML(ctx context.Context, promptFn func(ctx context
 		return "", ctx.Err()
 	}
 
-	reqURL := c.baseURL() + PathSAMLAuthID + "?id=" + samlID
+	reqURL := c.baseURL() + PathSAMLAuthID + "?id=" + url.QueryEscape(samlID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return "", fortivpn.WrapError(fortivpn.CodeAuthFailed, "failed to create SAML auth_id request", err)

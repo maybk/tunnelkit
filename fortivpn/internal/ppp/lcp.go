@@ -36,6 +36,10 @@ type LCPHandler struct {
 	peerMagic    uint32
 	loopbackNaks int
 	onEchoReply  func(id byte)
+
+	mruBuf   [2]byte
+	magicBuf [4]byte
+	reqOpts  [2]Option
 }
 
 // NewLCPHandler creates an LCP option handler with the given initial MRU.
@@ -80,18 +84,18 @@ func (h *LCPHandler) NegotiatedMRU() int {
 func (h *LCPHandler) LocalMagic() uint32 { return h.localMagic }
 
 func (h *LCPHandler) BuildRequestOptions() []Option {
-	var opts []Option
+	n := 0
 	if h.useMRU {
-		var mru [2]byte
-		binary.BigEndian.PutUint16(mru[:], h.localMRU)
-		opts = append(opts, Option{Type: OptMRU, Value: mru[:]})
+		binary.BigEndian.PutUint16(h.mruBuf[:], h.localMRU)
+		h.reqOpts[n] = Option{Type: OptMRU, Value: h.mruBuf[:]}
+		n++
 	}
 	if h.useMagic {
-		var magic [4]byte
-		binary.BigEndian.PutUint32(magic[:], h.localMagic)
-		opts = append(opts, Option{Type: OptMagic, Value: magic[:]})
+		binary.BigEndian.PutUint32(h.magicBuf[:], h.localMagic)
+		h.reqOpts[n] = Option{Type: OptMagic, Value: h.magicBuf[:]}
+		n++
 	}
-	return opts
+	return h.reqOpts[:n]
 }
 
 func (h *LCPHandler) ApplyNak(opts []Option) error {

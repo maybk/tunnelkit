@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"tunnelkit/internal/privilege"
 )
 
 // WaitForExit confirms process termination. A stop acknowledgement alone is not
@@ -23,7 +25,7 @@ func (c *Client) WaitForExit(ctx context.Context) error {
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		present, err := processPresent(c.pid)
+		present, err := privilege.IsProcessAlive(c.pid)
 		if err != nil {
 			return err
 		}

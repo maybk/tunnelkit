@@ -1,10 +1,11 @@
-// Package ppp implements RFC 1661 (PPP / LCP), RFC 1332 (IPCP), and RFC 1877
-// (IPCP DNS extensions) for Fortinet SSL-VPN PPP-over-TLS tunnels.
+// Package ppp implements client-side RFC 1661 (PPP / LCP), RFC 1332 (IPCP),
+// and RFC 1877 (IPCP DNS extensions) framing and negotiation for Fortinet
+// SSL-VPN tunnels.
 package ppp
 
 import "encoding/binary"
 
-// PPP protocol numbers.
+// PPP protocol numbers (RFC 1661 / IANA PPP Assigned Numbers).
 const (
 	ProtocolIP     uint16 = 0x0021
 	ProtocolIPv6   uint16 = 0x0057
@@ -14,11 +15,11 @@ const (
 	ProtocolLCP    uint16 = 0xc021
 )
 
-// Standard PPP HDLC address and control octets used inside Fortinet frames.
+// HeaderLen is the 4-byte HDLC-like PPP header length ([0xFF, 0x03, proto_hi, proto_lo]).
 const (
-	hdlcAddress    = 0xff
-	hdlcControl    = 0x03
-	frameHeaderLen = 4
+	HeaderLen   = 4
+	hdlcAddress = 0xff
+	hdlcControl = 0x03
 )
 
 // Control-protocol packet codes (RFC 1661 §5).
@@ -36,49 +37,47 @@ const (
 	CodeDiscardRequest   byte = 11
 )
 
-// PutFrameHeader writes [0xFF, 0x03, proto>>8, proto] into the first 4 bytes of b.
-func PutFrameHeader(b []byte, protocol uint16) {
-	b[0] = hdlcAddress
-	b[1] = hdlcControl
-	b[2] = byte(protocol >> 8)
-	b[3] = byte(protocol)
+// PutFrameHeader writes the 4-octet PPP header [0xFF, 0x03, proto>>8, proto] into dst[:4].
+func PutFrameHeader(dst []byte, protocol uint16) {
+	_ = dst[3]
+	dst[0] = hdlcAddress
+	dst[1] = hdlcControl
+	binary.BigEndian.PutUint16(dst[2:4], protocol)
 }
 
-// EncodeFrame builds a 4-byte PPP header followed by payload.
+// EncodeFrame prepends the 4-octet PPP header to payload in a newly allocated slice.
 func EncodeFrame(protocol uint16, payload []byte) []byte {
-	out := make([]byte, frameHeaderLen+len(payload))
-	PutFrameHeader(out, protocol)
-	copy(out[frameHeaderLen:], payload)
-	return out
+	frame := make([]byte, 0, HeaderLen+len(payload))
+	frame = append(frame, hdlcAddress, hdlcControl)
+	frame = binary.BigEndian.AppendUint16(frame, protocol)
+	return append(frame, payload...)
 }
 
-// DecodeFrame parses a PPP frame into its protocol number and payload,
-// tolerating an optional leading 0xFF 0x03 address/control pair and a
-// compressed 1-byte protocol field.
-func DecodeFrame(frame []byte) (protocol uint16, payload []byte, ok bool) {
-	b := frame
-	if len(b) >= 2 && b[0] == hdlcAddress && b[1] == hdlcControl {
-		b = b[2:]
+// DecodeFrame strips the PPP header (supporting optional 0xFF 0x03 ACFC and
+// 1-octet or 2-octet PFC protocol fields) and returns the protocol number and payload slice.
+func DecodeFrame(raw []byte) (protocol uint16, payload []byte, ok bool) {
+	offset := 0
+	if len(raw) >= 2 && raw[0] == hdlcAddress && raw[1] == hdlcControl {
+		offset = 2
 	}
-	if len(b) == 0 {
-		return 0, nil, false
+	// The protocol's low octet is odd; PFC omits its zero high octet.
+	for octets := 0; octets < 2 && offset < len(raw); octets++ {
+		protocol = protocol<<8 | uint16(raw[offset])
+		offset++
+		if protocol&1 != 0 {
+			return protocol, raw[offset:], true
+		}
 	}
-	if b[0]&1 == 1 {
-		return uint16(b[0]), b[1:], true
-	}
-	if len(b) < 2 {
-		return 0, nil, false
-	}
-	return uint16(b[0])<<8 | uint16(b[1]), b[2:], true
+	return 0, nil, false
 }
 
-// EncapsulateIP wraps an IPv4 packet in a PPP frame (0xFF 0x03 0x00 0x21 + pkt).
+// EncapsulateIP wraps an IPv4 packet in a 4-byte PPP data frame (protocol 0x0021).
 func EncapsulateIP(ipPacket []byte) []byte {
 	return EncodeFrame(ProtocolIP, ipPacket)
 }
 
-// ExtractIPv4 checks whether frame is a PPP IPv4 data frame and trims any
-// trailing PPP padding using the IPv4 Total Length field (RFC 1661 §5.1).
+// ExtractIPv4 extracts an IPv4 packet from a PPP frame and trims any trailing
+// link-layer padding using the IPv4 header's Total Length field.
 func ExtractIPv4(frame []byte) ([]byte, bool) {
 	proto, payload, ok := DecodeFrame(frame)
 	if !ok || proto != ProtocolIP {
@@ -87,87 +86,141 @@ func ExtractIPv4(frame []byte) ([]byte, bool) {
 	return TrimToIPv4(payload)
 }
 
-// TrimToIPv4 validates an IPv4 packet header and slices it to its declared Total Length.
+// TrimToIPv4 validates an IPv4 packet header and returns a subslice bounded by Total Length.
 func TrimToIPv4(pkt []byte) ([]byte, bool) {
-	if len(pkt) < 20 {
+	if len(pkt) < 20 || (pkt[0]>>4) != 4 {
 		return nil, false
 	}
-	version := pkt[0] >> 4
-	ihl := int(pkt[0]&0x0f) * 4
-	if version != 4 || ihl < 20 || len(pkt) < ihl {
+	headerLen := int(pkt[0]&0x0f) * 4
+	if headerLen < 20 || len(pkt) < headerLen {
 		return nil, false
 	}
 	totalLen := int(binary.BigEndian.Uint16(pkt[2:4]))
-	if totalLen < ihl || totalLen > len(pkt) {
+	if totalLen < headerLen || totalLen > len(pkt) {
 		return nil, false
 	}
 	return pkt[:totalLen], true
 }
 
-// Packet is a PPP control-protocol packet (LCP or IPCP).
+// Packet represents an LCP or IPCP control packet (Code, Identifier, 16-bit Length, Body).
 type Packet struct {
 	Code byte
 	ID   byte
 	Body []byte
 }
 
-// ParsePacket decodes a control-protocol packet and validates its 16-bit length field.
-func ParsePacket(b []byte) (Packet, bool) {
-	if len(b) < 4 {
-		return Packet{}, false
+const controlHeaderLen = 4
+
+// ParsePacket decodes a control packet from raw and verifies its length header.
+func ParsePacket(raw []byte) (Packet, bool) {
+	if len(raw) >= controlHeaderLen {
+		end := int(binary.BigEndian.Uint16(raw[2:controlHeaderLen]))
+		if end >= controlHeaderLen && end <= len(raw) {
+			return Packet{Code: raw[0], ID: raw[1], Body: raw[controlHeaderLen:end:end]}, true
+		}
 	}
-	length := int(binary.BigEndian.Uint16(b[2:4]))
-	if length < 4 || length > len(b) {
-		return Packet{}, false
-	}
-	return Packet{
-		Code: b[0],
-		ID:   b[1],
-		Body: b[4:length],
-	}, true
+	return Packet{}, false
 }
 
-// Marshal serializes a control-protocol packet with its 4-byte header.
+// Marshal serializes the control packet with its 4-octet [Code, ID, Length] header.
 func (p Packet) Marshal() []byte {
-	out := make([]byte, 4+len(p.Body))
-	out[0] = p.Code
-	out[1] = p.ID
-	binary.BigEndian.PutUint16(out[2:4], uint16(len(out)))
-	copy(out[4:], p.Body)
-	return out
+	encoded := make([]byte, 0, controlHeaderLen+len(p.Body))
+	encoded = append(encoded, p.Code, p.ID)
+	encoded = binary.BigEndian.AppendUint16(encoded, uint16(controlHeaderLen+len(p.Body)))
+	return append(encoded, p.Body...)
 }
 
-// Option represents a single TLV configuration option in a Configure-* packet.
+// Option represents a single TLV configuration option inside a Configure-* packet.
 type Option struct {
 	Type  byte
 	Value []byte
 }
 
-// ParseOptions decodes a sequence of TLV options from a Configure-* packet body.
-func ParseOptions(b []byte) ([]Option, bool) {
-	var opts []Option
-	for len(b) > 0 {
-		if len(b) < 2 {
-			return nil, false
+// OptionCursor iterates over TLV options in a Configure-* packet body without heap allocations.
+type OptionCursor struct {
+	rem     []byte
+	corrupt bool
+}
+
+// NewOptionCursor returns a zero-allocation TLV cursor over body.
+func NewOptionCursor(body []byte) OptionCursor {
+	return OptionCursor{rem: body}
+}
+
+// Next advances the cursor and returns the next TLV option slice.
+func (c *OptionCursor) Next() (Option, bool) {
+	if len(c.rem) == 0 {
+		return Option{}, false
+	}
+	if len(c.rem) < 2 {
+		c.corrupt = true
+		c.rem = nil
+		return Option{}, false
+	}
+	optLen := int(c.rem[1])
+	if optLen < 2 || optLen > len(c.rem) {
+		c.corrupt = true
+		c.rem = nil
+		return Option{}, false
+	}
+	opt := Option{
+		Type:  c.rem[0],
+		Value: c.rem[2:optLen:optLen],
+	}
+	c.rem = c.rem[optLen:]
+	return opt, true
+}
+
+// Valid reports whether the cursor reached the end of the buffer without encountering malformed TLVs.
+func (c *OptionCursor) Valid() bool {
+	return !c.corrupt && len(c.rem) == 0
+}
+
+// ParseOptions decodes TLV options from a Configure-* packet body without copying value bytes.
+func ParseOptions(body []byte) ([]Option, bool) {
+	if len(body) == 0 {
+		return nil, true
+	}
+	count := 0
+	cur := NewOptionCursor(body)
+	for {
+		if _, ok := cur.Next(); !ok {
+			break
 		}
-		length := int(b[1])
-		if length < 2 || length > len(b) {
-			return nil, false
+		count++
+	}
+	if !cur.Valid() {
+		return nil, false
+	}
+	opts := make([]Option, 0, count)
+	cur = NewOptionCursor(body)
+	for {
+		opt, ok := cur.Next()
+		if !ok {
+			break
 		}
-		val := make([]byte, length-2)
-		copy(val, b[2:length])
-		opts = append(opts, Option{Type: b[0], Value: val})
-		b = b[length:]
+		opts = append(opts, opt)
 	}
 	return opts, true
 }
 
-// MarshalOptions encodes a slice of TLV options.
+// MarshalOptions encodes a slice of TLV options into a single pre-sized buffer.
 func MarshalOptions(opts []Option) []byte {
-	var out []byte
-	for _, o := range opts {
-		out = append(out, o.Type, byte(2+len(o.Value)))
-		out = append(out, o.Value...)
+	total := 0
+	for _, opt := range opts {
+		total += 2 + len(opt.Value)
 	}
-	return out
+	if total == 0 {
+		return nil
+	}
+	buf := make([]byte, total)
+	offset := 0
+	for _, opt := range opts {
+		optLen := 2 + len(opt.Value)
+		buf[offset] = opt.Type
+		buf[offset+1] = byte(optLen)
+		copy(buf[offset+2:offset+optLen], opt.Value)
+		offset += optLen
+	}
+	return buf
 }

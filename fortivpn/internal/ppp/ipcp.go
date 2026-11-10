@@ -30,6 +30,7 @@ type IPCPHandler struct {
 	useDNS2    bool
 	peerIP     netip.Addr
 	fallbackIP netip.Addr
+	reqOpts    [3]Option
 }
 
 // NewIPCPHandler creates an IPCP option handler.
@@ -85,16 +86,17 @@ func (h *IPCPHandler) RawDNSStrings() (string, string) {
 }
 
 func (h *IPCPHandler) BuildRequestOptions() []Option {
-	opts := []Option{
-		{Type: OptIPAddress, Value: h.reqIP[:]},
-	}
+	h.reqOpts[0] = Option{Type: OptIPAddress, Value: h.reqIP[:]}
+	n := 1
 	if h.useDNS1 {
-		opts = append(opts, Option{Type: OptPrimaryDNS, Value: h.reqDNS1[:]})
+		h.reqOpts[n] = Option{Type: OptPrimaryDNS, Value: h.reqDNS1[:]}
+		n++
 	}
 	if h.useDNS2 {
-		opts = append(opts, Option{Type: OptSecondaryDNS, Value: h.reqDNS2[:]})
+		h.reqOpts[n] = Option{Type: OptSecondaryDNS, Value: h.reqDNS2[:]}
+		n++
 	}
-	return opts
+	return h.reqOpts[:n]
 }
 
 func (h *IPCPHandler) ApplyNak(opts []Option) error {
@@ -143,7 +145,9 @@ func (h *IPCPHandler) EvaluatePeerRequest(opts []Option) (PeerEvaluation, []Opti
 			}
 			var v [4]byte
 			copy(v[:], o.Value)
-			h.peerIP = netip.AddrFrom4(v)
+			if addr := netip.AddrFrom4(v); addr.IsValid() && !addr.IsUnspecified() {
+				h.peerIP = addr
+			}
 		case OptPrimaryDNS:
 			if len(o.Value) != 4 {
 				rejected = append(rejected, o)

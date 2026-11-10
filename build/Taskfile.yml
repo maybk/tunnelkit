@@ -207,6 +207,7 @@ tasks:
       - cp linux/nfpm/nfpm.yaml linux/nfpm/nfpm.yaml.bak
       - cp linux/desktop linux/desktop.bak
       - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .
+      - gofmt -w .
       - mv linux/nfpm/nfpm.yaml.bak linux/nfpm/nfpm.yaml
       - mv linux/desktop.bak linux/desktop
       - cmd: |

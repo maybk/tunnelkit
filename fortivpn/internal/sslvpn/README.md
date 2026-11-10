@@ -10,7 +10,8 @@
 - `auth_codec.go`：有序认证表单编码、登录响应解析与挑战提示清洗。
 - `saml.go`：本地回环 HTTP 监听接收 SAML 浏览器单点登录回调并提取 `SVPNCOOKIE`。
 - `tunnel_config.go`：隧道配置模型、HTTPS 获取与旧版接口回退。
-- `tunnel_config_codec.go`：XML/HTML 配置解析、地址与路由转换及敏感字段脱敏。
+- `tunnel_config_codec.go`：XML/HTML 配置解析、地址与路由转换。
+- `redact.go`：导出 XML 的属性与元素脱敏，解析失败时省略原文。
 - `tunnel.go`：构造 `GET /remote/sslvpn-tunnel` 升级请求并封装底层 `net.Conn` 为带帧读写锁的 `TunnelConn`。
 - `frame.go`：Fortinet SSL-VPN 6 字节大端帧头读写器与粘包、半包重组。
 

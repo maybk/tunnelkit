@@ -8,7 +8,7 @@ TunnelKit 是基于 Wails v3、Go 与 Vue 3 + TypeScript 的跨平台（macOS / 
 
 - 桌面进程：`Vue 前端 -> Wails bindings -> internal/api -> internal/vpn | internal/profile | internal/update -> internal/helperclient | internal/ipc | internal/privilege | internal/credentials | internal/storage | fortivpn`
 - 前端内部：`views / layouts / components -> composables / stores -> api -> Wails bindings / runtime`；展示、校验、领域、工具、常量与类型为共享层，不反向依赖 UI 或宿主（仅 `frontend/src/api/` 允许导入 `@bindings` 与 `@wailsio/runtime`；`frontend/src/components/ui/` 同步自 `shadcn-vue` 官方模板）
-- 特权辅助进程：`cmd/tunnelkit-helper -> internal/helper -> internal/ipc | internal/privilege | fortivpn/engine | fortivpn`
+- 特权辅助进程：`cmd/tunnelkit-helper -> internal/helper -> internal/ipc | internal/privilege | internal/redact | fortivpn/engine | fortivpn`
 - 独立协议内核：`fortivpn/**` **严禁**引用 `tunnelkit/internal/**` 或 Wails，可随时独立拆出为单独仓库；桌面主进程**严禁**导入 `fortivpn/engine`。
 
 各模块职责：
@@ -21,6 +21,7 @@ TunnelKit 是基于 Wails v3、Go 与 Vue 3 + TypeScript 的跨平台（macOS / 
 - `internal/vpn`：桌面端连接状态机、交互挑战转发、会话接管、更新维护门禁与网络恢复。
 - `internal/profile`：连接配置增删改查、字段校验与密码加密存储。
 - `internal/storage`：统一管理 `~/.tunnelkit` 目录路径与原子文件写入。
+- `internal/redact`：日志写入与读取共用的凭据脱敏，仅依赖标准库。
 - `internal/update`：多源版本检查、发布地址白名单校验、语义化版本比较与三端原子自更新。
 - `internal/api`：Wails 服务薄适配层，仅做参数转发与跨包编排；领域逻辑与 I/O 实现下沉至对应 `internal/*` 子包。
 - `main.go` 与 `internal/app`：应用装配、窗口与标题栏配置、托盘常驻、安全退出、自更新协调及 `vpn:state` 事件推送。

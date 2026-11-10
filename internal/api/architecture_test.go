@@ -125,6 +125,7 @@ func TestBackendArchitectureBoundaries(t *testing.T) {
 						(strings.HasPrefix(imp, "tunnelkit/internal/") &&
 							imp != "tunnelkit/internal/helper" &&
 							imp != "tunnelkit/internal/ipc" &&
+							imp != "tunnelkit/internal/redact" &&
 							imp != "tunnelkit/internal/privilege") {
 						rel, _ := filepath.Rel(repoRoot, path)
 						t.Errorf("%s imports forbidden package %q", rel, imp)
@@ -134,6 +135,22 @@ func TestBackendArchitectureBoundaries(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatalf("walk %s: %v", dir, err)
+			}
+		}
+	})
+
+	t.Run("shared redaction depends only on the standard library", func(t *testing.T) {
+		entries, err := filepath.Glob(filepath.Join(repoRoot, "internal", "redact", "*.go"))
+		if err != nil {
+			t.Fatalf("glob internal/redact: %v", err)
+		}
+		for _, file := range entries {
+			for _, imp := range parseFileImports(t, file) {
+				// 标准库导入路径的首段不含点；项目内部路径另行排除。
+				first, _, _ := strings.Cut(imp, "/")
+				if first == "tunnelkit" || strings.Contains(first, ".") {
+					t.Errorf("%s imports non-standard package %q", file, imp)
+				}
 			}
 		}
 	})

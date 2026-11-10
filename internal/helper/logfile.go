@@ -9,19 +9,17 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"unicode/utf8"
 
 	"tunnelkit/internal/ipc"
+	"tunnelkit/internal/redact"
 )
-
-var sensitiveKeyValueRegex = regexp.MustCompile(`(?i)\b(SVPNCOOKIE|credential|password|passwd|token|otp)=([^\s&;,"']+)`)
 
 // RedactLogLine masks sensitive tokens, cookies, and credentials before log persistence.
 func RedactLogLine(s string) string {
-	return sensitiveKeyValueRegex.ReplaceAllString(s, `$1=[REDACTED]`)
+	return redact.Text(s)
 }
 
 // OpenLogFile opens (or creates) the session log file in append mode with 0600 permissions.
@@ -45,9 +43,10 @@ func NewLogger(w io.Writer) *slog.Logger {
 }
 
 type lineLogHandler struct {
-	mu    *sync.Mutex
-	w     io.Writer
-	attrs []slog.Attr
+	mu     *sync.Mutex
+	w      io.Writer
+	attrs  []slog.Attr
+	groups []string
 }
 
 func (h *lineLogHandler) Enabled(_ context.Context, level slog.Level) bool {
@@ -64,20 +63,20 @@ func (h *lineLogHandler) Handle(_ context.Context, r slog.Record) error {
 		if a.Equal(slog.Attr{}) {
 			return
 		}
-		keyLower := strings.ToLower(a.Key)
-		if keyLower == "password" || keyLower == "credential" || keyLower == "cookie" || keyLower == "token" || keyLower == "otp" {
-			attrParts = append(attrParts, a.Key+"=[REDACTED]")
-			return
-		}
+		a = redactLogAttr(a)
 		attrParts = append(attrParts, fmt.Sprintf("%s=%v", a.Key, a.Value.Any()))
 	}
 	for _, a := range h.attrs {
 		appendAttr(a)
 	}
+	var recordAttrs []slog.Attr
 	r.Attrs(func(a slog.Attr) bool {
-		appendAttr(a)
+		recordAttrs = append(recordAttrs, a)
 		return true
 	})
+	for _, a := range h.groupAttrs(recordAttrs) {
+		appendAttr(a)
+	}
 
 	msg := r.Message
 	if len(attrParts) > 0 {
@@ -91,15 +90,44 @@ func (h *lineLogHandler) Handle(_ context.Context, r slog.Record) error {
 	return err
 }
 
+func redactLogAttr(a slog.Attr) slog.Attr {
+	a.Value = a.Value.Resolve()
+	if redact.Key(a.Key) {
+		a.Value = slog.StringValue("[REDACTED]")
+	} else if a.Value.Kind() == slog.KindGroup {
+		group := a.Value.Group()
+		attrs := make([]slog.Attr, len(group))
+		for i, child := range group {
+			attrs[i] = redactLogAttr(child)
+		}
+		a.Value = slog.GroupValue(attrs...)
+	}
+	return a
+}
+
 func (h *lineLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	cp := make([]slog.Attr, 0, len(h.attrs)+len(attrs))
 	cp = append(cp, h.attrs...)
-	cp = append(cp, attrs...)
-	return &lineLogHandler{mu: h.mu, w: h.w, attrs: cp}
+	cp = append(cp, h.groupAttrs(attrs)...)
+	return &lineLogHandler{mu: h.mu, w: h.w, attrs: cp, groups: h.groups}
 }
 
-func (h *lineLogHandler) WithGroup(_ string) slog.Handler {
-	return h
+func (h *lineLogHandler) WithGroup(name string) slog.Handler {
+	if name == "" {
+		return h
+	}
+	groups := append(append([]string(nil), h.groups...), name)
+	return &lineLogHandler{mu: h.mu, w: h.w, attrs: h.attrs, groups: groups}
+}
+
+func (h *lineLogHandler) groupAttrs(attrs []slog.Attr) []slog.Attr {
+	if len(attrs) == 0 {
+		return nil
+	}
+	for i := len(h.groups) - 1; i >= 0; i-- {
+		attrs = []slog.Attr{{Key: h.groups[i], Value: slog.GroupValue(attrs...)}}
+	}
+	return attrs
 }
 
 // sessionLogWriter sends only redacted output from NewLogger. Files are written

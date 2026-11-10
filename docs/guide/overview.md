@@ -21,6 +21,7 @@ Vue 前端 -> Wails bindings -> internal/api -> internal/vpn -> internal/helperc
 | [`internal/credentials`](../../internal/credentials/README.md) | 本地凭据加密密封器与平台主密钥保护 | 供 `profile` 与 `helperclient` 复用，不依赖上层业务 |
 | [`internal/profile`](../../internal/profile/README.md) | 配置增删改查、字段校验与密码加密存储 | 不感知运行期隧道会话 |
 | [`internal/storage`](../../internal/storage/README.md) | `~/.tunnelkit` 目录布局、原子文件写入与日志尾部脱敏读取 | 不依赖上层业务模型 |
+| [`internal/redact`](../../internal/redact/README.md) | 日志写入与读取共用的凭据脱敏 | 仅依赖标准库，不承担网络拓扑匿名化 |
 | [`internal/update`](../../internal/update/README.md) | 版本更新检查、多源降级、语义化版本比较与三端原子自更新 | 零业务耦合，严格校验发布页域名与安装包 SHA-256 |
 | [`fortivpn`](../../fortivpn/README.md) | 纯 Go Fortinet SSL-VPN 协议内核与独立 CLI | 严禁引用 `tunnelkit/internal/**` 或 Wails |
 
@@ -49,6 +50,7 @@ tunnelkit/
 │   ├── helperclient/          # 辅助进程按需拉起、客户端封装与加密会话票据
 │   ├── privilege/             # 特权组件安装、校验、授权与受保护运行目录
 │   ├── profile/               # 配置模型、校验器、持久化与密码库
+│   ├── redact/                # 日志写入与读取共用的凭据脱敏
 │   ├── storage/               # 数据目录路径与原子写入
 │   ├── update/                # 版本更新检查、多源回退、版本比较与原子自更新
 │   └── vpn/                   # 桌面连接状态机、维护门禁与会话恢复

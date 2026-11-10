@@ -6,7 +6,7 @@
 
 - `format.ts`：字节体积、包数量、RTT 延迟与多行列表格式化。
 - `network.ts`：网关地址规范化、`host:port` 智能拆分、IPv4 与 CIDR 校验。
-- `redact.ts`：日志与导出文本中的密码、Cookie、Token、OTP 敏感键值脱敏。
+- `redact.ts`：日志复制中的凭据键值、认证头与 Cookie 脱敏。
 - `time.ts`：连接持续时长、中文时长与日期时间格式化。
 - `dom.ts`：可编辑元素与浮层判定。
 

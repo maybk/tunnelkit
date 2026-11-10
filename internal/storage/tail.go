@@ -7,18 +7,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+
+	"tunnelkit/internal/redact"
 )
 
 const DefaultTailBytes int64 = 64 * 1024
-
-var (
-	cookieValuePattern     = regexp.MustCompile(`(?i)(SVPNCOOKIE=|Cookie:\s*)([^\s;]+)`)
-	inlineSensitivePattern = regexp.MustCompile(`(?i)\b([a-z0-9_.-]*(?:password|passwd|passphrase|credential|secret|token|cookie|otp|pinentry)[a-z0-9_.-]*)\s*=\s*([^\s&;,"')]+)`)
-	sensitiveKeys          = []string{"password", "passphrase", "secret", "token", "cookie", "otp", "pinentry"}
-)
 
 // LogTail 是日志文件尾部的脱敏内容。
 type LogTail struct {
@@ -60,7 +55,8 @@ func TailFile(path string, maxBytes int64) (LogTail, error) {
 		if nl := bytes.IndexByte(data, '\n'); nl >= 0 {
 			data = data[nl+1:]
 		} else {
-			data = bytes.ToValidUTF8(data, []byte("?"))
+			// 缺少字段名的截断行无法可靠脱敏，丢弃整个片段。
+			data = nil
 		}
 	}
 	content := strings.TrimRight(Redact(string(data)), "\n")
@@ -84,36 +80,5 @@ func ResetFile(path string) error {
 
 // Redact 遮蔽文本中的密码、令牌与会话 Cookie。
 func Redact(text string) string {
-	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
-	for i, line := range lines {
-		if redacted, ok := redactAssignment(line); ok {
-			lines[i] = redacted
-			continue
-		}
-		line = cookieValuePattern.ReplaceAllString(line, "${1}******")
-		line = inlineSensitivePattern.ReplaceAllString(line, "${1}=******")
-		lines[i] = line
-	}
-	return strings.Join(lines, "\n")
-}
-
-func redactAssignment(line string) (string, bool) {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return "", false
-	}
-	prefix, _, ok := strings.Cut(line, "=")
-	if !ok {
-		return "", false
-	}
-	key := strings.ToLower(strings.TrimSpace(prefix))
-	if strings.ContainsAny(key, " \t:()") {
-		return "", false
-	}
-	for _, token := range sensitiveKeys {
-		if strings.Contains(key, token) {
-			return strings.TrimRight(prefix, " \t") + " = ******", true
-		}
-	}
-	return "", false
+	return redact.Text(text)
 }

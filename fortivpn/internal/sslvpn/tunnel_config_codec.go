@@ -240,16 +240,6 @@ func ParseLegacyConfigHTML(data []byte) (TunnelConfig, error) {
 	return cfg, nil
 }
 
-var redactAttrRegex = regexp.MustCompile(`(?i)\b(username|user|group|cookie|token|password|passwd)="[^"]*"`)
-
-// RedactConfigXML masks cookie or user tokens in raw XML before writing --dump-config.
-func RedactConfigXML(data []byte) []byte {
-	s := string(data)
-	s = strings.ReplaceAll(s, CookieName, "REDACTED_COOKIE")
-	s = redactAttrRegex.ReplaceAllString(s, `$1="REDACTED"`)
-	return []byte(s)
-}
-
 func ipMaskToPrefix(ipStr, maskStr string) (netip.Prefix, bool) {
 	ipStr = strings.TrimSpace(ipStr)
 	if ipStr == "" {

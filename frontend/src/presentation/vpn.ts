@@ -37,12 +37,12 @@ export function describeVpnPhase(state: VpnState, selectedProfile?: Profile | nu
   }
 
   if (state.status !== 'disconnected' && state.profileName && !isViewingActive) {
-    return `当前另一节点「${state.profileName}」正处于${getStatusMeta(state.status).label}状态`
+    return `当前「${state.profileName}」${getStatusMeta(state.status).label}`
   }
 
   if (selectedProfile) {
     return `目标网关 ${formatEndpoint(selectedProfile.host, selectedProfile.port)}`
   }
 
-  return '选择或新建一个 VPN 节点以开始连接'
+  return '选择或新建一个 VPN 连接以开始使用'
 }

@@ -42,7 +42,7 @@ export const useLogsStore = defineStore('logs', () => {
       revisions.set(profileId, (revisions.get(profileId) ?? 0) + 1)
       contentByProfile.value[profileId] = ''
       updatedAtByProfile.value[profileId] = ''
-      noticeStore.showSuccess('已清空当前节点日志')
+      noticeStore.showSuccess('已清空当前连接日志')
     } catch (err) {
       noticeStore.showError(err, '清空日志失败')
     }

@@ -90,6 +90,7 @@ const themeLabel = computed(
         :title="`主题：${themeLabel}`"
         :aria-label="`主题：${themeLabel}`"
         data-testid="chrome-theme-toggle"
+        class="text-muted-foreground hover:text-foreground"
         @click="emit('cycleTheme')"
       >
         <Sun v-if="themeMode === 'light'" class="size-3.5" />
@@ -102,6 +103,7 @@ const themeLabel = computed(
         title="关于 TunnelKit"
         aria-label="关于 TunnelKit"
         data-testid="chrome-about-btn"
+        class="text-muted-foreground hover:text-foreground"
         @click="emit('openAbout')"
       >
         <Info class="size-4" />

@@ -86,9 +86,9 @@ export const useProfilesStore = defineStore('profiles', () => {
       profiles.value = profiles.value.filter((profile) => profile.id !== id)
       reconcileSelection()
       await loadProfiles()
-      noticeStore.showSuccess('已删除节点', deletedProfile?.name)
+      noticeStore.showSuccess('已删除连接', deletedProfile?.name)
     } catch (err) {
-      noticeStore.showError(err, '删除节点失败')
+      noticeStore.showError(err, '删除连接失败')
     } finally {
       deletingProfileId.value = ''
     }

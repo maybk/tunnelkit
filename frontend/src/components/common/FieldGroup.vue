@@ -31,10 +31,9 @@ const fieldId = useId()
     <div class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-1.5">
         <AppLabel :for="forId ?? fieldId" class="text-body font-medium text-foreground">
-          {{ label }}
+          {{ label }}{{ optional ? '（可选）' : '' }}
         </AppLabel>
         <span v-if="required" class="text-micro font-semibold text-tone-danger-fg">*</span>
-        <span v-else-if="optional" class="text-body font-medium text-foreground">（可选）</span>
       </div>
       <slot name="actions" />
     </div>

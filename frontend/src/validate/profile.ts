@@ -13,7 +13,7 @@ import {
 export const ProfileInputSchema = v.pipe(
   v.object({
     id: v.string(),
-    name: NonEmptyTrimmedStringSchema('请填写节点名称'),
+    name: NonEmptyTrimmedStringSchema('请填写连接名称'),
     host: GatewayHostSchema,
     port: PortSchema,
     username: v.string(),

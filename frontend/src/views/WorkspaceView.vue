@@ -65,7 +65,10 @@ const isHelperMissing = computed(() =>
 </script>
 
 <template>
-  <div class="flex h-full min-h-0 flex-col overflow-hidden pt-4">
+  <div
+    class="flex h-full min-h-0 flex-col overflow-hidden"
+    :class="selectedProfile || isHelperMissing ? 'pt-4' : ''"
+  >
     <HelperMissingBanner
       v-if="isHelperMissing"
       :checking="systemStore.checkingSystem"

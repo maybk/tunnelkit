@@ -80,7 +80,7 @@ export const useVpnStore = defineStore('vpn', () => {
   const pendingSwitchProfileName = computed(() => {
     if (!pendingSwitchProfileId.value) return ''
     return (
-      profilesStore.profiles.find((p) => p.id === pendingSwitchProfileId.value)?.name ?? '新节点'
+      profilesStore.profiles.find((p) => p.id === pendingSwitchProfileId.value)?.name ?? '新连接'
     )
   })
 

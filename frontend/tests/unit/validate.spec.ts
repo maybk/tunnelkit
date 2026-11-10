@@ -82,6 +82,12 @@ describe('validate and presentation layers', () => {
     expect(getStatusMeta('connected').tone).toBe('success')
     expect(getViewingStatusMeta(connected, 'profile-1').tone).toBe('success')
     expect(describeVpnPhase(connected, createTestProfile())).toContain('10.212.134.10')
+    expect(describeVpnPhase(connected, createTestProfile({ id: 'profile-2' }))).toBe(
+      '当前「总部网关」已连接',
+    )
+    expect(describeVpnPhase(createTestVpnState(), createTestProfile())).toBe(
+      '目标网关 vpn.example.com:443',
+    )
 
     expect(formatErrorMessage(new Error('连接超时'))).toBe('连接超时')
     expect(formatErrorMessage({ error: '认证被拒绝' })).toBe('认证被拒绝')

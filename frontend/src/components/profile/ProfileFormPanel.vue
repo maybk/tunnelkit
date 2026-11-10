@@ -162,7 +162,12 @@ defineExpose({ resetDraft, submitDraft, saving })
         <ProfileAuthSection v-model:draft="draft" :errors="fieldErrors" :disabled="saving" />
         <ProfileNetworkSection v-model:draft="draft" :errors="fieldErrors" :disabled="saving" />
       </template>
-      <FieldGroup v-else label="配置内容" description="每行一条 key = value，修改后与表单实时同步">
+      <FieldGroup v-else label="配置内容">
+        <template #actions>
+          <span class="text-caption text-muted-foreground">
+            每行一条 key = value，修改后与表单实时同步
+          </span>
+        </template>
         <template #default="{ fieldId }">
           <AppTextarea
             :id="fieldId"

@@ -20,9 +20,9 @@ const handleCancel = () => {
 </script>
 
 <template>
-  <div class="h-full overflow-y-auto px-6 pb-6">
+  <div class="h-full overflow-y-auto px-6 pt-4 pb-6">
     <div class="mx-auto w-full max-w-2xl space-y-4">
-      <div class="px-0.5 pt-1">
+      <div class="px-0.5">
         <h1 class="text-heading font-semibold tracking-tight text-foreground">
           {{ profilesStore.profiles.length ? '新建 VPN 连接' : '添加第一个 VPN 连接' }}
         </h1>

@@ -176,10 +176,10 @@ export function useProfileFormDraft(sourceProfile: Ref<Profile | null | undefine
 
       const saved = await profilesStore.saveProfile(validation.input)
       syncFromSource(saved)
-      noticeStore.showSuccess('已保存节点配置', saved.name)
+      noticeStore.showSuccess('已保存连接配置', saved.name)
       return saved
     } catch (err) {
-      formError.value = formatErrorMessage(err, '保存节点配置失败')
+      formError.value = formatErrorMessage(err, '保存连接配置失败')
       return null
     } finally {
       saving.value = false

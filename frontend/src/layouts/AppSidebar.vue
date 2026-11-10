@@ -49,6 +49,7 @@ const emit = defineEmits<{
 }>()
 
 const deleteTarget = ref<Profile | null>(null)
+const openMenuId = ref<string | null>(null)
 const activeProfileId = computed(() =>
   props.vpnState.status === 'disconnected' ? '' : props.vpnState.profileId,
 )
@@ -60,12 +61,12 @@ const itemStatus = (id: string) => {
   return getStatusMeta(props.vpnState.status)
 }
 
-const openProfileMenu = (event: MouseEvent) => {
-  const target = event.currentTarget
-  if (!(target instanceof HTMLElement)) return
-  target.parentElement
-    ?.querySelector<HTMLButtonElement>('[data-testid="sidebar-profile-menu"]')
-    ?.click()
+const handleMenuOpenChange = (id: string, open: boolean) => {
+  if (open) {
+    openMenuId.value = id
+  } else if (openMenuId.value === id) {
+    openMenuId.value = null
+  }
 }
 
 const confirmDelete = (id: string) => {
@@ -93,16 +94,22 @@ const confirmDelete = (id: string) => {
         v-if="profiles.length === 0"
         class="px-3 py-6 text-center text-caption text-muted-foreground"
       >
-        尚未添加 VPN 节点
+        暂无连接
       </div>
 
-      <DropdownMenu v-for="profile in profiles" :key="profile.id">
+      <DropdownMenu
+        v-for="profile in profiles"
+        :key="profile.id"
+        :open="openMenuId === profile.id"
+        @update:open="(open) => handleMenuOpenChange(profile.id, open)"
+      >
         <div
+          :data-menu-open="openMenuId === profile.id ? 'true' : undefined"
           class="group/item relative overflow-hidden rounded-xl border transition-[background-color,border-color,box-shadow] duration-150"
           :class="
             selectedId === profile.id && !isCreating
               ? 'border-primary/40 bg-card text-foreground shadow-[var(--shadow-card)] ring-1 ring-primary/15'
-              : 'border-sidebar-border/85 bg-card/65 text-sidebar-foreground/90 hover:border-border hover:bg-card hover:text-foreground'
+              : 'border-sidebar-border/85 bg-card/65 text-sidebar-foreground/90 hover:border-border hover:bg-card hover:text-foreground data-[menu-open=true]:border-border data-[menu-open=true]:bg-card data-[menu-open=true]:text-foreground'
           "
         >
           <button
@@ -111,7 +118,7 @@ const confirmDelete = (id: string) => {
             :aria-current="selectedId === profile.id ? 'true' : undefined"
             :data-testid="`sidebar-profile-${profile.id}`"
             @click="emit('selectProfile', profile.id)"
-            @contextmenu.prevent="openProfileMenu"
+            @contextmenu.prevent="openMenuId = profile.id"
           >
             <div class="min-w-0 flex-1">
               <div
@@ -145,14 +152,15 @@ const confirmDelete = (id: string) => {
           </button>
 
           <div
-            class="pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-r-[11px] bg-linear-to-r from-transparent via-card/90 via-40% to-card pr-2 pl-8 opacity-0 transition-opacity group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100"
+            :data-menu-open="openMenuId === profile.id ? 'true' : undefined"
+            class="pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-r-[11px] bg-linear-to-r from-transparent via-card/90 via-40% to-card pr-2 pl-8 opacity-0 transition-opacity group-hover/item:pointer-events-auto group-hover/item:opacity-100 group-focus-within/item:pointer-events-auto group-focus-within/item:opacity-100 data-[menu-open=true]:pointer-events-auto data-[menu-open=true]:opacity-100"
           >
             <DropdownMenuTrigger as-child>
               <button
                 type="button"
                 data-testid="sidebar-profile-menu"
                 :aria-label="`${profile.name} 更多操作`"
-                class="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.08] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                class="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.08] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none data-[state=open]:bg-foreground/[0.08] data-[state=open]:text-foreground"
                 @click.stop
               >
                 <EllipsisVertical class="size-4" aria-hidden="true" />
@@ -161,7 +169,7 @@ const confirmDelete = (id: string) => {
           </div>
         </div>
 
-        <AppDropdownMenuContent align="end" class="w-44">
+        <AppDropdownMenuContent align="end" class="w-36 min-w-36">
           <AppDropdownMenuItem
             v-if="activeProfileId === profile.id && vpnState.status === 'connected'"
             :disabled="busy"
@@ -169,9 +177,9 @@ const confirmDelete = (id: string) => {
           >
             <Loader2
               v-if="pendingAction?.kind === 'disconnect' && pendingAction.profileId === profile.id"
-              class="size-4 animate-spin"
+              class="size-4 animate-spin text-muted-foreground"
             />
-            <Unplug v-else class="size-4" />
+            <Unplug v-else class="size-4 text-muted-foreground" />
             {{
               pendingAction?.kind === 'disconnect' && pendingAction.profileId === profile.id
                 ? '正在断开…'
@@ -183,15 +191,15 @@ const confirmDelete = (id: string) => {
             :disabled="canceling"
             @select="emit('cancel')"
           >
-            <Loader2 v-if="canceling" class="size-4 animate-spin" />
-            <X v-else class="size-4" />
+            <Loader2 v-if="canceling" class="size-4 animate-spin text-muted-foreground" />
+            <X v-else class="size-4 text-muted-foreground" />
             {{ canceling ? '正在取消…' : '取消连接' }}
           </AppDropdownMenuItem>
           <AppDropdownMenuItem
             v-else-if="activeProfileId === profile.id && vpnState.status === 'disconnecting'"
             disabled
           >
-            <Loader2 class="size-4 animate-spin" />正在断开…
+            <Loader2 class="size-4 animate-spin text-muted-foreground" />正在断开…
           </AppDropdownMenuItem>
           <AppDropdownMenuItem
             v-else
@@ -200,10 +208,10 @@ const confirmDelete = (id: string) => {
           >
             <Loader2
               v-if="pendingAction?.kind === 'connect' && pendingAction.profileId === profile.id"
-              class="size-4 animate-spin"
+              class="size-4 animate-spin text-muted-foreground"
             />
-            <ArrowLeftRight v-else-if="activeProfileId" class="size-4" />
-            <Play v-else class="size-4" />
+            <ArrowLeftRight v-else-if="activeProfileId" class="size-4 text-muted-foreground" />
+            <Play v-else class="size-4 text-muted-foreground" />
             {{ activeProfileId ? '切换连接' : '连接' }}
           </AppDropdownMenuItem>
           <DropdownMenuSeparator />
@@ -213,15 +221,14 @@ const confirmDelete = (id: string) => {
             @select="deleteTarget = profile"
           >
             <Trash2 class="size-4" />
-            删除连接
+            删除
           </AppDropdownMenuItem>
         </AppDropdownMenuContent>
 
         <ConfirmDialog
           :open="deleteTarget?.id === profile.id"
-          title="确认删除此节点？"
-          :description="`删除后将永久移除节点「${profile.name}」及其已保存的加密密码与会话日志，此操作不可撤销。`"
-          confirm-text="确认删除"
+          title="删除连接"
+          :description="`删除后将永久移除连接「${profile.name}」及其已保存的密码与连接日志，此操作无法撤销。`"
           :confirm-test-id="`sidebar-delete-${profile.id}`"
           @update:open="
             (open) => {

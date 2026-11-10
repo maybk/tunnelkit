@@ -20,6 +20,6 @@ export const APP_ROUTES: RouteRecordRaw[] = [
     path: '/profiles/new',
     name: ROUTE_NAMES.profileCreate,
     component: () => import('@/views/ProfileCreateView.vue'),
-    meta: { title: '新建节点' },
+    meta: { title: '新建连接' },
   },
 ]

@@ -12,6 +12,7 @@ import { getToneClasses } from '@/constants/tone'
 import { getViewingStatusMeta } from '@/presentation/vpn'
 import type { Profile } from '@/types/profile'
 import type { VpnPendingAction, VpnState } from '@/types/vpn'
+import { formatEndpoint } from '@/utils/network'
 
 const props = withDefaults(
   defineProps<{
@@ -131,7 +132,7 @@ const actionButtonConfig = computed(() => {
         >
           <span class="inline-flex items-center gap-1 font-mono tabular-nums">
             <Globe class="size-3.5 opacity-75" aria-hidden="true" />
-            {{ profile.host }}:{{ profile.port }}
+            {{ formatEndpoint(profile.host, profile.port) }}
           </span>
           <span class="inline-flex items-center gap-1">
             <User class="size-3.5 opacity-75" aria-hidden="true" />

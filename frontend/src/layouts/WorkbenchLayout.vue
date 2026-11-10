@@ -116,9 +116,8 @@ const handleOpenAbout = () => {
 
     <ConfirmDialog
       v-model:open="vpnStore.switchConfirmOpen"
-      title="切换 VPN 节点连接？"
-      :description="`当前已连接到「${vpnStore.state.profileName || '其他节点'}」，继续操作将先断开当前隧道并连接到「${vpnStore.pendingSwitchProfileName}」。`"
-      confirm-text="断开并切换"
+      title="切换连接"
+      :description="`当前已连接到「${vpnStore.state.profileName || '其他连接'}」，确认后将先断开当前连接，再连接到「${vpnStore.pendingSwitchProfileName}」。`"
       variant="default"
       confirm-test-id="vpn-confirm-switch-btn"
       @confirm="vpnStore.confirmSwitchConnect()"

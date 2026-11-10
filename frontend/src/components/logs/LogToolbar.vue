@@ -28,8 +28,8 @@ const emit = defineEmits<{
     <div class="flex min-w-0 items-center gap-2 text-caption">
       <Terminal class="size-3.5 shrink-0 text-muted-foreground" />
       <span class="font-medium text-foreground">连接日志</span>
-      <span class="truncate text-caption text-muted-foreground">
-        {{ updatedAt ? `更新于 ${updatedAt}` : '暂无记录' }}
+      <span class="truncate text-caption text-muted-foreground tabular-nums">
+        · {{ updatedAt ? `更新于 ${updatedAt}` : '暂无记录' }}
       </span>
       <span
         v-if="autoRefresh"

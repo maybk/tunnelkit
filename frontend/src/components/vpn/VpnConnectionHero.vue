@@ -160,7 +160,7 @@ const actionButtonConfig = computed(() => {
       </div>
     </div>
     <div
-      v-if="isThisProfileActive && state.error?.message"
+      v-if="isThisProfileActive && state.status === 'disconnected' && state.error?.message"
       data-testid="vpn-error-banner"
       class="mt-4"
     >

@@ -88,10 +88,11 @@ wails3 package
   wails3 task windows:package:arm64
   ```
 
-- **Linux（支持 `amd64` 与 `arm64` 二进制及 `.deb` 安装包）**：
+- **Linux（支持 `amd64` 与 `arm64` 二进制及 `.deb` / `.rpm` 安装包）**：
   ```bash
   wails3 task linux:build
   wails3 task linux:create:deb
+  wails3 task linux:create:rpm
   ```
 
 ## 发布

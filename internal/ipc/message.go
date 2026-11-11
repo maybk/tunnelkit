@@ -10,7 +10,9 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"tunnelkit/fortivpn"
@@ -109,7 +111,7 @@ func NewEnvelope(msgType MessageType, id uint64, payload any) (Envelope, error) 
 	}, nil
 }
 
-// DecodeStrict unmarshals raw JSON into T while rejecting unknown fields.
+// DecodeStrict unmarshals raw JSON into T while rejecting unknown fields and trailing data.
 func DecodeStrict[T any](raw json.RawMessage) (T, error) {
 	var out T
 	if len(bytes.TrimSpace(raw)) == 0 {
@@ -119,6 +121,9 @@ func DecodeStrict[T any](raw json.RawMessage) (T, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&out); err != nil {
 		return out, err
+	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return out, errors.New("unexpected trailing JSON data")
 	}
 	return out, nil
 }

@@ -101,7 +101,11 @@ const isHelperMissing = computed(() =>
               <Activity class="size-3.5" />
               状态
               <span
-                v-if="vpnStore.state.profileId === selectedProfile.id && vpnStore.state.error"
+                v-if="
+                  vpnStore.state.status === 'disconnected' &&
+                  vpnStore.state.profileId === selectedProfile.id &&
+                  vpnStore.state.error
+                "
                 class="size-1.5 rounded-full bg-tone-danger-solid"
                 aria-hidden="true"
               />

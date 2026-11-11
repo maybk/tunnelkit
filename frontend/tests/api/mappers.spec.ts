@@ -13,6 +13,29 @@ import * as vpnModels from '@bindings/tunnelkit/internal/vpn/models.js'
 import { createTestProfileInput } from '../fixtures/profiles'
 
 describe('api mappers', () => {
+  it('normalizes empty errors while keeping genuine errors and their details', () => {
+    for (const error of [
+      undefined,
+      null,
+      new vpnModels.Error(),
+      new vpnModels.Error({ message: '  ' }),
+    ]) {
+      expect(mapVpnStateFromDto({ error }).error).toBeNull()
+    }
+    const error = new vpnModels.Error({
+      message: '网络恢复失败',
+      hint: '请查看日志',
+      trustedCert: 'synthetic-fingerprint',
+    })
+    expect(mapVpnStateFromDto({ error }).error).toEqual(error)
+    expect(
+      mapVpnStateFromDto({ error: new vpnModels.Error({ hint: '请查看日志' }) }).error?.hint,
+    ).toBe('请查看日志')
+    expect(
+      mapVpnStateFromDto({ error: new vpnModels.Error({ hint: '请查看日志' }) }).error?.message,
+    ).toBeTruthy()
+  })
+
   it('only exposes a supported challenge in the waiting-input state', () => {
     const prompt = new fortivpnModels.Prompt({
       id: 'synthetic',
@@ -39,6 +62,33 @@ describe('api mappers', () => {
         prompt: new fortivpnModels.Prompt(),
       }).prompt,
     ).toBeNull()
+  })
+
+  it('normalizes empty or non-connected tunnel info and stats to null', () => {
+    expect(
+      mapVpnStateFromDto({
+        status: vpnModels.Status.StatusConnected,
+        phase: fortivpnModels.Phase.PhaseConnected,
+        info: new fortivpnModels.TunnelInfo(),
+        stats: new fortivpnModels.Stats(),
+      }),
+    ).toMatchObject({
+      info: null,
+      stats: { rxBytes: 0, txBytes: 0, rxPackets: 0, txPackets: 0, rttMillis: 0 },
+    })
+    expect(
+      mapVpnStateFromDto({
+        status: vpnModels.Status.StatusConnecting,
+        phase: fortivpnModels.Phase.PhaseReconnecting,
+        connectedAt: '2026-11-11T00:00:00Z',
+        info: new fortivpnModels.TunnelInfo({ localIp: '10.212.0.10' }),
+        stats: new fortivpnModels.Stats({ rxBytes: 512 }),
+      }),
+    ).toMatchObject({
+      connectedAt: '',
+      info: null,
+      stats: null,
+    })
   })
   it('maps binding profile and profile input models cleanly', () => {
     const profile = mapProfileFromDto({

@@ -15,20 +15,8 @@ import (
 func (s *Service) Disconnect(ctx context.Context) error {
 	ctx, cancelTimeout := context.WithTimeout(ctx, 12*time.Second)
 	defer cancelTimeout()
-	s.mu.RLock()
-	inFlightCancel := s.cancelConnect
-	inFlightDone := s.opDone
-	s.mu.RUnlock()
-
-	if inFlightDone != nil {
-		if inFlightCancel != nil {
-			inFlightCancel()
-		}
-		select {
-		case <-inFlightDone:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if err := s.cancelInFlight(ctx); err != nil {
+		return err
 	}
 
 	release, err := s.begin()
@@ -50,22 +38,30 @@ func (s *Service) disconnectLocked(ctx context.Context) error {
 	if conn == nil {
 		if ticket, loadErr := s.tickets.Load(); loadErr == nil {
 			attached, _, recovered, err := s.attachOrRecoverTicket(ctx, ticket)
-			if err != nil || recovered {
+			if err != nil {
+				s.recordAttachOrRecoverFailure(ticket, recovered, err)
 				return err
+			}
+			if recovered {
+				return nil
 			}
 			conn = attached
 			_, streamDone = s.startEventStream(conn, ticket, nil)
 			curState = s.State()
 		} else if !errors.Is(loadErr, os.ErrNotExist) {
+			s.failDisconnect(curState.ProfileID, curState.ProfileName, errSessionRead())
 			return loadErr
 		}
 	}
 
 	if conn == nil {
-		if err := s.waitForHelper(ctx); err != nil {
+		if err := s.waitForHelperOrFail(ctx, curState.ProfileID, curState.ProfileName); err != nil {
 			return err
 		}
-		if handled, err := s.recoverLegacyNetwork(ctx, helperclient.Ticket{ProfileID: curState.ProfileID, ProfileName: curState.ProfileName}); handled {
+		if handled, err := s.recoverLegacyNetwork(ctx, helperclient.Ticket{
+			ProfileID:   curState.ProfileID,
+			ProfileName: curState.ProfileName,
+		}); handled {
 			return err
 		}
 		if err := s.tickets.Clear(); err != nil {
@@ -92,28 +88,29 @@ func (s *Service) disconnectLocked(ctx context.Context) error {
 	err := conn.Stop(stopCtx)
 	cancel()
 	if err != nil {
-		// 不能以早先快照恢复状态：停止请求失败并不证明隧道仍连接或旧挑战仍有效。
-		s.updateState(conn, func(state *State) bool {
-			state.Error = &Error{Message: "断开连接失败", Hint: err.Error()}
-			return true
-		})
+		// 不能以早先快照恢复状态：停止请求失败并不证明隧道仍连接或旧挑战仍有效；
+		// 解除当前控制连接并收敛至断开异常态，保留恢复票据供后续重试清理。
+		s.failDisconnect(curState.ProfileID, curState.ProfileName, errDisconnectStop())
 		return err
 	}
 
 	if err := s.waitStreamDoneContext(ctx, streamDone); err != nil {
+		s.failDisconnect(curState.ProfileID, curState.ProfileName, errDisconnectTimeout())
 		return err
 	}
-	if err := s.waitForHelper(ctx); err != nil {
+	if err := s.waitForHelperOrFail(ctx, curState.ProfileID, curState.ProfileName); err != nil {
 		return err
 	}
 	if final := s.State(); final.Error != nil {
 		return errors.New(final.Error.Message)
 	}
 	if ticket, err := s.tickets.Load(); err == nil {
+		// 旧协议的无错误终态不保证网络已恢复，必须检查遗留记录后再清除票据。
 		if ticket.Protocol == 1 {
 			return s.finishSession(ctx, nil, &fortivpn.Event{Phase: fortivpn.PhaseDisconnected}, ticket)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
+		s.failDisconnect(curState.ProfileID, curState.ProfileName, errSessionRead())
 		return err
 	}
 	s.detachConn()
@@ -128,4 +125,27 @@ func (s *Service) disconnectLocked(ctx context.Context) error {
 		ProfileName: curState.ProfileName,
 	})
 	return nil
+}
+
+func (s *Service) failDisconnect(profileID, profileName string, vpnErr *Error) {
+	s.detachConn()
+	s.updateState(nil, func(state *State) bool {
+		if profileID == "" {
+			profileID = state.ProfileID
+		}
+		if profileName == "" {
+			profileName = state.ProfileName
+		}
+		if vpnErr == nil && state.Error != nil {
+			vpnErr = state.Error
+		}
+		*state = State{
+			Status:      StatusDisconnected,
+			Phase:       fortivpn.PhaseDisconnected,
+			ProfileID:   profileID,
+			ProfileName: profileName,
+			Error:       vpnErr,
+		}
+		return true
+	})
 }

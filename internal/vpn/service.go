@@ -136,6 +136,26 @@ func (s *Service) begin() (func(), error) {
 	}, nil
 }
 
+func (s *Service) cancelInFlight(ctx context.Context) error {
+	s.mu.RLock()
+	inFlightCancel := s.cancelConnect
+	inFlightDone := s.opDone
+	s.mu.RUnlock()
+
+	if inFlightDone == nil {
+		return nil
+	}
+	if inFlightCancel != nil {
+		inFlightCancel()
+	}
+	select {
+	case <-inFlightDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (s *Service) setState(next State) State {
 	state, _ := s.updateState(nil, func(current *State) bool {
 		*current = next
@@ -159,6 +179,9 @@ func (s *Service) updateState(conn Conn, change func(*State) bool) (State, bool)
 	next.Revision = s.state.Revision + 1
 	if next.Status != StatusConnecting || next.Phase != fortivpn.PhaseWaitingInput || next.Prompt == nil || !next.Prompt.Valid() {
 		next.Prompt = nil
+	}
+	if next.Status != StatusConnected {
+		next.ConnectedAt, next.Info, next.Stats = "", nil, nil
 	}
 	s.state = next
 	close(s.stateChanged)

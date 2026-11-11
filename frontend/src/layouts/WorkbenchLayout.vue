@@ -56,8 +56,7 @@ const handleCreateProfile = () => {
 }
 
 const handleOpenAbout = () => {
-  systemStore.updateFeedback = ''
-  systemStore.aboutDialogOpen = true
+  systemStore.openAboutDialog()
 }
 </script>
 
@@ -75,6 +74,7 @@ const handleOpenAbout = () => {
       :is-maximised="desktopWin.isMaximised"
       :is-fullscreen="desktopWin.isFullscreen"
       :theme-mode="themeStore.theme"
+      :has-update="systemStore.hasUpdate"
       @minimise="desktopWin.minimise()"
       @toggle-maximise="desktopWin.toggleMaximise()"
       @close="desktopWin.close()"
@@ -142,7 +142,7 @@ const handleOpenAbout = () => {
       :update-info="systemStore.updateInfo"
       :checking-update="systemStore.isCheckingUpdate"
       :checking-system="systemStore.checkingSystem"
-      :update-feedback="systemStore.updateFeedback"
+      :up-to-date="systemStore.updateUpToDate"
       @check-system="systemStore.loadSystemInfo()"
       @check-update="systemStore.checkUpdate({ silent: false })"
       @show-update="systemStore.openUpdateFromAbout()"

@@ -25,6 +25,7 @@ const props = withDefaults(
     isMaximised?: boolean
     isFullscreen?: boolean
     themeMode?: ThemeMode
+    hasUpdate?: boolean
   }>(),
   {
     isFocused: true,
@@ -32,6 +33,7 @@ const props = withDefaults(
     isMaximised: false,
     isFullscreen: false,
     themeMode: 'system',
+    hasUpdate: false,
   },
 )
 
@@ -100,13 +102,19 @@ const themeLabel = computed(
       <AppButton
         variant="ghost"
         size="icon-xs"
-        title="关于 TunnelKit"
+        :title="hasUpdate ? '关于 TunnelKit（有可用更新）' : '关于 TunnelKit'"
         aria-label="关于 TunnelKit"
         data-testid="chrome-about-btn"
-        class="text-muted-foreground hover:text-foreground"
+        class="relative text-muted-foreground hover:text-foreground"
         @click="emit('openAbout')"
       >
         <Info class="size-4" />
+        <span
+          v-if="hasUpdate"
+          data-testid="chrome-update-dot"
+          class="pointer-events-none absolute top-1 right-1 size-1.5 rounded-full bg-primary ring-2 ring-sidebar"
+          aria-hidden="true"
+        />
       </AppButton>
     </div>
 

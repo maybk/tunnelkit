@@ -19,7 +19,7 @@ import * as profile$0 from "../profile/models.js";
 import * as $models from "./models.js";
 
 /**
- * Delete 删除配置及其密码与日志；正在使用的配置禁止删除。
+ * Delete 删除配置及其密码与日志；正在使用或仍有待恢复会话的配置禁止删除。
  */
 export function Delete(id: string): $CancellablePromise<void> {
     return $Call.ByID(1070669518, id);

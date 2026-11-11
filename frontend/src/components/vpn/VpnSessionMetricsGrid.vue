@@ -34,12 +34,18 @@ const statusSummary = computed(() => {
   if (view.value.status === 'connecting')
     return {
       title: describeVpnPhase(props.state, props.profile),
-      detail: '若弹出系统权限或验证码窗口，请按提示完成确认',
+      detail:
+        props.state.phase === 'reconnecting'
+          ? '正在自动恢复 VPN 隧道，如需重新验证将自动提示'
+          : '若弹出系统权限或验证码窗口，请按提示完成确认',
     }
   if (view.value.status === 'disconnecting')
     return { title: '正在断开连接…', detail: '正在关闭隧道并恢复原有路由与 DNS 设置' }
   if (props.state.profileId === props.profile.id && props.state.error)
-    return { title: '上次连接未成功', detail: '请根据上方提示检查配置后重新连接' }
+    return {
+      title: '连接状态异常',
+      detail: '请根据上方提示处理，或在「日志」中查看详细输出',
+    }
   return { title: '当前未连接', detail: describeVpnPhase(props.state, props.profile) }
 })
 const routePolicySummary = computed(

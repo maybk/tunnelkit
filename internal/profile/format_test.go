@@ -81,3 +81,21 @@ func TestFutureProfileAndCredentialFormatsArePreserved(t *testing.T) {
 		})
 	}
 }
+
+func TestEmptyProfileAndSecretFilesDefaultToEmptyCollections(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{storage.ProfilesPath(root), storage.SecretsPath(root)} {
+		if err := storage.WriteFile(path, []byte(" \n\t "), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := NewStore(root)
+	list, err := store.List()
+	if err != nil || len(list) != 0 {
+		t.Fatalf("List() on whitespace files = (%v, %v), want empty slice", list, err)
+	}
+	saved, err := store.Save(Input{Name: "empty-init", Host: "vpn.example.com", Username: "u", Password: "p"})
+	if err != nil || !saved.HasPassword {
+		t.Fatalf("Save() after whitespace files = (%+v, %v)", saved, err)
+	}
+}

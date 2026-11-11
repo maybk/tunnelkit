@@ -1,11 +1,12 @@
 import type { LogViewSnapshot } from '@/types/log'
 import type { VpnState } from '@/types/vpn'
+import { VpnState as EVENT_VPN_STATE } from '@bindings/events/index.js'
 import * as VPNAPI from '@bindings/tunnelkit/internal/api/vpnapi.js'
-import * as vpnModels from '@bindings/tunnelkit/internal/vpn/models.js'
+import type * as vpnModels from '@bindings/tunnelkit/internal/vpn/models.js'
 import { Browser, Events } from '@wailsio/runtime'
 import { mapLogViewFromDto, mapVpnStateFromDto } from './mappers'
 
-export const EVENT_VPN_STATE = 'vpn:state'
+export { EVENT_VPN_STATE }
 
 export const vpnApi = {
   async getState(): Promise<VpnState> {
@@ -47,9 +48,9 @@ export const vpnApi = {
   },
 
   subscribeState(listener: (state: VpnState) => void): () => void {
-    return Events.On(EVENT_VPN_STATE, (event: { data?: unknown }) => {
-      const dto = vpnModels.State.createFrom(event.data ?? {})
-      listener(mapVpnStateFromDto(dto))
+    return Events.On(EVENT_VPN_STATE, (event: { data?: vpnModels.State | null }) => {
+      // Wails 已按注册的事件类型创建模型；再次转换会将 undefined 字段创建为空对象。
+      listener(mapVpnStateFromDto(event.data))
     })
   },
 }

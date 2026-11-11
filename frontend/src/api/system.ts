@@ -1,11 +1,12 @@
 import type { SystemInfo, UpdateInfo, UpdateProgress } from '@/types/system'
 import { isTrustedReleaseUrl, isTrustedRepositoryUrl } from '@/validate/update'
+import { UpdateProgress as EVENT_UPDATE_PROGRESS } from '@bindings/events/index.js'
 import * as SystemAPI from '@bindings/tunnelkit/internal/api/systemapi.js'
-import * as updateModels from '@bindings/tunnelkit/internal/update/models.js'
+import type * as updateModels from '@bindings/tunnelkit/internal/update/models.js'
 import { Browser, Events } from '@wailsio/runtime'
 import { mapSystemInfoFromDto, mapUpdateInfoFromDto, mapUpdateProgressFromDto } from './mappers'
 
-export const EVENT_UPDATE_PROGRESS = 'update:progress'
+export { EVENT_UPDATE_PROGRESS }
 
 export const systemApi = {
   async getInfo(): Promise<SystemInfo> {
@@ -30,9 +31,8 @@ export const systemApi = {
   },
 
   subscribeUpdateProgress(listener: (progress: UpdateProgress) => void): () => void {
-    return Events.On(EVENT_UPDATE_PROGRESS, (event: { data?: unknown }) => {
-      const dto = updateModels.Progress.createFrom(event.data ?? {})
-      listener(mapUpdateProgressFromDto(dto))
+    return Events.On(EVENT_UPDATE_PROGRESS, (event: { data?: updateModels.Progress | null }) => {
+      listener(mapUpdateProgressFromDto(event.data))
     })
   },
 }

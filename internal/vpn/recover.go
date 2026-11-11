@@ -24,16 +24,10 @@ func (s *Service) Recover(ctx context.Context) State {
 			return s.setState(State{
 				Status: StatusDisconnected,
 				Phase:  fortivpn.PhaseDisconnected,
-				Error: &Error{
-					Message: "读取会话恢复信息失败",
-					Hint:    err.Error(),
-				},
+				Error:  errSessionRead(),
 			})
 		}
-		if handled, recoveryErr := s.recoverLegacyNetwork(ctx, helperclient.Ticket{}); handled {
-			if recoveryErr != nil {
-				s.failConnect("", "", &Error{Message: "恢复旧版网络配置失败", Hint: recoveryErr.Error()})
-			}
+		if handled, _ := s.recoverLegacyNetwork(ctx, helperclient.Ticket{}); handled {
 			return s.State()
 		}
 		return s.setState(State{
@@ -44,28 +38,24 @@ func (s *Service) Recover(ctx context.Context) State {
 
 	conn, snap, recovered, err := s.attachOrRecoverTicket(ctx, ticket)
 	if err != nil {
-		msg := "恢复网络配置失败"
-		hint := err.Error()
-		if !recovered {
-			msg = "无法确认已有隧道状态"
-			hint = "恢复票据已保留，请重试断开或连接。"
-		}
-		return s.setState(State{
-			Status:      StatusDisconnected,
-			Phase:       fortivpn.PhaseDisconnected,
-			ProfileID:   ticket.ProfileID,
-			ProfileName: ticket.ProfileName,
-			Error: &Error{
-				Message: msg,
-				Hint:    hint,
-			},
-		})
+		s.recordAttachOrRecoverFailure(ticket, recovered, err)
+		return s.State()
 	}
 	if recovered {
 		return s.State()
 	}
 
 	return s.adoptSession(conn, snap, ticket)
+}
+
+func (s *Service) recordAttachOrRecoverFailure(ticket helperclient.Ticket, recovered bool, err error) {
+	if !recovered {
+		s.failDisconnect(ticket.ProfileID, ticket.ProfileName, errSessionUnconfirmed())
+		return
+	}
+	if st := s.State(); st.Status != StatusDisconnected || st.Error == nil {
+		s.failDisconnect(ticket.ProfileID, ticket.ProfileName, errNetworkRecoveryFailed(false, err))
+	}
 }
 
 // attachOrRecoverTicket 尝试接入票据对应的 helper；若 helper 已退出或处于 PhaseDisconnected，

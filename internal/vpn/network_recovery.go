@@ -38,6 +38,12 @@ func (s *Service) recoverNetwork(ctx context.Context, prior helperclient.Ticket)
 	if err != nil {
 		return err
 	}
+	if ticket.ProfileID == "" {
+		ticket.ProfileID = prior.ProfileID
+	}
+	if ticket.ProfileName == "" {
+		ticket.ProfileName = prior.ProfileName
+	}
 	if !saved {
 		if err := s.tickets.Save(ticket); err != nil {
 			_ = conn.Close()
@@ -52,9 +58,10 @@ func (s *Service) recoverNetwork(ctx context.Context, prior helperclient.Ticket)
 	})
 	_, done := s.startEventStream(conn, ticket, nil)
 	if err := s.waitStreamDoneContext(ctx, done); err != nil {
+		s.failDisconnect(prior.ProfileID, prior.ProfileName, errNetworkRecoveryTimeout())
 		return err
 	}
-	if err := s.waitForHelper(ctx); err != nil {
+	if err := s.waitForHelperOrFail(ctx, prior.ProfileID, prior.ProfileName); err != nil {
 		return err
 	}
 	if final := s.State(); final.Error != nil {
@@ -77,7 +84,7 @@ func (s *Service) finishSession(ctx context.Context, conn Conn, snapshot *fortiv
 	if conn != nil {
 		_ = conn.Close()
 	}
-	if err := s.waitForHelper(ctx); err != nil {
+	if err := s.waitForHelperOrFail(ctx, ticket.ProfileID, ticket.ProfileName); err != nil {
 		return err
 	}
 	if recovered, err := s.recoverLegacyNetwork(ctx, ticket); recovered {

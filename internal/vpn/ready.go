@@ -8,7 +8,7 @@ import (
 )
 
 // waitReady 将人工验证等待与网络就绪超时分开，同时保留整体上限。
-func (s *Service) waitReady(ctx context.Context, ready <-chan *Error) (*Error, bool) {
+func (s *Service) waitReady(ctx context.Context, ready <-chan readyResult) (readyResult, bool) {
 	network := time.NewTimer(s.readyTimeout)
 	defer network.Stop()
 	overall := time.NewTimer(s.readyTimeout + fortivpn.PromptTimeout)
@@ -33,7 +33,7 @@ func (s *Service) waitReady(ctx context.Context, ready <-chan *Error) (*Error, b
 		case result := <-ready:
 			return result, false
 		case <-ctx.Done():
-			return nil, false
+			return readyResult{}, false
 		case <-changed:
 		case <-timeout:
 			// 到期与阶段通知同时就绪时，优先核对当前是否已开始等待输入。
@@ -41,10 +41,10 @@ func (s *Service) waitReady(ctx context.Context, ready <-chan *Error) (*Error, b
 			input := s.state.Phase == fortivpn.PhaseWaitingInput
 			s.mu.RUnlock()
 			if !input {
-				return nil, true
+				return readyResult{}, true
 			}
 		case <-overall.C:
-			return nil, true
+			return readyResult{}, true
 		}
 	}
 }

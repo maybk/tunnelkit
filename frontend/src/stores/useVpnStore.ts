@@ -121,14 +121,54 @@ export const useVpnStore = defineStore('vpn', () => {
     }
   }
 
+  const isZeroSnapshot = (snapshot: VpnState) =>
+    snapshot.revision === 0 &&
+    snapshot.status === 'disconnected' &&
+    !snapshot.profileId &&
+    !snapshot.error
+
+  const syncAuthoritativeState = async () => {
+    try {
+      const latest = await vpnApi.getState()
+      if (isZeroSnapshot(latest) && !isZeroSnapshot(state.value)) return
+      applyState(latest)
+    } catch {
+      // 忽略兜底状态同步异常，保留最近一次有效状态快照
+    }
+  }
+
+  const hasInlineErrorFor = (profileId: string) =>
+    Boolean(
+      profileId &&
+      profilesStore.selectedId === profileId &&
+      state.value.profileId === profileId &&
+      state.value.status === 'disconnected' &&
+      state.value.error?.message,
+    )
+
+  const reportActionError = async (
+    err: unknown,
+    targetProfileId: string,
+    prevRevision: number,
+    fallbackTitle: string,
+  ) => {
+    await syncAuthoritativeState()
+    const effectiveProfileId = targetProfileId || state.value.profileId
+    const hasNewState = state.value.revision > prevRevision
+    if (hasNewState && hasInlineErrorFor(effectiveProfileId)) return
+    const syncedMessage = hasNewState ? state.value.error?.message : undefined
+    noticeStore.showError(syncedMessage || err, fallbackTitle)
+  }
+
   const executeConnect = async (profileId: string) => {
     if (!profileId || busyAction.value) return
+    const prevRevision = state.value.revision
     busyAction.value = true
     pendingAction.value = { kind: 'connect', profileId }
     try {
       await vpnApi.connect(profileId)
     } catch (err) {
-      noticeStore.showError(err, '发起 VPN 连接失败')
+      await reportActionError(err, profileId, prevRevision, '发起 VPN 连接失败')
     } finally {
       pendingAction.value = null
       busyAction.value = false
@@ -160,12 +200,14 @@ export const useVpnStore = defineStore('vpn', () => {
 
   const disconnect = async () => {
     if (busyAction.value) return
+    const prevRevision = state.value.revision
+    const targetProfileId = state.value.profileId
     busyAction.value = true
-    pendingAction.value = { kind: 'disconnect', profileId: state.value.profileId }
+    pendingAction.value = { kind: 'disconnect', profileId: targetProfileId }
     try {
       await vpnApi.disconnect()
     } catch (err) {
-      noticeStore.showError(err, '断开 VPN 连接失败')
+      await reportActionError(err, targetProfileId, prevRevision, '断开 VPN 连接失败')
     } finally {
       pendingAction.value = null
       busyAction.value = false
@@ -178,11 +220,13 @@ export const useVpnStore = defineStore('vpn', () => {
       return
     }
     if (cancelingConnect.value) return
+    const prevRevision = state.value.revision
+    const targetProfileId = state.value.profileId
     cancelingConnect.value = true
     try {
       await vpnApi.cancel()
     } catch (err) {
-      noticeStore.showError(err, '取消连接失败')
+      await reportActionError(err, targetProfileId, prevRevision, '取消连接失败')
     } finally {
       cancelingConnect.value = false
     }

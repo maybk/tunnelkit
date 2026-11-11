@@ -17,6 +17,15 @@ describe('original desktop presentation contract', () => {
     expect(wrapper.get('[data-testid="sidebar-new-profile-btn"]').text()).toBe('新建连接')
     await wrapper.get('[data-testid="sidebar-new-profile-btn"]').trigger('click')
     expect(wrapper.emitted('createProfile')).toHaveLength(1)
+
+    await wrapper.setProps({
+      vpnState: createTestVpnState({
+        status: 'disconnected',
+        profileId: 'profile-1',
+        error: { message: '认证失败', hint: '', trustedCert: '' },
+      }),
+    })
+    expect(wrapper.find('span.bg-tone-danger-solid').exists()).toBe(true)
     wrapper.unmount()
   })
 

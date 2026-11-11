@@ -846,3 +846,81 @@ func TestUpdateMaintenanceGate(t *testing.T) {
 		t.Fatalf("Connect after restarting EndUpdate = %v, want ErrClosed", err)
 	}
 }
+
+func TestFailedStopAllowsRetryViaSavedTicket(t *testing.T) {
+	initialConn := newFakeConn()
+	initialConn.stopErr = errors.New("ipc stop write failed")
+	retryConn := newFakeConn()
+
+	svc, prof := setupTestService(t, &fakeLauncher{
+		launchFn: func(_ context.Context, req helperclient.LaunchRequest) (Conn, helperclient.Ticket, error) {
+			initialConn.sendEvent(fortivpn.Event{Phase: fortivpn.PhaseConnected})
+			return initialConn, helperclient.Ticket{Endpoint: "/tmp/stop-retry", Token: "tok", ProfileID: req.ProfileID, ProfileName: req.ProfileName}, nil
+		},
+		attachFn: func(context.Context, helperclient.Ticket) (Conn, *fortivpn.Event, error) {
+			return retryConn, &fortivpn.Event{Phase: fortivpn.PhaseConnected}, nil
+		},
+	})
+	if err := svc.Connect(context.Background(), prof.ID); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	if err := svc.Disconnect(context.Background()); err == nil {
+		t.Fatal("expected initial Disconnect to fail")
+	}
+	st := svc.State()
+	if st.Status != StatusDisconnected || st.Error == nil || st.ProfileID != prof.ID {
+		t.Fatalf("expected retryable disconnected error state, got %+v", st)
+	}
+	if _, err := svc.tickets.Load(); err != nil {
+		t.Fatalf("failed Disconnect must retain recovery ticket: %v", err)
+	}
+	if err := svc.Disconnect(context.Background()); err != nil {
+		t.Fatalf("retry Disconnect failed: %v", err)
+	}
+	if st := svc.State(); st.Status != StatusDisconnected || st.Error != nil {
+		t.Fatalf("expected clean disconnected state after retry, got %+v", st)
+	}
+	if _, err := svc.tickets.Load(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected ticket cleared after retry Disconnect, got %v", err)
+	}
+}
+
+func TestSyncSavedProfileClearsStaleConnectErrorAndPreservesRecoveryError(t *testing.T) {
+	svc, prof := setupTestService(t, &fakeLauncher{
+		launchFn: func(_ context.Context, req helperclient.LaunchRequest) (Conn, helperclient.Ticket, error) {
+			conn := newFakeConn()
+			conn.sendEvent(fortivpn.Event{
+				Phase: fortivpn.PhaseDisconnected,
+				Err:   fortivpn.NewError(fortivpn.CodeAuthFailed, "bad password"),
+			})
+			return conn, helperclient.Ticket{Endpoint: "/tmp/auth-fail", Token: "tok", ProfileID: req.ProfileID, ProfileName: req.ProfileName}, nil
+		},
+	})
+	if err := svc.Connect(context.Background(), prof.ID); err == nil {
+		t.Fatal("expected auth failure")
+	}
+	if st := svc.State(); st.Error == nil {
+		t.Fatal("expected auth error on disconnected state")
+	}
+	updated := prof
+	updated.Name = "公司 VPN（新）"
+	svc.SyncSavedProfile(updated)
+	if st := svc.State(); st.Error != nil || st.ProfileName != updated.Name {
+		t.Fatalf("expected stale connect error cleared and name synced, got %+v", st)
+	}
+
+	// When a recovery ticket exists, SyncSavedProfile must preserve the recovery error.
+	if err := svc.tickets.Save(helperclient.Ticket{
+		Endpoint:    "/tmp/pending-recovery",
+		Token:       "tok",
+		ProfileID:   prof.ID,
+		ProfileName: updated.Name,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc.failDisconnect(prof.ID, updated.Name, errDisconnectStop())
+	svc.SyncSavedProfile(updated)
+	if st := svc.State(); st.Error == nil {
+		t.Fatal("recovery error must not be cleared while session ticket exists")
+	}
+}

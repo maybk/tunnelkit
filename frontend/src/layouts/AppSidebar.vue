@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { getStatusMeta } from '@/presentation/vpn'
+import { getViewingStatusMeta } from '@/presentation/vpn'
 import type { Profile } from '@/types/profile'
 import type { VpnPendingAction, VpnState } from '@/types/vpn'
 import { formatEndpoint } from '@/utils/network'
@@ -54,12 +54,7 @@ const activeProfileId = computed(() =>
   props.vpnState.status === 'disconnected' ? '' : props.vpnState.profileId,
 )
 
-const itemStatus = (id: string) => {
-  if (props.vpnState.profileId !== id || props.vpnState.status === 'disconnected') {
-    return { label: '', tone: 'neutral' as const, pulse: false }
-  }
-  return getStatusMeta(props.vpnState.status)
-}
+const itemStatus = (id: string) => getViewingStatusMeta(props.vpnState, id)
 
 const handleMenuOpenChange = (id: string, open: boolean) => {
   if (open) {

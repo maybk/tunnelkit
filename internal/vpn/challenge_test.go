@@ -218,11 +218,39 @@ func TestFailedStopDoesNotRestoreAChallengeSnapshot(t *testing.T) {
 	conn := newFakeConn()
 	conn.stopErr = errors.New("synthetic stop failure")
 	svc, _ := setupTestService(t, &fakeLauncher{})
-	svc.adoptSession(conn, &fortivpn.Event{Phase: fortivpn.PhaseWaitingInput, Prompt: &fortivpn.Prompt{ID: "active", Kind: fortivpn.PromptOTP}}, helperclient.Ticket{})
+	svc.adoptSession(conn, &fortivpn.Event{Phase: fortivpn.PhaseWaitingInput, Prompt: &fortivpn.Prompt{ID: "active", Kind: fortivpn.PromptOTP}}, helperclient.Ticket{ProfileID: "p1"})
 	if err := svc.Disconnect(context.Background()); err == nil {
 		t.Fatal("stop failure was hidden")
 	}
-	if svc.State().Prompt != nil {
+	st := svc.State()
+	if st.Prompt != nil {
 		t.Fatal("failed stop restored an old challenge")
+	}
+	if st.Status != StatusDisconnected || st.Error == nil {
+		t.Fatalf("failed stop must settle into retryable disconnected error state, got %+v", st)
+	}
+}
+
+func TestReconnectClearsLiveTelemetryWithoutPrematureFailure(t *testing.T) {
+	state := State{
+		Status:      StatusConnected,
+		Phase:       fortivpn.PhaseConnected,
+		ConnectedAt: "2026-11-11T00:00:00Z",
+		Info:        &fortivpn.TunnelInfo{LocalIP: "10.212.0.10"},
+		Stats:       &fortivpn.Stats{RxBytes: 1024},
+	}
+	ticket := helperclient.Ticket{ProfileID: "p1", StartedAt: "2026-11-11T00:00:00Z"}
+	dropErr := fortivpn.NewError(fortivpn.CodeConnectionLost, "link lost")
+	if !applyMessage(&state, helperclient.Message{Event: &fortivpn.Event{Phase: fortivpn.PhaseReconnecting, Err: dropErr}}, ticket) {
+		t.Fatal("reconnecting event was rejected")
+	}
+	if state.Status != StatusConnecting || state.Error != nil || state.Info != nil || state.Stats != nil || state.ConnectedAt != "" {
+		t.Fatalf("reconnecting leaked stale telemetry or premature error: %+v", state)
+	}
+	if !applyMessage(&state, helperclient.Message{Event: &fortivpn.Event{Phase: fortivpn.PhaseDisconnected, Err: dropErr}}, ticket) {
+		t.Fatal("terminal disconnect event was rejected")
+	}
+	if state.Status != StatusDisconnected || state.Error == nil {
+		t.Fatalf("terminal disconnect lost failure reason: %+v", state)
 	}
 }

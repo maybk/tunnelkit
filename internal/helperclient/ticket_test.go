@@ -177,3 +177,29 @@ func TestFailedTicketMigrationDoesNotExposeTokenOrOverwriteSource(t *testing.T) 
 		t.Fatal("failed migration overwrote the original ticket")
 	}
 }
+
+func TestTicketStoreRejectsMalformedVersionedOrOutOfBoundsPayloads(t *testing.T) {
+	for _, raw := range []string{
+		`{"schemaVersion":1,"data":{"protocol":1,"endpoint":"/tmp/s","token":"plaintext-secret","pid":123}}`,
+		`{"schemaVersion":1,"data":{"protocol":3,"endpoint":"/tmp/s","sealedToken":{"nonce":"aa","ciphertext":"bb"},"extra":true}}`,
+		`{"schemaVersion":1,"data":{"protocol":99,"endpoint":"/tmp/s","sealedToken":{"nonce":"aa","ciphertext":"bb"}}}`,
+		`{"protocol":99,"endpoint":"/tmp/s","sealedToken":{"nonce":"aa","ciphertext":"bb"}}`,
+		`{"protocol":2,"endpoint":"/tmp/s","sealedToken":{}}`,
+	} {
+		root := t.TempDir()
+		store := NewTicketStore(root)
+		if err := storage.WriteFile(store.path, []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Load(); err == nil {
+			t.Fatalf("expected invalid ticket %s to be rejected", raw)
+		}
+		if _, err := os.Stat(storage.SecretKeyPath(root)); err == nil {
+			t.Fatalf("rejected ticket %s must not create secret.key", raw)
+		}
+		after, _ := os.ReadFile(store.path)
+		if string(after) != raw {
+			t.Fatalf("rejected ticket %s must not overwrite original file", raw)
+		}
+	}
+}

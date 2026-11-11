@@ -120,7 +120,7 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 	})
 	if err != nil {
 		if errors.Is(err, helperclient.ErrRecoveryPending) {
-			s.failConnect(prof.ID, prof.Name, &Error{Message: "无法确认辅助会话已退出", Hint: "恢复票据已保留，请重试断开或退出。"})
+			s.failConnect(prof.ID, prof.Name, errPriorSessionPending())
 			return err
 		}
 		if errors.Is(err, helperclient.ErrElevationCancelled) || opCtx.Err() != nil {
@@ -170,12 +170,21 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 		return err
 	}
 
-	readyCh, _ := s.startEventStream(conn, ticket, nil)
+	readyCh, streamDone := s.startEventStream(conn, ticket, nil)
 
-	vpnErr, timedOut := s.waitReady(opCtx, readyCh)
+	res, timedOut := s.waitReady(opCtx, readyCh)
 	if opCtx.Err() == nil && !timedOut {
-		if vpnErr != nil {
-			return errors.New(vpnErr.Message)
+		if res.err != nil {
+			if res.cleanExit {
+				waitCtx, waitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				streamErr := s.waitStreamDoneContext(waitCtx, streamDone)
+				helperErr := s.waitForHelper(waitCtx)
+				waitCancel()
+				if streamErr == nil && helperErr == nil {
+					_ = s.tickets.Clear()
+				}
+			}
+			return errors.New(res.err.Message)
 		}
 		return nil
 	}
@@ -213,8 +222,12 @@ func (s *Service) disconnectIfActive(ctx context.Context, targetProfileID string
 
 	if oldTicket, loadErr := s.tickets.Load(); loadErr == nil {
 		oldConn, snap, recovered, err := s.attachOrRecoverTicket(ctx, oldTicket)
-		if err != nil || recovered {
+		if err != nil {
+			s.recordAttachOrRecoverFailure(oldTicket, recovered, err)
 			return false, err
+		}
+		if recovered {
+			return false, nil
 		}
 		s.adoptSession(oldConn, snap, oldTicket)
 		if oldTicket.ProfileID == targetProfileID {
@@ -222,12 +235,19 @@ func (s *Service) disconnectIfActive(ctx context.Context, targetProfileID string
 		}
 		return false, s.disconnectLocked(ctx)
 	} else if !errors.Is(loadErr, os.ErrNotExist) {
+		s.failDisconnect(targetProfileID, "", errSessionRead())
 		return false, loadErr
 	}
-	if handled, err := s.recoverLegacyNetwork(ctx, helperclient.Ticket{}); handled {
+	if err := s.waitForHelperOrFail(ctx, curState.ProfileID, curState.ProfileName); err != nil {
 		return false, err
 	}
-	return false, s.waitForHelper(ctx)
+	if handled, err := s.recoverLegacyNetwork(ctx, helperclient.Ticket{
+		ProfileID:   curState.ProfileID,
+		ProfileName: curState.ProfileName,
+	}); handled {
+		return false, err
+	}
+	return false, nil
 }
 
 func (s *Service) failConnect(profileID, profileName string, vpnErr *Error) {

@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,7 +108,11 @@ func (v *secretVault) readMap() (map[string]credentials.Sealed, error) {
 	if err != nil {
 		return nil, err
 	}
-	payload, _, err := storage.DecodeDocument(data, secretSchemaVersion)
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return map[string]credentials.Sealed{}, nil
+	}
+	payload, _, err := storage.DecodeDocument(trimmed, secretSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("解析密码文件失败: %w", err)
 	}

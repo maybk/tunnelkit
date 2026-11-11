@@ -16,9 +16,11 @@ describe('DesktopChrome and AboutDialog', () => {
     })
     expect(macWrapper.find('[data-testid="desktop-chrome-leading-inset"]').exists()).toBe(true)
     expect(macWrapper.find('button[aria-label="最小化"]').exists()).toBe(false)
+    expect(macWrapper.find('[data-testid="chrome-update-dot"]').exists()).toBe(false)
 
-    await macWrapper.setProps({ isFullscreen: true })
+    await macWrapper.setProps({ isFullscreen: true, hasUpdate: true })
     expect(macWrapper.find('[data-testid="desktop-chrome-leading-inset"]').exists()).toBe(false)
+    expect(macWrapper.find('[data-testid="chrome-update-dot"]').exists()).toBe(true)
 
     const winWrapper = mount(DesktopChrome, {
       props: {
@@ -64,9 +66,32 @@ describe('DesktopChrome and AboutDialog', () => {
         },
       },
     })
+    expect(wrapper.text()).toContain('v0.3.2')
     expect(wrapper.text()).toContain('fortivpn 原生引擎')
     expect(wrapper.text()).toContain('已就绪')
     expect(wrapper.text()).toContain('github.com/maybk/tunnelkit')
+
+    await wrapper.setProps({ systemInfo: null, appVersion: '1.0.1' })
+    expect(wrapper.text()).toContain('v1.0.1')
+
+    const checkBtn = wrapper.find('[data-testid="about-check-update"]')
+    expect(checkBtn.attributes('data-state')).toBe('idle')
+    expect(checkBtn.attributes('disabled')).toBeUndefined()
+    expect(checkBtn.text()).toContain('检查更新')
+    expect(wrapper.find('[data-testid="about-update-feedback"]').exists()).toBe(false)
+
+    await checkBtn.trigger('click')
+    expect(wrapper.emitted('checkUpdate')).toHaveLength(1)
+
+    await wrapper.setProps({ checkingUpdate: true })
+    expect(checkBtn.attributes('data-state')).toBe('checking')
+    expect(checkBtn.attributes('disabled')).toBeDefined()
+    expect(checkBtn.text()).toContain('正在检查…')
+
+    await wrapper.setProps({ checkingUpdate: false, upToDate: true })
+    expect(checkBtn.attributes('data-state')).toBe('up-to-date')
+    expect(checkBtn.attributes('disabled')).toBeDefined()
+    expect(checkBtn.text()).toContain('已是最新版本')
 
     await wrapper.find('[data-testid="about-open-repo"]').trigger('click')
     expect(wrapper.emitted('openRepo')).toHaveLength(1)

@@ -14,3 +14,4 @@
 
 - **防腐隔离**：仅本目录允许导入 `@bindings/*` 与 `@wailsio/runtime`，对外统一暴露 `src/types/*` 纯领域类型。
 - **单向依赖**：禁止反向依赖 `stores/`、`composables/`、`components/`、`views/`、`layouts/`、`router/` 或 `presentation/`。
+- **DTO 映射**：通过 `@bindings/events` 注册并订阅宿主事件，已反序列化的事件载荷直接交由 `mappers.ts` 归一化，禁止重复调用 `createFrom`。

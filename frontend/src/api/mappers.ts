@@ -136,69 +136,114 @@ function normalizeStatus(raw?: string): ConnectionStatus {
   return 'disconnected'
 }
 
+function mapTunnelInfoFromDto(
+  status: ConnectionStatus,
+  raw: Partial<vpnModels.State>['info'],
+): VpnTunnelInfo | null {
+  if (status !== 'connected' || !raw) return null
+  const iface = raw.interface?.trim() ?? ''
+  const localIp = raw.localIp?.trim() ?? ''
+  const peerIp = raw.peerIp?.trim() ?? ''
+  const mtu = Number(raw.mtu ?? 0)
+  const routeCount = Number(raw.routeCount ?? 0)
+  const routes = Array.isArray(raw.routes) ? [...raw.routes] : []
+  const rawDnsMode = raw.dnsMode?.trim() ?? ''
+  const dnsServers = Array.isArray(raw.dnsServers) ? [...raw.dnsServers] : []
+  const dnsDomains = Array.isArray(raw.dnsDomains) ? [...raw.dnsDomains] : []
+  const splitDnsNeedsDomains = Boolean(raw.splitDnsNeedsDomains)
+  const gatewayHost = raw.gatewayHost?.trim() ?? ''
+  const gatewayIp = raw.gatewayIp?.trim() ?? ''
+  const fortiOs = raw.fortiOs?.trim() ?? ''
+  const hasContent =
+    Boolean(iface || localIp || peerIp || rawDnsMode || gatewayHost || gatewayIp || fortiOs) ||
+    mtu > 0 ||
+    routeCount > 0 ||
+    routes.length > 0 ||
+    dnsServers.length > 0 ||
+    dnsDomains.length > 0 ||
+    splitDnsNeedsDomains
+  if (!hasContent) return null
+  return {
+    interface: iface,
+    localIp,
+    peerIp,
+    mtu,
+    routeCount,
+    routes,
+    dnsMode: normalizeDnsMode(rawDnsMode),
+    dnsServers,
+    dnsDomains,
+    splitDnsNeedsDomains,
+    gatewayHost,
+    gatewayIp,
+    fortiOs,
+  }
+}
+
+function mapStatsFromDto(
+  status: ConnectionStatus,
+  raw: Partial<vpnModels.State>['stats'],
+): VpnStats | null {
+  if (status !== 'connected' || !raw) return null
+  return {
+    rxBytes: Number(raw.rxBytes ?? 0),
+    txBytes: Number(raw.txBytes ?? 0),
+    rxPackets: Number(raw.rxPackets ?? 0),
+    txPackets: Number(raw.txPackets ?? 0),
+    rttMillis: Number(raw.rttMillis ?? 0),
+  }
+}
+
+function mapPromptFromDto(
+  status: ConnectionStatus,
+  phase: ConnectionPhase,
+  raw: Partial<vpnModels.State>['prompt'],
+): VpnPrompt | null {
+  if (
+    status !== 'connecting' ||
+    phase !== 'waiting_input' ||
+    !raw?.id ||
+    !PROMPT_KINDS.some((kind) => kind === raw.kind)
+  ) {
+    return null
+  }
+  return {
+    id: raw.id,
+    kind: raw.kind as PromptKind,
+    message: raw.message ?? '',
+    url: raw.url ?? '',
+  }
+}
+
+function mapErrorFromDto(raw: Partial<vpnModels.State>['error']): VpnError | null {
+  const message = raw?.message?.trim() ?? ''
+  const hint = raw?.hint?.trim() ?? ''
+  const trustedCert = raw?.trustedCert?.trim() ?? ''
+  if (!message && !hint && !trustedCert) return null
+  return {
+    message: message || 'VPN 会话异常',
+    hint,
+    trustedCert,
+  }
+}
+
 export function mapVpnStateFromDto(dto: Partial<vpnModels.State> | null | undefined): VpnState {
   if (!dto) return createInitialVpnState()
 
-  const info: VpnTunnelInfo | null = dto.info
-    ? {
-        interface: dto.info.interface ?? '',
-        localIp: dto.info.localIp ?? '',
-        peerIp: dto.info.peerIp ?? '',
-        mtu: Number(dto.info.mtu ?? 0),
-        routeCount: Number(dto.info.routeCount ?? 0),
-        routes: Array.isArray(dto.info.routes) ? [...dto.info.routes] : [],
-        dnsMode: normalizeDnsMode(dto.info.dnsMode),
-        dnsServers: Array.isArray(dto.info.dnsServers) ? [...dto.info.dnsServers] : [],
-        dnsDomains: Array.isArray(dto.info.dnsDomains) ? [...dto.info.dnsDomains] : [],
-        splitDnsNeedsDomains: Boolean(dto.info.splitDnsNeedsDomains),
-        gatewayHost: dto.info.gatewayHost ?? '',
-        gatewayIp: dto.info.gatewayIp ?? '',
-        fortiOs: dto.info.fortiOs ?? '',
-      }
-    : null
-
-  const stats: VpnStats | null = dto.stats
-    ? {
-        rxBytes: Number(dto.stats.rxBytes ?? 0),
-        txBytes: Number(dto.stats.txBytes ?? 0),
-        rxPackets: Number(dto.stats.rxPackets ?? 0),
-        txPackets: Number(dto.stats.txPackets ?? 0),
-        rttMillis: Number(dto.stats.rttMillis ?? 0),
-      }
-    : null
-
-  const prompt: VpnPrompt | null =
-    dto.status === 'connecting' &&
-    dto.phase === 'waiting_input' &&
-    dto.prompt?.id &&
-    PROMPT_KINDS.some((kind) => kind === dto.prompt?.kind)
-      ? {
-          id: dto.prompt.id ?? '',
-          kind: (dto.prompt.kind as PromptKind) ?? '',
-          message: dto.prompt.message ?? '',
-          url: dto.prompt.url ?? '',
-        }
-      : null
-
-  const error: VpnError | null = dto.error
-    ? {
-        message: dto.error.message ?? '',
-        hint: dto.error.hint ?? '',
-        trustedCert: dto.error.trustedCert ?? '',
-      }
-    : null
+  const status = normalizeStatus(dto.status)
+  const phase = (dto.phase as ConnectionPhase) ?? 'disconnected'
 
   return {
     revision: Number(dto.revision ?? 0),
-    status: normalizeStatus(dto.status),
-    phase: (dto.phase as ConnectionPhase) ?? 'disconnected',
+    status,
+    phase,
     profileId: dto.profileId ?? '',
     profileName: dto.profileName ?? '',
-    connectedAt: dto.connectedAt ?? '',
-    info,
-    stats,
-    prompt,
-    error,
+    connectedAt: status === 'connected' ? (dto.connectedAt ?? '') : '',
+    info: mapTunnelInfoFromDto(status, dto.info),
+    stats: mapStatsFromDto(status, dto.stats),
+    prompt: mapPromptFromDto(status, phase, dto.prompt),
+    error: mapErrorFromDto(dto.error),
   }
 }
 

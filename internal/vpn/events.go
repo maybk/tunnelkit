@@ -12,8 +12,13 @@ import (
 	"tunnelkit/internal/storage"
 )
 
-func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket, initial *State) (<-chan *Error, <-chan struct{}) {
-	readyCh := make(chan *Error, 1)
+type readyResult struct {
+	err       *Error
+	cleanExit bool
+}
+
+func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket, initial *State) (<-chan readyResult, <-chan struct{}) {
+	readyCh := make(chan readyResult, 1)
 	doneCh := make(chan struct{})
 	var oldConn Conn
 	s.updateState(nil, func(state *State) bool {
@@ -33,7 +38,7 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket, initia
 	}
 
 	var readyOnce sync.Once
-	signalReady := func(vpnErr *Error) { readyOnce.Do(func() { readyCh <- vpnErr }) }
+	signalReady := func(res readyResult) { readyOnce.Do(func() { readyCh <- res }) }
 	go func() {
 		defer close(doneCh)
 		logFile, logErr := os.OpenFile(storage.LogPath(s.rootDir, ticket.ProfileID), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
@@ -70,35 +75,38 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket, initia
 			}
 			switch state.Phase {
 			case fortivpn.PhaseConnected:
-				signalReady(nil)
+				signalReady(readyResult{})
 			case fortivpn.PhaseDisconnected:
 				// 终态事件不等于进程已退出；恢复票据由确认清理完成的收尾流程删除。
 				_ = conn.Close()
+				cleanExit := msg.Event != nil && (msg.Event.Err == nil || msg.Event.Err.Code != fortivpn.CodeNetcfgFailed)
 				if state.Error != nil {
-					signalReady(state.Error)
+					signalReady(readyResult{err: state.Error, cleanExit: cleanExit})
 				} else {
-					signalReady(&Error{Message: "连接未能建立", Hint: "请在「日志」中查看详细输出。"})
+					signalReady(readyResult{
+						err:       &Error{Message: "连接未能建立", Hint: "请在「日志」中查看详细输出。"},
+						cleanExit: cleanExit,
+					})
 				}
 				return
 			}
 		}
 		state, applied := s.updateState(conn, func(state *State) bool {
 			s.conn = nil
-			message := "连接已意外断开"
-			if state.Status == StatusConnecting {
-				message = "连接未能建立"
-			}
+			connecting := state.Status == StatusConnecting
 			*state = State{
-				Status: StatusDisconnected, Phase: fortivpn.PhaseDisconnected,
-				ProfileID: ticket.ProfileID, ProfileName: ticket.ProfileName,
-				Error: &Error{Message: message, Hint: "隧道控制通道已断开，恢复票据已保留；请重试断开或连接，并查看日志。"},
+				Status:      StatusDisconnected,
+				Phase:       fortivpn.PhaseDisconnected,
+				ProfileID:   ticket.ProfileID,
+				ProfileName: ticket.ProfileName,
+				Error:       errControlStreamLost(connecting),
 			}
 			return true
 		})
 		if applied {
-			signalReady(state.Error)
+			signalReady(readyResult{err: state.Error})
 		} else {
-			signalReady(&Error{Message: "连接已取消"})
+			signalReady(readyResult{err: &Error{Message: "连接已取消"}})
 		}
 	}()
 	return readyCh, doneCh
@@ -138,16 +146,16 @@ func applyMessage(state *State, msg helperclient.Message, ticket helperclient.Ti
 		cp := *ev.Prompt
 		state.Prompt = &cp
 	}
-	if ev.Info != nil {
+	if state.Status != StatusConnected {
+		state.ConnectedAt, state.Info, state.Stats = "", nil, nil
+	}
+	if ev.Info != nil && state.Status == StatusConnected {
 		cp := *ev.Info
 		state.Info = &cp
 	}
-	if ev.Stats != nil {
+	if ev.Stats != nil && state.Status == StatusConnected {
 		cp := *ev.Stats
 		state.Stats = &cp
-	}
-	if ev.Err != nil {
-		state.Error = MapError(ev.Err)
 	}
 	switch ev.Phase {
 	case fortivpn.PhaseConnected:
@@ -159,8 +167,9 @@ func applyMessage(state *State, msg helperclient.Message, ticket helperclient.Ti
 		}
 		state.Error = nil
 	case fortivpn.PhaseDisconnected:
-		state.ConnectedAt, state.Info, state.Stats = "", nil, nil
 		state.Error = MapError(ev.Err)
+	default:
+		state.Error = nil
 	}
 	return true
 }

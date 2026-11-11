@@ -125,26 +125,25 @@ func (s *sessionState) OnEvent(ev fortivpn.Event) {
 		return
 	}
 	s.lastPhase = ev.Phase
-	if ev.Info != nil {
+	if ev.Phase != fortivpn.PhaseConnected {
+		s.lastInfo, s.lastStats = nil, nil
+	}
+	if ev.Info != nil && ev.Phase == fortivpn.PhaseConnected {
 		cp := *ev.Info
 		s.lastInfo = &cp
 	}
-	if ev.Stats != nil {
+	if ev.Stats != nil && ev.Phase == fortivpn.PhaseConnected {
 		cp := *ev.Stats
 		s.lastStats = &cp
 	}
 	if ev.Err != nil {
 		cp := *ev.Err
 		s.lastErr = &cp
+	} else {
+		s.lastErr = nil
 	}
 	if ev.Phase != fortivpn.PhaseWaitingInput {
 		s.revokePromptLocked()
-	}
-	if ev.Phase == fortivpn.PhaseConnected {
-		s.lastErr = nil
-	}
-	if ev.Phase == fortivpn.PhaseDisconnected {
-		s.lastInfo, s.lastStats = nil, nil
 	}
 	// Prompt 注册应答通道后才发布交互事件，避免前端先回答、helper 尚不可回答。
 	if ev.Phase == fortivpn.PhaseWaitingInput && ev.Prompt != nil {

@@ -1,10 +1,12 @@
-import { computed, ref } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { systemApi } from '@/api/system'
 import { GITHUB_RELEASES_URL, GITHUB_REPO_URL } from '@/constants/releases'
 import { DISMISSED_UPDATE_VERSION_KEY } from '@/constants/storage'
 import { useNoticeStore } from '@/stores/useNoticeStore'
 import type { SystemInfo, UpdateInfo, UpdateProgress } from '@/types/system'
+
+const UP_TO_DATE_FEEDBACK_MS = 2500
 
 function readDismissedVersion(): string {
   try {
@@ -25,11 +27,39 @@ export const useSystemStore = defineStore('system', () => {
   const checkingSystem = ref(false)
   const isCheckingUpdate = ref(false)
   const isApplyingUpdate = ref(false)
-  const updateFeedback = ref('')
+  const updateUpToDate = ref(false)
   const hasCheckedUpdateOnce = ref(false)
   const dismissedVersion = ref<string>(readDismissedVersion())
 
   let stopProgressSub: (() => void) | null = null
+  let upToDateTimer: ReturnType<typeof setTimeout> | undefined
+
+  const clearUpToDateFeedback = () => {
+    clearTimeout(upToDateTimer)
+    upToDateTimer = undefined
+    updateUpToDate.value = false
+  }
+
+  const markUpToDateFeedback = () => {
+    clearUpToDateFeedback()
+    updateUpToDate.value = true
+    upToDateTimer = setTimeout(() => {
+      upToDateTimer = undefined
+      updateUpToDate.value = false
+    }, UP_TO_DATE_FEEDBACK_MS)
+  }
+
+  watch(
+    aboutDialogOpen,
+    (open) => {
+      if (!open) {
+        clearUpToDateFeedback()
+      }
+    },
+    { flush: 'sync' },
+  )
+
+  onScopeDispose(clearUpToDateFeedback)
 
   const appVersion = computed(
     () => systemInfo.value?.appVersion || updateInfo.value?.currentVersion || '',
@@ -59,6 +89,12 @@ export const useSystemStore = defineStore('system', () => {
   const stopWatching = () => {
     stopProgressSub?.()
     stopProgressSub = null
+    clearUpToDateFeedback()
+  }
+
+  const openAboutDialog = () => {
+    clearUpToDateFeedback()
+    aboutDialogOpen.value = true
   }
 
   const checkUpdate = async (options: { silent?: boolean } = {}): Promise<UpdateInfo | null> => {
@@ -68,13 +104,14 @@ export const useSystemStore = defineStore('system', () => {
     hasCheckedUpdateOnce.value = true
     isCheckingUpdate.value = true
     if (!options.silent) {
-      updateFeedback.value = ''
+      clearUpToDateFeedback()
     }
 
     try {
       const info = await systemApi.checkUpdate()
       updateInfo.value = info
       if (info.hasUpdate) {
+        clearUpToDateFeedback()
         if (!options.silent) {
           aboutDialogOpen.value = false
           updateDialogOpen.value = true
@@ -82,11 +119,13 @@ export const useSystemStore = defineStore('system', () => {
           const isDismissed =
             Boolean(dismissedVersion.value) && dismissedVersion.value === info.latestVersion
           if (!isDismissed) {
+            aboutDialogOpen.value = false
             updateDialogOpen.value = true
           }
         }
+      } else if (aboutDialogOpen.value) {
+        markUpToDateFeedback()
       } else if (!options.silent) {
-        updateFeedback.value = '当前已是最新版本'
         noticeStore.showSuccess(
           '当前已是最新版本',
           info.currentVersion ? `v${info.currentVersion}` : undefined,
@@ -94,6 +133,7 @@ export const useSystemStore = defineStore('system', () => {
       }
       return info
     } catch (err) {
+      clearUpToDateFeedback()
       if (!options.silent) {
         noticeStore.showError(err, '检查更新失败')
       }
@@ -166,12 +206,13 @@ export const useSystemStore = defineStore('system', () => {
     checkingSystem,
     isCheckingUpdate,
     isApplyingUpdate,
-    updateFeedback,
+    updateUpToDate,
     appVersion,
     hasUpdate,
     loadSystemInfo,
     startWatching,
     stopWatching,
+    openAboutDialog,
     checkUpdate,
     applyUpdate,
     dismissUpdate,

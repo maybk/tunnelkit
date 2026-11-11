@@ -36,21 +36,27 @@ func (a *ProfileAPI) List() ([]profile.Profile, error) {
 func (a *ProfileAPI) Save(in profile.Input) (profile.Profile, error) {
 	p, err := a.store.Save(in)
 	if err == nil {
+		if a.vpn != nil {
+			a.vpn.SyncSavedProfile(p)
+		}
 		a.notify()
 	}
 	return p, err
 }
 
-// Delete 删除配置及其密码与日志；正在使用的配置禁止删除。
+// Delete 删除配置及其密码与日志；正在使用或仍有待恢复会话的配置禁止删除。
 func (a *ProfileAPI) Delete(id string) error {
-	if a.vpn.State().Active(id) {
+	if a.vpn != nil && a.vpn.InUse(id) {
 		return ErrProfileInUse
 	}
 	if err := a.store.Delete(id); err != nil {
 		return err
 	}
-	if err := a.vpn.RemoveLog(id); err != nil {
-		slog.Warn("删除连接日志失败", "profile", id, "error", err)
+	if a.vpn != nil {
+		a.vpn.ForgetProfile(id)
+		if err := a.vpn.RemoveLog(id); err != nil {
+			slog.Warn("删除连接日志失败", "profile", id, "error", err)
+		}
 	}
 	a.notify()
 	return nil
@@ -59,6 +65,9 @@ func (a *ProfileAPI) Delete(id string) error {
 func (a *ProfileAPI) TrustCert(id, sha256 string) (profile.Profile, error) {
 	p, err := a.store.TrustCert(id, sha256)
 	if err == nil {
+		if a.vpn != nil {
+			a.vpn.SyncSavedProfile(p)
+		}
 		a.notify()
 	}
 	return p, err

@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Check, ExternalLink, RefreshCw, Sparkles } from '@lucide/vue'
+import StateText from '@/components/common/StateText.vue'
 import StatusDot from '@/components/common/StatusDot.vue'
 import AppButton from '@/components/base/button/AppButton.vue'
 import AppDialogContent from '@/components/base/AppDialogContent.vue'
@@ -11,19 +13,19 @@ import type { SystemInfo, UpdateInfo } from '@/types/system'
 
 const open = defineModel<boolean>('open', { required: true })
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     systemInfo: SystemInfo | null
     appVersion: string
     updateInfo: UpdateInfo | null
     checkingUpdate?: boolean
     checkingSystem?: boolean
-    updateFeedback?: string
+    upToDate?: boolean
   }>(),
   {
     checkingUpdate: false,
     checkingSystem: false,
-    updateFeedback: '',
+    upToDate: false,
   },
 )
 
@@ -33,6 +35,22 @@ const emit = defineEmits<{
   showUpdate: []
   openRepo: []
 }>()
+
+const showUpToDate = computed(
+  () => !props.checkingUpdate && props.upToDate && !props.updateInfo?.hasUpdate,
+)
+
+const checkState = computed(() => {
+  if (props.checkingUpdate) return 'checking'
+  if (showUpToDate.value) return 'up-to-date'
+  return 'idle'
+})
+
+const checkLabel = computed(() => {
+  if (props.checkingUpdate) return '正在检查…'
+  if (showUpToDate.value) return '已是最新版本'
+  return '检查更新'
+})
 </script>
 
 <template>
@@ -48,10 +66,10 @@ const emit = defineEmits<{
           <div class="flex items-center gap-2">
             <AppDialogTitle>TunnelKit</AppDialogTitle>
             <span
-              v-if="systemInfo?.appVersion"
+              v-if="appVersion || systemInfo?.appVersion"
               class="rounded-md bg-muted px-2 py-0.5 font-mono text-caption text-muted-foreground tabular-nums"
             >
-              v{{ systemInfo.appVersion }}
+              v{{ appVersion || systemInfo?.appVersion }}
             </span>
           </div>
           <AppDialogDescription class="mt-0.5">
@@ -98,59 +116,70 @@ const emit = defineEmits<{
         </div>
       </dl>
 
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="min-w-0">
-          <span
-            v-if="updateFeedback && !updateInfo?.hasUpdate"
-            data-testid="about-update-feedback"
-            class="inline-flex items-center gap-1 text-caption text-tone-success-solid"
-          >
-            <Check class="size-3.5 shrink-0" aria-hidden="true" />
-            <span class="truncate">{{ updateFeedback }}</span>
+      <div class="flex flex-wrap items-center justify-end gap-2">
+        <AppButton
+          v-if="systemInfo && !systemInfo.helperReady"
+          type="button"
+          variant="outline"
+          size="sm"
+          :disabled="checkingSystem"
+          @click="emit('checkSystem')"
+        >
+          <RefreshCw
+            class="size-3.5"
+            :class="checkingSystem ? 'animate-spin' : ''"
+            aria-hidden="true"
+          />
+          重新检测
+        </AppButton>
+
+        <AppButton
+          v-if="updateInfo?.hasUpdate"
+          type="button"
+          size="sm"
+          data-testid="about-show-update"
+          @click="emit('showUpdate')"
+        >
+          <Sparkles class="size-3.5" aria-hidden="true" />
+          新版本 v{{ updateInfo.latestVersion }}
+        </AppButton>
+        <AppButton
+          v-else
+          type="button"
+          variant="outline"
+          size="sm"
+          data-testid="about-check-update"
+          :data-state="checkState"
+          aria-live="polite"
+          :disabled="checkingUpdate || showUpToDate"
+          :class="
+            showUpToDate
+              ? 'border-tone-success-border bg-tone-success-soft text-tone-success-fg disabled:opacity-100 dark:border-tone-success-border dark:bg-tone-success-soft'
+              : ''
+          "
+          @click="emit('checkUpdate')"
+        >
+          <span class="inline-grid size-3.5 place-items-center" aria-hidden="true">
+            <RefreshCw
+              class="[grid-area:1/1] size-3.5 transition-[opacity,transform,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)]"
+              :class="[
+                checkingUpdate ? 'animate-spin' : '',
+                showUpToDate
+                  ? 'scale-[0.25] opacity-0 blur-[4px]'
+                  : 'scale-100 opacity-100 blur-none',
+              ]"
+            />
+            <Check
+              class="[grid-area:1/1] size-3.5 transition-[opacity,transform,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)]"
+              :class="
+                showUpToDate
+                  ? 'scale-100 opacity-100 blur-none'
+                  : 'scale-[0.25] opacity-0 blur-[4px]'
+              "
+            />
           </span>
-        </div>
-
-        <div class="flex shrink-0 items-center gap-2">
-          <AppButton
-            v-if="systemInfo && !systemInfo.helperReady"
-            variant="outline"
-            size="sm"
-            :disabled="checkingSystem"
-            @click="emit('checkSystem')"
-          >
-            <RefreshCw
-              class="size-3.5"
-              :class="checkingSystem ? 'animate-spin' : ''"
-              aria-hidden="true"
-            />
-            重新检测
-          </AppButton>
-
-          <AppButton
-            v-if="updateInfo?.hasUpdate"
-            size="sm"
-            data-testid="about-show-update"
-            @click="emit('showUpdate')"
-          >
-            <Sparkles class="size-3.5" aria-hidden="true" />
-            新版本 v{{ updateInfo.latestVersion }}
-          </AppButton>
-          <AppButton
-            v-else
-            variant="outline"
-            size="sm"
-            data-testid="about-check-update"
-            :disabled="checkingUpdate"
-            @click="emit('checkUpdate')"
-          >
-            <RefreshCw
-              class="size-3.5"
-              :class="checkingUpdate ? 'animate-spin' : ''"
-              aria-hidden="true"
-            />
-            {{ checkingUpdate ? '正在检查…' : '检查更新' }}
-          </AppButton>
-        </div>
+          <StateText :text="checkLabel" :transition-key="checkState" />
+        </AppButton>
       </div>
     </AppDialogContent>
   </Dialog>

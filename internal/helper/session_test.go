@@ -60,3 +60,30 @@ func TestPhaseAdvanceRevokesPendingPrompt(t *testing.T) {
 		t.Fatal("phase advance left an answerable challenge")
 	}
 }
+
+func TestReconnectAndCleanDisconnectClearStaleSnapshotFields(t *testing.T) {
+	s := newSessionState(time.Second)
+	s.OnEvent(fortivpn.Event{
+		Phase: fortivpn.PhaseConnected,
+		Info:  &fortivpn.TunnelInfo{LocalIP: "10.212.0.10"},
+		Stats: &fortivpn.Stats{RxBytes: 512},
+	})
+	s.OnEvent(fortivpn.Event{
+		Phase: fortivpn.PhaseReconnecting,
+		Err:   fortivpn.NewError(fortivpn.CodeConnectionLost, "link lost"),
+	})
+	s.mu.Lock()
+	reconnectingSnap := s.snapshotLocked()
+	s.mu.Unlock()
+	if reconnectingSnap.Info != nil || reconnectingSnap.Stats != nil || reconnectingSnap.Err == nil {
+		t.Fatalf("reconnecting snapshot kept stale tunnel data: %+v", reconnectingSnap)
+	}
+
+	s.OnEvent(fortivpn.Event{Phase: fortivpn.PhaseDisconnected})
+	s.mu.Lock()
+	disconnectedSnap := s.snapshotLocked()
+	s.mu.Unlock()
+	if disconnectedSnap.Err != nil || disconnectedSnap.Info != nil || disconnectedSnap.Stats != nil {
+		t.Fatalf("clean disconnect snapshot retained stale error or telemetry: %+v", disconnectedSnap)
+	}
+}

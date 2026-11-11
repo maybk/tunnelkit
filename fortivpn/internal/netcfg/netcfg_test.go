@@ -139,6 +139,16 @@ func TestRecoveryJournalRecognizesPlatformResources(t *testing.T) {
 	if err := ValidateJournalData(data); err != nil {
 		t.Fatalf("valid platform recovery data: %v", err)
 	}
+	for _, invalid := range []string{
+		`{"entries":[]}`,
+		`[{"kind":"darwin_dns_key","key":"State:/Network/Global/DNS"}]`,
+		`[{"kind":"host_route","gateway":"0.0.0.0","iface":"en0"}]`,
+		`[{"kind":"host_route","gateway":"198.51.100.10","iface":"en0","extra":true}]`,
+	} {
+		if err := ValidateJournalData([]byte(invalid)); err == nil {
+			t.Fatalf("expected invalid recovery data %s to fail validation", invalid)
+		}
+	}
 }
 
 func TestJournalWriteFailureDoesNotCommitInMemory(t *testing.T) {

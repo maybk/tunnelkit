@@ -10,20 +10,8 @@ func (s *Service) BeginUpdate(ctx context.Context) error {
 	ctx, cancelTimeout := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelTimeout()
 
-	s.mu.RLock()
-	inFlightCancel := s.cancelConnect
-	inFlightDone := s.opDone
-	s.mu.RUnlock()
-
-	if inFlightDone != nil {
-		if inFlightCancel != nil {
-			inFlightCancel()
-		}
-		select {
-		case <-inFlightDone:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if err := s.cancelInFlight(ctx); err != nil {
+		return err
 	}
 
 	release, err := s.begin()

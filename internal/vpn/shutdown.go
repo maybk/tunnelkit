@@ -18,11 +18,14 @@ func (s *Service) Shutdown(ctx context.Context) (err error) {
 	defer func() { <-s.shutdownGate }()
 	defer func() {
 		if err != nil {
-			s.updateState(nil, func(state *State) bool {
-				s.closing = false
-				state.Error = &Error{Message: "清理 VPN 会话失败，请稍后重试断开或退出", Hint: err.Error()}
-				return true
-			})
+			s.mu.Lock()
+			s.closing = false
+			s.mu.Unlock()
+			if st := s.State(); st.Status != StatusDisconnected || st.Error == nil {
+				s.failDisconnect("", "", errShutdownCleanup())
+			} else {
+				s.detachConn()
+			}
 		}
 	}()
 	s.mu.Lock()
@@ -72,5 +75,13 @@ func (s *Service) waitForHelper(ctx context.Context) error {
 	s.mu.Lock()
 	s.waitHelper = nil
 	s.mu.Unlock()
+	return nil
+}
+
+func (s *Service) waitForHelperOrFail(ctx context.Context, profileID, profileName string) error {
+	if err := s.waitForHelper(ctx); err != nil {
+		s.failDisconnect(profileID, profileName, errHelperExitTimeout())
+		return err
+	}
 	return nil
 }

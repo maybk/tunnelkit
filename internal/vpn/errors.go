@@ -1,9 +1,11 @@
 package vpn
 
 import (
+	"errors"
 	"strings"
 
 	"tunnelkit/fortivpn"
+	"tunnelkit/internal/helperclient"
 )
 
 // MapError 将内核返回的英文结构化错误码映射为用户可读的中文提示（唯一的文案映射出口）。
@@ -83,5 +85,89 @@ func MapError(fe *fortivpn.Error) *Error {
 			Message: "连接未能建立",
 			Hint:    "请在「日志」中查看详细输出。",
 		}
+	}
+}
+
+func errControlStreamLost(connecting bool) *Error {
+	msg := "连接已意外断开"
+	if connecting {
+		msg = "连接未能建立"
+	}
+	return &Error{
+		Message: msg,
+		Hint:    "与后台辅助进程通信中断，恢复记录已保留；请重新连接，或在「日志」中查看详细输出。",
+	}
+}
+
+func errSessionUnconfirmed() *Error {
+	return &Error{
+		Message: "无法确认已有隧道状态",
+		Hint:    "暂无法连接后台辅助进程，恢复记录已保留；请稍后重新连接，或在退出应用时重试清理。",
+	}
+}
+
+func errPriorSessionPending() *Error {
+	return &Error{
+		Message: "上一会话尚未完成清理",
+		Hint:    "后台辅助进程仍在收尾，恢复记录已保留；请稍候再重新发起连接。",
+	}
+}
+
+func errSessionRead() *Error {
+	return &Error{
+		Message: "读取会话恢复记录失败",
+		Hint:    "本地会话恢复文件无法解析或解密，为保护当前路由与 DNS 未自动覆盖；请重启应用重试或查看日志。",
+	}
+}
+
+func errDisconnectStop() *Error {
+	return &Error{
+		Message: "断开连接未完成",
+		Hint:    "未能向后台辅助进程确认停止指令，恢复记录已保留；请点击「连接」重新接管，或在退出应用时重试清理。",
+	}
+}
+
+func errDisconnectTimeout() *Error {
+	return &Error{
+		Message: "等待隧道断开超时",
+		Hint:    "VPN 隧道尚未确认关闭，恢复记录已保留；请稍后重新连接，或在退出应用时重试清理。",
+	}
+}
+
+func errHelperExitTimeout() *Error {
+	return &Error{
+		Message: "等待辅助进程退出超时",
+		Hint:    "后台辅助进程尚未完成退出，恢复记录已保留；请稍后重新连接，或在退出应用时重试清理。",
+	}
+}
+
+func errNetworkRecoveryTimeout() *Error {
+	return &Error{
+		Message: "恢复系统网络超时",
+		Hint:    "路由与 DNS 恢复尚未完成，恢复记录已保留；请稍后重新连接，或在退出应用时重试清理。",
+	}
+}
+
+func errNetworkRecoveryFailed(legacy bool, err error) *Error {
+	msg := "恢复系统网络失败"
+	if legacy {
+		msg = "恢复旧版网络配置失败"
+	}
+	if errors.Is(err, helperclient.ErrElevationCancelled) {
+		return &Error{
+			Message: msg,
+			Hint:    "已取消管理员授权，路由与 DNS 恢复记录已保留；请重新连接或退出应用并完成授权。",
+		}
+	}
+	return &Error{
+		Message: msg,
+		Hint:    "路由与 DNS 尚未确认恢复，恢复记录已保留；请稍后重新连接，或在「日志」中查看详细原因。",
+	}
+}
+
+func errShutdownCleanup() *Error {
+	return &Error{
+		Message: "退出前清理 VPN 会话未完成",
+		Hint:    "隧道或路由与 DNS 尚未确认清理完毕，恢复记录已保留；请稍后重试退出，或查看连接日志。",
 	}
 }

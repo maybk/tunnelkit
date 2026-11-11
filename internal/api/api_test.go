@@ -148,8 +148,27 @@ func TestProfileAPICrudTextAndActiveProtection(t *testing.T) {
 		t.Fatalf("Disconnect failed: %v", err)
 	}
 	vpnAPI.Cancel()
+
+	// Verify pending recovery ticket blocks Delete until cleared, and Delete clears disconnected profile state.
+	ticketStore := helperclient.NewTicketStore(rootDir)
+	if err := ticketStore.Save(helperclient.Ticket{
+		Endpoint:    "missing.sock",
+		Token:       "tok-pending",
+		ProfileID:   saved.ID,
+		ProfileName: saved.Name,
+	}); err != nil {
+		t.Fatalf("Save ticket failed: %v", err)
+	}
+	if err := profileAPI.Delete(saved.ID); !errors.Is(err, ErrProfileInUse) {
+		t.Fatalf("Delete on profile with pending recovery ticket = %v, want ErrProfileInUse", err)
+	}
+	_ = ticketStore.Clear()
+
 	if err := profileAPI.Delete(saved.ID); err != nil {
 		t.Fatalf("Delete after disconnect failed: %v", err)
+	}
+	if st := vpnAPI.State(); st.ProfileID != "" || st.Error != nil {
+		t.Fatalf("expected deleted profile cleared from disconnected state, got %+v", st)
 	}
 }
 

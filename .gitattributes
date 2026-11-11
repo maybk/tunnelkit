@@ -1,0 +1,27 @@
+# 统一文本换行归一化为 LF，保障 macOS / Windows / Linux 与容器构建脚本一致
+* text=auto eol=lf
+
+# Windows 批处理脚本要求 CRLF 换行以兼容 cmd.exe 标签跳转
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Git 内置语义化 diff 块标题驱动
+*.go diff=golang
+*.md diff=markdown
+
+# 二进制资产显式保护，禁止任何跨平台换行转换或文本 diff
+*.png binary
+*.ico binary
+*.icns binary
+*.car binary
+*.jar binary
+
+# 自动生成代码、锁文件与 Wails 移动端模板（GitHub PR 默认折叠且不计入语言统计）
+frontend/bindings/** linguist-generated=true
+frontend/pnpm-lock.yaml linguist-generated=true
+go.sum linguist-generated=true
+build/android/** linguist-generated=true
+build/ios/** linguist-generated=true
+
+# 同步自官方模板的基础 UI 组件库（不计入自研代码语言统计）
+frontend/src/components/ui/** linguist-vendored=true

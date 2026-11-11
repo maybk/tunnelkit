@@ -8,7 +8,7 @@ import WorkspaceView from '@/views/WorkspaceView.vue'
 import { createTestProfile } from '../fixtures/profiles'
 
 describe('UpdateDialog and WorkspaceView components', () => {
-  it('renders UpdateDialog when updateInfo is provided', () => {
+  it('renders UpdateDialog when updateInfo is provided', async () => {
     const wrapper = mount(UpdateDialog, {
       props: {
         open: true,
@@ -38,9 +38,65 @@ describe('UpdateDialog and WorkspaceView components', () => {
     })
     expect(wrapper.text()).toContain('发现新版本')
     expect(wrapper.text()).toContain('v0.4.0')
-    expect(wrapper.text()).toContain('立即更新并重启')
+    expect(wrapper.text()).toContain('立即更新')
+    expect(wrapper.find('[data-testid="update-release-link"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="update-download-btn"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="update-release-link"]').trigger('click')
+    expect(wrapper.emitted('openRelease')).toEqual([
+      ['https://github.com/maybk/tunnelkit/releases/tag/v0.4.0'],
+    ])
+
+    await wrapper.find('[data-testid="update-apply-btn"]').trigger('click')
+    expect(wrapper.emitted('applyUpdate')).toHaveLength(1)
+
+    await wrapper.find('[data-testid="update-dismiss-btn"]').trigger('click')
+    expect(wrapper.emitted('dismissVersion')).toEqual([['0.4.0']])
+
     wrapper.findComponent(Dialog).vm.$emit('update:open', false)
     expect(wrapper.emitted('update:open')).toEqual([[false]])
+    wrapper.unmount()
+  })
+
+  it('switches primary action to manual download when self-update is unavailable and focuses dialog container on open', async () => {
+    const wrapper = mount(UpdateDialog, {
+      props: {
+        open: true,
+        updateInfo: {
+          currentVersion: '1.0.0',
+          latestVersion: '1.0.1',
+          hasUpdate: true,
+          releaseUrl: 'https://github.com/maybk/tunnelkit/releases/tag/v1.0.1',
+          canSelfUpdate: false,
+          assetName: '',
+          assetUrl: '',
+          assetSize: 0,
+          assetSha256: '',
+        },
+        progress: null,
+      },
+      attachTo: document.body,
+    })
+    await nextTick()
+    await nextTick()
+
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(dialog).not.toBeNull()
+    expect(document.activeElement).toBe(dialog)
+    expect(dialog.textContent).toContain('请前往发布页下载安装包完成更新')
+    expect(dialog.querySelector('[data-testid="update-release-link"]')).toBeNull()
+    expect(dialog.querySelector('[data-testid="update-apply-btn"]')).toBeNull()
+
+    const downloadBtn = dialog.querySelector<HTMLButtonElement>(
+      '[data-testid="update-download-btn"]',
+    )!
+    expect(downloadBtn).not.toBeNull()
+    expect(downloadBtn.disabled).toBe(false)
+    downloadBtn.click()
+    await nextTick()
+    expect(wrapper.emitted('openRelease')).toEqual([
+      ['https://github.com/maybk/tunnelkit/releases/tag/v1.0.1'],
+    ])
     wrapper.unmount()
   })
 

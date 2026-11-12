@@ -9,6 +9,7 @@ TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自
 - [`rolling.yml`](../../.github/workflows/rolling.yml)：`main` 分支通过普通 CI 后自动更新 `rolling` 预发布
 - [`release.yml`](../../.github/workflows/release.yml)：`v*` 版本标签触发的正式 GitHub Release 发布与过期 Rolling 清理
 - [`prepare_windows_wintun.ps1`](../../scripts/prepare_windows_wintun.ps1)：下载并按固定 SHA-256 校验官方 Wintun 驱动包（`amd64` / `arm64`）
+- [`smoke_windows_helper.ps1`](../../scripts/smoke_windows_helper.ps1)：静默安装与卸载 Windows 安装包，校验系统服务与本地 IPC 会话
 - [`package_macos_dmg.sh`](../../scripts/package_macos_dmg.sh) 与 [`build/darwin/dmg/settings.py`](../../build/darwin/dmg/settings.py)：使用 `dmgbuild` 直接写入 `.DS_Store`、`Applications` 拖拽快捷方式、Retina `@1x/@2x` 引导背景图与卷标图标
 - [`extract_pending_version.sh`](../../scripts/extract_pending_version.sh)：读取并校验 `CHANGELOG.md` 顶部唯一的待发布版本
 - [`extract_release_notes.sh`](../../scripts/extract_release_notes.sh)：从 `CHANGELOG.md` 提取指定版本的发布说明
@@ -83,7 +84,7 @@ wails3 task linux:create:rpm
 普通 CI 同时作为 Rolling 和正式发布的自动质量门禁：
 
 - `ci.yml` 在 `main` push 和 Pull Request 上运行，也可由 Release 与手动 Rolling 复用；仅具备 `contents: read` 只读权限。
-- `release-assets.yml` 按架构拆分为 7 个并行 Job：macOS 3 个包在 `macos-latest` 并行构建（其中 `macos-arm64` 运行原生 `darwin/arm64` 静态分析与竞态测试套件）、Windows `amd64` 与 `arm64` 分别在原生 `windows-latest` 与 `windows-11-arm` 构建并运行测试套件、Linux `amd64` 与 `arm64` 分别在原生 `ubuntu-24.04` 与 `ubuntu-24.04-arm` 构建并运行静态分析、竞态测试与 `xvfb` 无头 GUI 冒烟测试。
+- `release-assets.yml` 按架构拆分为 7 个并行 Job：macOS 3 个包在 `macos-latest` 并行构建（其中 `macos-arm64` 运行原生 `darwin/arm64` 静态分析与竞态测试套件）、Windows `amd64` 与 `arm64` 分别在原生 `windows-latest` 与 `windows-11-arm` 构建并运行测试套件与安装器冒烟测试、Linux `amd64` 与 `arm64` 分别在原生 `ubuntu-24.04` 与 `ubuntu-24.04-arm` 构建并运行静态分析、竞态测试与 `xvfb` 无头 GUI 冒烟测试。
 - `rolling.yml` 只接受成功完成的 `main` push CI，并使用该次 CI 的精确提交 SHA；公开版本取自 `CHANGELOG.md` 顶部唯一的 `## [x.y.z] - 未发布`，将应用内嵌版本号构建为 `<version>-pre`，发布到附注标签 `v<version>-pre`（标题为 `TunnelKit <version> Rolling`），资产使用 `tunnelkit-<version>-rolling-<12位SHA>-<platform>` 命名并附带 `SHA256SUMS.txt`。当待发布段落为空时自动跳过 Rolling。
 - `release.yml` 仅由 `vMAJOR.MINOR.PATCH` 标签触发（排除 `*-*` 预发布标签），要求标签版本与 `build/config.yml` 及带日期的 `CHANGELOG.md` 版本段落一致，且标签提交已包含在 `main` 分支中。
 - 自动发布产物固定为 13 个平台安装包加 1 个 `SHA256SUMS.txt`（共 14 个文件）：

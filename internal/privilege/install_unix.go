@@ -78,25 +78,74 @@ func protectComponent(path string, mode os.FileMode) error {
 	return os.Chmod(path, mode)
 }
 
-func verifyInstalled(path string) error {
-	resolved, err := filepath.EvalSymlinks(filepath.Dir(path))
+func verifyExistingAncestors(dir string) (bool, error) {
+	cur := dir
+	missing := false
+	for {
+		info, err := os.Lstat(cur)
+		if errors.Is(err, os.ErrNotExist) {
+			missing = true
+			next := filepath.Dir(cur)
+			if next == cur {
+				return true, fmt.Errorf("missing root directory for %s", dir)
+			}
+			cur = next
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if !missing {
+			if err := checkProtected(cur, true); err != nil {
+				return false, err
+			}
+			parent := filepath.Dir(cur)
+			if parent == cur {
+				return false, nil
+			}
+			resolved, err := filepath.EvalSymlinks(parent)
+			if err != nil {
+				return false, err
+			}
+			return false, verifyParents(resolved)
+		}
+		if info.Mode()&os.ModeSymlink != 0 && cur == dir {
+			return false, fmt.Errorf("unsafe helper path permissions: %s", cur)
+		}
+		resolved, err := filepath.EvalSymlinks(cur)
+		if err != nil {
+			return false, err
+		}
+		return true, verifyParents(resolved)
+	}
+}
+
+func inspectInstalled(path string) (string, error) {
+	dirMissing, err := verifyExistingAncestors(filepath.Dir(path))
 	if err != nil {
-		return err
+		return "", err
 	}
-	if err := verifyParents(resolved); err != nil {
-		return err
-	}
-	if err := checkProtected(path, false); err != nil {
-		return err
+	if dirMissing {
+		return "系统辅助目录未安装", nil
 	}
 	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "系统辅助程序未安装", nil
+	}
 	if err != nil {
-		return err
+		return "", err
 	}
-	if info.Mode()&os.ModeSetuid == 0 || info.Mode()&0o111 == 0 {
-		return errors.New("installed helper authorization is incomplete; reinstall the helper")
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("invalid helper component: %s", path)
 	}
-	return nil
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf("unsupported file stat: %s", path)
+	}
+	if st.Uid != 0 || info.Mode()&0o022 != 0 || info.Mode()&os.ModeSetuid == 0 || info.Mode()&0o111 == 0 {
+		return "系统辅助程序权限未就绪", nil
+	}
+	return "", nil
 }
 
 // Install 将辅助程序稳定部署至受保护的系统目录并设置 root setuid 权限。

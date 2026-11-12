@@ -9,6 +9,7 @@
 - `prepare_release.sh`：发版前统一更新 `build/config.yml` 版本号与 `CHANGELOG.md` 正式版本标题及日期。
 - `package_macos_dmg.sh`：基于 `dmgbuild` 与 `build/darwin/dmg/` 资产打包 macOS `.dmg` 安装镜像。
 - `prepare_windows_wintun.ps1`：下载固定版本官方 Wintun 驱动压缩包、校验 SHA-256 并按目标架构提取 `wintun.dll`。
+- `smoke_windows_helper.ps1`：静默安装与卸载 Windows 安装包，校验系统服务与本地 IPC 会话。
 - `render_package_manifests.sh`：根据发版版本号与 `SHA256SUMS.txt` 渲染并校验 Homebrew Cask、Scoop 与 WinGet 清单文件。
 - `test_extract_pending_version.sh`：`extract_pending_version.sh` 的边界回归测试。
 - `test_extract_release_notes.sh`：`extract_release_notes.sh` 与 `CHANGELOG.md` 格式守卫测试。

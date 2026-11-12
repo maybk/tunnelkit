@@ -25,4 +25,16 @@ func TestBuildWindowsFileUpdateStructure(t *testing.T) {
 			t.Fatalf("expected Windows update script to contain %q, got:\n%s", want, script)
 		}
 	}
+
+	elevated := buildWindowsFileUpdateWithHelperSync(
+		`C:\Temp\stage`,
+		`C:\Program Files\TunnelKit`,
+		[]string{"tunnelkit.exe", "tunnelkit-helper.exe", "wintun.dll"},
+		`C:\Temp\done.ok`,
+		`C:\Temp\done.err`,
+		`C:\Program Files\TunnelKit\tunnelkit-helper.exe`,
+	)
+	if !strings.Contains(elevated, `"C:\Program Files\TunnelKit\tunnelkit-helper.exe" install-service >nul 2>&1`) {
+		t.Fatalf("expected elevated Windows update script to sync helper service, got:\n%s", elevated)
+	}
 }

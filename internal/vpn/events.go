@@ -53,7 +53,10 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket, initia
 				current := s.conn == conn
 				s.mu.RUnlock()
 				if current && logFile != nil {
-					if _, err := logFile.WriteString(msg.LogLine); err != nil {
+					s.logMu.Lock()
+					_, err := logFile.WriteString(msg.LogLine)
+					s.logMu.Unlock()
+					if err != nil {
 						slog.Warn("写入连接日志失败", "error", err)
 						_ = logFile.Close()
 						logFile = nil
@@ -90,6 +93,13 @@ func (s *Service) startEventStream(conn Conn, ticket helperclient.Ticket, initia
 				}
 				return
 			}
+		}
+		s.mu.RLock()
+		active := s.conn == conn
+		connecting := s.state.Status == StatusConnecting
+		s.mu.RUnlock()
+		if active {
+			s.appendErrorLog(ticket.ProfileID, errControlStreamLost(connecting), nil)
 		}
 		state, applied := s.updateState(conn, func(state *State) bool {
 			s.conn = nil

@@ -11,6 +11,7 @@ export const useLogsStore = defineStore('logs', () => {
   const contentByProfile = ref<Record<string, string>>({})
   const updatedAtByProfile = ref<Record<string, string>>({})
   const pending = ref(new Set<string>())
+  const queued = new Map<string, boolean>()
   const revisions = new Map<string, number>()
   const loading = computed(() => pending.value.size > 0)
 
@@ -18,27 +19,41 @@ export const useLogsStore = defineStore('logs', () => {
   const updatedAtForProfile = (profileId: string) => updatedAtByProfile.value[profileId] ?? ''
 
   const fetchLog = async (profileId: string, silent = false) => {
-    if (!profileId || pending.value.has(profileId)) return
-    const revision = revisions.get(profileId) ?? 0
-    pending.value.add(profileId)
-    try {
-      const snapshot = await vpnApi.getLog(profileId)
-      if ((revisions.get(profileId) ?? 0) !== revision) return
-      contentByProfile.value[profileId] = snapshot.content
-      updatedAtByProfile.value[profileId] = snapshot.updatedAt
-    } catch (err) {
-      if (!silent) noticeStore.showError(err, '读取日志失败')
-    } finally {
-      pending.value.delete(profileId)
+    if (!profileId) return
+    if (pending.value.has(profileId)) {
+      queued.set(profileId, (queued.get(profileId) ?? false) || !silent)
+      return
+    }
+    let nextSilent = silent
+    for (;;) {
+      const revision = revisions.get(profileId) ?? 0
+      pending.value.add(profileId)
+      try {
+        const snapshot = await vpnApi.getLog(profileId)
+        if ((revisions.get(profileId) ?? 0) === revision) {
+          contentByProfile.value[profileId] = snapshot.content
+          updatedAtByProfile.value[profileId] = snapshot.updatedAt
+        }
+      } catch (err) {
+        if (!nextSilent) noticeStore.showError(err, '读取日志失败')
+      } finally {
+        pending.value.delete(profileId)
+      }
+      const wantLoud = queued.get(profileId)
+      if (wantLoud === undefined) break
+      queued.delete(profileId)
+      nextSilent = !wantLoud
     }
   }
 
   const clearLog = async (profileId: string) => {
     if (!profileId) return
+    queued.delete(profileId)
     revisions.set(profileId, (revisions.get(profileId) ?? 0) + 1)
     try {
       await vpnApi.clearLog(profileId)
       // 清空期间开始的读取同样失效，避免旧快照重新填回界面。
+      queued.delete(profileId)
       revisions.set(profileId, (revisions.get(profileId) ?? 0) + 1)
       contentByProfile.value[profileId] = ''
       updatedAtByProfile.value[profileId] = ''

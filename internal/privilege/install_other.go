@@ -8,7 +8,7 @@ import (
 )
 
 func protectDirectory(string) error              { return unsupported() }
-func verifyInstalled(string) error               { return unsupported() }
+func inspectInstalled(string) (string, error)    { return "", unsupported() }
 func protectComponent(string, os.FileMode) error { return unsupported() }
 func componentPairs(a, b string) [][2]string     { return [][2]string{{a, b}} }
 func Install(string) error                       { return unsupported() }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { LOG_POLL_INTERVAL_MS } from '@/constants/log'
+import { isProfileActive } from '@/domain/vpn'
 import { useVpnStore } from '@/stores/useVpnStore'
 import { useLogsStore } from '@/stores/useLogsStore'
 import { formatClockTime } from '@/utils/time'
@@ -14,10 +15,9 @@ const props = defineProps<{
 
 const logsStore = useLogsStore()
 const vpnStore = useVpnStore()
-const autoRefresh = computed(
-  () =>
-    vpnStore.state.profileId === props.profileId &&
-    ['connecting', 'connected'].includes(vpnStore.state.status),
+const autoRefresh = computed(() => isProfileActive(vpnStore.state, props.profileId))
+const activeStateRevision = computed(() =>
+  vpnStore.state.profileId === props.profileId ? vpnStore.state.revision : 0,
 )
 const content = computed(() => logsStore.contentForProfile(props.profileId))
 const updatedAt = computed(() => {
@@ -28,9 +28,15 @@ const lines = computed(() => (content.value ? content.value.split('\n').length :
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
 const startPolling = () => {
-  if (pollTimer) clearInterval(pollTimer)
-  pollTimer = null
+  stopPolling()
   if (props.active === false) return
   void logsStore.fetchLog(props.profileId, true)
   if (autoRefresh.value) {
@@ -41,7 +47,7 @@ const startPolling = () => {
 }
 
 watch(
-  () => [props.profileId, props.active, autoRefresh.value],
+  () => [props.profileId, props.active, autoRefresh.value, activeStateRevision.value],
   () => startPolling(),
 )
 
@@ -50,10 +56,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  stopPolling()
 })
 </script>
 

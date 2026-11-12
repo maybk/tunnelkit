@@ -11,7 +11,7 @@
 - `script_sh.go`：生成 `sh` 多组件替换与回滚脚本。
 - `script_cmd.go`：生成 `cmd.exe` 多组件替换与回滚脚本。
 - `apply_darwin.go`：macOS `.dmg` 挂载校验、`.app` 应用包备份替换、失败回滚、辅助组件同步更新与 `osascript` 提权回退。
-- `apply_linux.go`：Linux 客户端与 `tunnelkit-helper` 二进制备份、原子替换、回滚与 `pkexec` 提权安装。
+- `apply_linux.go`：Linux 客户端与 `tunnelkit-helper` 备份替换、失败回滚、辅助组件同步更新与 `pkexec` 提权安装。
 - `apply_windows.go`：Windows 客户端与辅助进程分阶段重命名替换、失败回滚及 `TunnelKitHelper` 服务同步刷新。
 - `apply_other.go`：不支持平台的更新报错实现。
 - `apply_elevated_windows.go`：Windows 安装目录受限时的 UAC 提权更新脚本执行。

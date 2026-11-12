@@ -61,7 +61,13 @@ func replaceLinuxFilesElevated(ctx context.Context, stageDir, targetDir string) 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	script := buildPOSIXFileUpdate(stageDir, targetDir, []string{"tunnelkit", "tunnelkit-helper"}, installBin)
+	script := buildPOSIXFileUpdateWithHelperSync(
+		stageDir,
+		targetDir,
+		[]string{"tunnelkit", "tunnelkit-helper"},
+		installBin,
+		filepath.Join(targetDir, "tunnelkit-helper"),
+	)
 	// 授权后的文件事务必须完成或回滚，不因 GUI 请求取消而中断在两次替换之间。
 	if err := privilege.RunElevatedLinux(context.Background(), "/bin/sh", "-c", script); err != nil {
 		if errors.Is(err, privilege.ErrCancelled) {

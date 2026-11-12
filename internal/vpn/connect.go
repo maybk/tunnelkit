@@ -8,7 +8,6 @@ import (
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/helperclient"
-	"tunnelkit/internal/storage"
 )
 
 var ErrAlreadyConnected = errors.New("已有活动连接，请先断开后再连接")
@@ -66,27 +65,28 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 
 	prof, password, err := s.profiles.GetWithPassword(profileID)
 	if err != nil {
-		s.failConnect(profileID, "", &Error{Message: "读取连接配置失败", Hint: err.Error()})
+		s.failConnectErr(profileID, "", &Error{Message: "读取连接配置失败", Hint: err.Error()}, err)
 		return err
 	}
 
 	cfg := prof.ToConfig(password)
 	if err := cfg.Validate(); err != nil {
+		_ = s.resetLog(prof.ID)
 		var fe *fortivpn.Error
 		if errors.As(err, &fe) {
 			vpnErr := MapError(fe)
-			s.failConnect(prof.ID, prof.Name, vpnErr)
+			s.failConnectErr(prof.ID, prof.Name, vpnErr, err)
 			return errors.New(vpnErr.Message)
 		}
-		s.failConnect(prof.ID, prof.Name, &Error{Message: err.Error()})
+		s.failConnectErr(prof.ID, prof.Name, &Error{Message: err.Error()}, err)
 		return err
 	}
 
-	logPath := storage.LogPath(s.rootDir, prof.ID)
-	if err := storage.ResetFile(logPath); err != nil {
-		s.failConnect(prof.ID, prof.Name, &Error{Message: "初始化连接日志失败", Hint: err.Error()})
+	if err := s.resetLog(prof.ID); err != nil {
+		s.failConnectErr(prof.ID, prof.Name, &Error{Message: "初始化连接日志失败", Hint: err.Error()}, err)
 		return err
 	}
+	s.appendLogf(prof.ID, "INFO", "正在启动 VPN 连接 (配置=%s, 网关=%s:%d)", prof.Name, prof.Host, prof.Port)
 
 	s.setState(State{
 		Status:      StatusConnecting,
@@ -96,6 +96,7 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 	})
 	cancelled := func() error {
 		_ = s.tickets.Clear()
+		s.appendLogf(prof.ID, "INFO", "已取消连接请求")
 		s.setState(State{
 			Status:      StatusDisconnected,
 			Phase:       fortivpn.PhaseDisconnected,
@@ -120,7 +121,7 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 	})
 	if err != nil {
 		if errors.Is(err, helperclient.ErrRecoveryPending) {
-			s.failConnect(prof.ID, prof.Name, errPriorSessionPending())
+			s.failConnectErr(prof.ID, prof.Name, errPriorSessionPending(), err)
 			return err
 		}
 		if errors.Is(err, helperclient.ErrElevationCancelled) || opCtx.Err() != nil {
@@ -131,7 +132,7 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 				Message: "未找到隧道组件 tunnelkit-helper",
 				Hint:    "请确认应用已完整安装；若在开发环境运行，请先执行 task build:helper。",
 			}
-			s.failConnect(prof.ID, prof.Name, vpnErr)
+			s.failConnectErr(prof.ID, prof.Name, vpnErr, err)
 			return err
 		}
 		if errors.Is(err, helperclient.ErrProtocolMismatch) {
@@ -139,10 +140,10 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 				Message: "隧道组件版本不匹配",
 				Hint:    "请先断开现有连接或重启应用以更新后台组件。",
 			}
-			s.failConnect(prof.ID, prof.Name, vpnErr)
+			s.failConnectErr(prof.ID, prof.Name, vpnErr, err)
 			return err
 		}
-		s.failConnect(prof.ID, prof.Name, &Error{Message: "启动连接失败", Hint: err.Error()})
+		s.failConnectErr(prof.ID, prof.Name, &Error{Message: "启动连接失败", Hint: err.Error()}, err)
 		return err
 	}
 
@@ -166,7 +167,7 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 		_ = conn.Stop(stopCtx)
 		stopCancel()
 		_ = conn.Close()
-		s.failConnect(prof.ID, prof.Name, &Error{Message: "保存连接状态失败，已请求中止连接", Hint: err.Error()})
+		s.failConnectErr(prof.ID, prof.Name, &Error{Message: "保存连接状态失败，已请求中止连接", Hint: err.Error()}, err)
 		return err
 	}
 
@@ -197,13 +198,13 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 	}
 	if opCtx.Err() != nil {
 		if priorError != nil {
-			s.failConnect(prof.ID, prof.Name, priorError)
+			s.failConnectErr(prof.ID, prof.Name, priorError, nil)
 			return errors.New(priorError.Message)
 		}
 		return cancelled()
 	}
 	timeoutErr := &Error{Message: "连接超时", Hint: "等待网关建立隧道超时，请检查网关状态或查看连接日志。"}
-	s.failConnect(prof.ID, prof.Name, timeoutErr)
+	s.failConnectErr(prof.ID, prof.Name, timeoutErr, nil)
 	return errors.New(timeoutErr.Message)
 }
 
@@ -250,7 +251,9 @@ func (s *Service) disconnectIfActive(ctx context.Context, targetProfileID string
 	return false, nil
 }
 
-func (s *Service) failConnect(profileID, profileName string, vpnErr *Error) {
+// failConnectErr 先落盘脱敏诊断日志再发布状态，保证前端收到状态变更回读日志时已包含本次错误记录。
+func (s *Service) failConnectErr(profileID, profileName string, vpnErr *Error, cause error) {
+	s.appendErrorLog(profileID, vpnErr, cause)
 	s.setState(State{
 		Status:      StatusDisconnected,
 		Phase:       fortivpn.PhaseDisconnected,

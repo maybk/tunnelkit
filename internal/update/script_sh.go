@@ -12,6 +12,10 @@ func shellQuote(s string) string { return privilege.ShellQuote(s) }
 
 // buildPOSIXFileUpdate 与普通安装器保持同一事务：先备份全部组件，再替换，失败时按逆序恢复。
 func buildPOSIXFileUpdate(stageDir, targetDir string, names []string, installBin string) string {
+	return buildPOSIXFileUpdateWithHelperSync(stageDir, targetDir, names, installBin, "")
+}
+
+func buildPOSIXFileUpdateWithHelperSync(stageDir, targetDir string, names []string, installBin, helperExe string) string {
 	lines := []string{"set -eu"}
 	for i := range names {
 		lines = append(lines, fmt.Sprintf("backed_%d=0; installed_%d=0", i, i))
@@ -41,6 +45,10 @@ func buildPOSIXFileUpdate(stageDir, targetDir string, names []string, installBin
 		)
 	}
 	lines = append(lines, "trap - EXIT HUP INT TERM")
+	if helperExe != "" {
+		helperQ := shellQuote(helperExe)
+		lines = append(lines, "if [ -x "+helperQ+" ]; then "+helperQ+" install >/dev/null 2>&1 || true; fi")
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -49,6 +57,7 @@ func buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath string) s
 	srcQ := shellQuote(srcAppPath)
 	dstQ := shellQuote(dstAppPath)
 	bakQ := shellQuote(backupPath)
+	helperQ := shellQuote(strings.TrimRight(dstAppPath, "/") + "/Contents/MacOS/tunnelkit-helper")
 	return strings.Join([]string{
 		"set -eu",
 		"/bin/rm -rf " + bakQ,
@@ -56,6 +65,7 @@ func buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath string) s
 		"if /usr/bin/ditto " + srcQ + " " + dstQ + "; then",
 		"  /usr/bin/xattr -dr com.apple.quarantine " + dstQ + " || true;",
 		"  /bin/rm -rf " + bakQ + ";",
+		"  if [ -x " + helperQ + " ]; then " + helperQ + " install >/dev/null 2>&1 || true; fi;",
 		"else",
 		"  /bin/rm -rf " + dstQ + ";",
 		"  /bin/mv " + bakQ + " " + dstQ + ";",

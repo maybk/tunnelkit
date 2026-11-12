@@ -58,7 +58,14 @@ func replaceWindowsFilesElevated(ctx context.Context, stageDir, targetDir string
 	okSentinel := filepath.Join(stageDir, "done.ok")
 	errSentinel := filepath.Join(stageDir, "done.err")
 
-	content := buildWindowsFileUpdate(stageDir, targetDir, files, okSentinel, errSentinel)
+	content := buildWindowsFileUpdateWithHelperSync(
+		stageDir,
+		targetDir,
+		files,
+		okSentinel,
+		errSentinel,
+		filepath.Join(targetDir, "tunnelkit-helper.exe"),
+	)
 	if err := os.WriteFile(scriptPath, []byte(content), 0o700); err != nil {
 		return fmt.Errorf("生成提权更新脚本失败: %w", err)
 	}

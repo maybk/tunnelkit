@@ -10,61 +10,101 @@ import (
 	"path/filepath"
 )
 
-// Ensure 确保随包分发的辅助组件已安装且为最新版本，仅在首次安装或内容变化时触发一次系统授权。
+// Ensure 确保随包分发的辅助组件已安装且为最新版本，仅在首次安装、配置漂移或内容变化时触发一次系统授权。
 func Ensure(ctx context.Context, source string) error {
-	source, err := filepath.Abs(source)
+	return ensureWith(ctx, source, inspectCurrent, elevateInstall)
+}
+
+func ensureWith(
+	ctx context.Context,
+	source string,
+	inspectFn func(string) (string, error),
+	elevateFn func(context.Context, string) error,
+) error {
+	absSource, err := filepath.Abs(source)
 	if err != nil {
 		return err
 	}
-	current, err := Current(source)
+	reason, err := inspectFn(absSource)
 	if err != nil {
 		return err
 	}
-	if current {
+	if reason == "" {
 		return nil
 	}
-	if err := elevateInstall(ctx, source); err != nil {
+	if err := elevateFn(ctx, absSource); err != nil {
 		return err
 	}
-	current, err = Current(source)
+	reason, err = inspectFn(absSource)
 	if err != nil {
 		return err
 	}
-	if !current {
-		return errors.New("辅助组件授权配置未完成，请重新安装应用")
+	if reason != "" {
+		return fmt.Errorf("辅助组件授权配置未完成（%s），请重新安装应用", reason)
 	}
 	return nil
 }
 
 // Current 检查受保护的系统辅助组件及平台依赖是否与当前应用内置版本完全一致。
 func Current(source string) (bool, error) {
-	target, err := ExecutablePath()
+	absSource, err := filepath.Abs(source)
 	if err != nil {
 		return false, err
 	}
-	if err := verifyInstalled(target); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
+	reason, err := inspectCurrent(absSource)
+	if err != nil {
 		return false, err
 	}
-	for _, pair := range componentPairs(source, target) {
-		a, err := digest(pair[0])
+	return reason == "", nil
+}
+
+// inspectCurrent 返回空 reason 表示组件与平台服务完全就绪；
+// 返回非空 reason 且 err == nil 表示可通过单次提权安装自动修复；返回 err != nil 表示不可自动修复的安全或输入错误。
+func inspectCurrent(source string) (string, error) {
+	target, err := ExecutablePath()
+	if err != nil {
+		return "", err
+	}
+	pairs := componentPairs(source, target)
+	sourceDigests := make([][32]byte, len(pairs))
+	for i, pair := range pairs {
+		sum, err := digest(pair[0])
 		if err != nil {
-			return false, err
+			return "", err
 		}
-		b, err := digest(pair[1])
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
+		sourceDigests[i] = sum
+	}
+	reason, err := inspectInstalled(target)
+	if err != nil {
+		return "", err
+	}
+	if reason != "" {
+		return reason, nil
+	}
+	for i, pair := range pairs {
+		installedSum, err := digest(pair[1])
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+			return fmt.Sprintf("组件待同步 %s", filepath.Base(pair[1])), nil
 		}
 		if err != nil {
-			return false, err
+			return "", err
 		}
-		if a != b {
-			return false, nil
+		if sourceDigests[i] != installedSum {
+			return fmt.Sprintf("组件版本待更新 %s", filepath.Base(pair[1])), nil
 		}
 	}
-	return serviceCurrent()
+	return checkService()
+}
+
+func verifyInstalled(target string) error {
+	reason, err := inspectInstalled(target)
+	if err != nil {
+		return err
+	}
+	if reason != "" {
+		return errors.New(reason)
+	}
+	return nil
 }
 
 func digest(path string) ([32]byte, error) {

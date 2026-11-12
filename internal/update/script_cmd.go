@@ -10,6 +10,10 @@ import (
 func cmdQuote(s string) string { return `"` + strings.ReplaceAll(s, "%", "%%") + `"` }
 
 func buildWindowsFileUpdate(stageDir, targetDir string, names []string, okFile, errFile string) string {
+	return buildWindowsFileUpdateWithHelperSync(stageDir, targetDir, names, okFile, errFile, "")
+}
+
+func buildWindowsFileUpdateWithHelperSync(stageDir, targetDir string, names []string, okFile, errFile, helperExe string) string {
 	lines := []string{"@echo off", "setlocal DisableDelayedExpansion"}
 	for i := range names {
 		lines = append(lines, fmt.Sprintf("set backed_%d=0", i), fmt.Sprintf("set installed_%d=0", i))
@@ -27,6 +31,9 @@ func buildWindowsFileUpdate(stageDir, targetDir string, names []string, okFile, 
 			fmt.Sprintf("set installed_%d=1", i),
 			"copy /y "+cmdQuote(filepath.Join(stageDir, name))+" "+cmdQuote(filepath.Join(targetDir, name))+" >nul || goto rollback",
 		)
+	}
+	if helperExe != "" {
+		lines = append(lines, cmdQuote(helperExe)+" install-service >nul 2>&1")
 	}
 	lines = append(lines, "echo ok > "+cmdQuote(okFile), "exit /b 0", ":rollback")
 	for i := len(names) - 1; i >= 0; i-- {

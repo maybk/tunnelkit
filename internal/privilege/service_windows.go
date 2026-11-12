@@ -16,8 +16,11 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
-// Ordinary users can query/start, but cannot stop another user's session.
-const serviceSDDL = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;CCLCRPRC;;;IU)"
+// Ordinary interactive users can query config/status, read the DACL, and start
+// the on-demand helper, but cannot stop or reconfigure another user's session.
+// Explicit service-specific rights (SERVICE_ALL_ACCESS = 0x000F01FF) are used
+// instead of generic GA so SCM's MapGenericMask preserves the canonical SDDL.
+const serviceSDDL = "D:P(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCRPRC;;;IU)"
 
 // InstallService installs protected binaries and registers a manual-start service.
 func InstallService(exePath string) error {
@@ -83,6 +86,11 @@ func InstallService(exePath string) error {
 	}
 	if err := grantServiceStartACL(s.Handle); err != nil {
 		return fmt.Errorf("grant service start ACL: %w", err)
+	}
+	if reason, err := checkServiceHandle(s, installed); err != nil {
+		return fmt.Errorf("verify helper service: %w", err)
+	} else if reason != "" {
+		return fmt.Errorf("helper service verification failed: %s", reason)
 	}
 
 	return nil
@@ -164,7 +172,7 @@ func stopServiceAndWait(s *mgr.Service, timeout time.Duration) error {
 		return nil
 	}
 	if status.State != svc.StopPending {
-		if _, err := s.Control(svc.Stop); err != nil {
+		if _, err := s.Control(svc.Stop); err != nil && !errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
 			return err
 		}
 	}
@@ -180,15 +188,7 @@ func stopServiceAndWait(s *mgr.Service, timeout time.Duration) error {
 }
 
 func grantServiceStartACL(serviceHandle windows.Handle) error {
-	sd, err := windows.SecurityDescriptorFromString(serviceSDDL)
-	if err != nil {
-		return err
-	}
-	dacl, _, err := sd.DACL()
-	if err != nil {
-		return err
-	}
-	owner, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	owner, dacl, err := parseAdminDACL(serviceSDDL)
 	if err != nil {
 		return err
 	}
@@ -203,42 +203,74 @@ func grantServiceStartACL(serviceHandle windows.Handle) error {
 	)
 }
 
-func serviceCurrent() (bool, error) {
-	s, err := openInstalledService(windows.SERVICE_QUERY_CONFIG | windows.READ_CONTROL)
-	if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	defer s.Close()
+func isLocalSystemAccount(account string) bool {
+	trimmed := strings.TrimSpace(account)
+	return strings.EqualFold(trimmed, "LocalSystem") ||
+		strings.EqualFold(trimmed, `.\LocalSystem`) ||
+		strings.EqualFold(trimmed, `NT AUTHORITY\System`)
+}
+
+func checkServiceHandle(s *mgr.Service, target string) (string, error) {
 	sd, err := windows.GetSecurityInfo(s.Handle, windows.SE_SERVICE, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	expected, err := windows.SecurityDescriptorFromString(serviceSDDL)
+	trustedOwner, aclOK, err := checkDescriptor(sd, serviceSDDL)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	owner, _, err := sd.Owner()
-	if err != nil {
-		return false, err
+	if !trustedOwner {
+		return "服务所有者异常", nil
 	}
-	if (!owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) && !owner.IsWellKnown(windows.WinLocalSystemSid)) || aclString(sd) != aclString(expected) {
-		return false, nil
+	if !aclOK {
+		return "服务安全访问控制列表未就绪", nil
 	}
 	cfg, err := s.Config()
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	target, err := ExecutablePath()
-	if err != nil {
-		return false, err
+	if cfg.ServiceType != windows.SERVICE_WIN32_OWN_PROCESS {
+		return "服务进程类型不匹配", nil
 	}
-	return strings.EqualFold(cfg.BinaryPathName, windows.EscapeArg(target)) && cfg.StartType == mgr.StartManual && strings.EqualFold(cfg.ServiceStartName, "LocalSystem"), nil
+	if cfg.StartType != mgr.StartManual {
+		return "服务启动模式非手动按需启动", nil
+	}
+	if !isLocalSystemAccount(cfg.ServiceStartName) {
+		return "服务运行账户非 LocalSystem", nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(cfg.BinaryPathName), windows.EscapeArg(target)) {
+		return "服务可执行文件路径不匹配", nil
+	}
+	return "", nil
 }
 
-func openInstalledService(access uint32) (*mgr.Service, error) {
+func checkService() (string, error) {
+	elevated := windows.GetCurrentProcessToken().IsElevated()
+	target, err := ExecutablePath()
+	if err != nil {
+		return "", err
+	}
+	s, err := OpenWindowsService(windows.SERVICE_QUERY_CONFIG | windows.READ_CONTROL)
+	if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+		return "系统服务未注册", nil
+	}
+	if !elevated && errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return "系统服务查询权限待修复", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	defer s.Close()
+
+	reason, err := checkServiceHandle(s, target)
+	if !elevated && errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return "系统服务安全描述符权限待修复", nil
+	}
+	return reason, err
+}
+
+// OpenWindowsService 以最小所需访问掩码打开已注册的 TunnelKitHelper 系统服务句柄。
+func OpenWindowsService(access uint32) (*mgr.Service, error) {
 	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
 	if err != nil {
 		return nil, err

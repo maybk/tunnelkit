@@ -12,12 +12,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	binarySDDL    = "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;0x1200a9;;;BU)"
-	directorySDDL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)"
-	stateSDDL     = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
-)
-
 func componentPairs(source, target string) [][2]string {
 	return [][2]string{
 		{source, target},
@@ -25,80 +19,29 @@ func componentPairs(source, target string) [][2]string {
 	}
 }
 
-// Compare canonical ACEs separately from descriptor bookkeeping flags (AI/AR).
-func aclString(sd *windows.SECURITY_DESCRIPTOR) string {
-	text := sd.String()
-	if d := strings.Index(text, "D:"); d >= 0 {
-		text = text[d:]
-		if a := strings.Index(text, "("); a >= 0 {
-			return text[a:]
+func ensureProtectedDirectory(dir, sddl string) error {
+	err := os.Mkdir(dir, 0o755)
+	if err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return err
 		}
-	}
-	return ""
-}
-
-func verifyACL(path, sddl string) error {
-	info, err := os.Lstat(path)
-	if err != nil {
+		if err := verifyNoLinkOrReparse(dir, true); err != nil {
+			return err
+		}
+		trustedOwner, _, err := inspectSecurityDescriptor(dir, sddl)
+		if err != nil {
+			return err
+		}
+		if !trustedOwner {
+			return fmt.Errorf("unsafe helper path owner: %s", dir)
+		}
+	} else if err := verifyNoLinkOrReparse(dir, true); err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("helper paths must not be links")
-	}
-	attrs, err := windows.GetFileAttributes(windows.StringToUTF16Ptr(path))
-	if err != nil {
+	if err := setACL(dir, sddl); err != nil {
 		return err
 	}
-	if attrs&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-		return errors.New("helper paths must not be reparse points")
-	}
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
-	if err != nil {
-		return err
-	}
-	owner, _, err := sd.Owner()
-	if err != nil {
-		return err
-	}
-	if !owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) && !owner.IsWellKnown(windows.WinLocalSystemSid) {
-		return fmt.Errorf("unsafe helper path owner: %s", path)
-	}
-	want, err := windows.SecurityDescriptorFromString(sddl)
-	if err != nil {
-		return err
-	}
-	control, _, err := sd.Control()
-	if err != nil {
-		return err
-	}
-	if control&windows.SE_DACL_PROTECTED == 0 || aclString(sd) != aclString(want) {
-		return fmt.Errorf("unsafe helper path ACL: %s", path)
-	}
-	return nil
-}
-
-func setACL(path, sddl string) error {
-	sd, err := windows.SecurityDescriptorFromString(sddl)
-	if err != nil {
-		return err
-	}
-	dacl, _, err := sd.DACL()
-	if err != nil {
-		return err
-	}
-	owner, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
-	if err != nil {
-		return err
-	}
-	return windows.SetNamedSecurityInfo(
-		path,
-		windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		owner,
-		nil,
-		dacl,
-		nil,
-	)
+	return verifyPathACL(dir, sddl, true)
 }
 
 func protectDirectory(path string) error {
@@ -127,15 +70,7 @@ func protectDirectory(path string) error {
 		}
 	}
 	for _, dir := range paths {
-		err := os.Mkdir(dir, 0o755)
-		if err != nil {
-			if !errors.Is(err, os.ErrExist) {
-				return err
-			}
-			if err := verifyACL(dir, sddl); err != nil {
-				return err
-			}
-		} else if err := setACL(dir, sddl); err != nil {
+		if err := ensureProtectedDirectory(dir, sddl); err != nil {
 			return err
 		}
 	}
@@ -146,23 +81,55 @@ func protectComponent(path string, _ os.FileMode) error {
 	return setACL(path, binarySDDL)
 }
 
-func verifyInstalled(path string) error {
-	if err := verifyACL(filepath.Dir(path), directorySDDL); err != nil {
-		return err
+func inspectInstalled(path string) (string, error) {
+	elevated := windows.GetCurrentProcessToken().IsElevated()
+	dir := filepath.Dir(path)
+	if err := verifyNoLinkOrReparse(dir, true); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "系统辅助目录未安装", nil
+		}
+		if !elevated && errors.Is(err, os.ErrPermission) {
+			return "系统辅助目录访问权限待修复", nil
+		}
+		return "", err
 	}
+	trustedOwner, aclOK, err := inspectSecurityDescriptor(dir, directorySDDL)
+	if err != nil {
+		if !elevated && errors.Is(err, os.ErrPermission) {
+			return "系统辅助目录安全描述符待修复", nil
+		}
+		return "", err
+	}
+	if !trustedOwner {
+		return "", fmt.Errorf("unsafe helper path owner: %s", dir)
+	}
+	if !aclOK {
+		return "系统辅助目录安全策略待更新", nil
+	}
+
 	for _, pair := range componentPairs(path, path) {
-		if err := verifyACL(pair[1], binarySDDL); err != nil {
-			return err
+		comp := pair[1]
+		if err := verifyNoLinkOrReparse(comp, false); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Sprintf("缺少组件 %s", filepath.Base(comp)), nil
+			}
+			if !elevated && errors.Is(err, os.ErrPermission) {
+				return fmt.Sprintf("组件访问权限待修复 %s", filepath.Base(comp)), nil
+			}
+			return "", err
 		}
-		info, err := os.Stat(pair[1])
+		compTrusted, compACL, err := inspectSecurityDescriptor(comp, binarySDDL)
 		if err != nil {
-			return err
+			if !elevated && errors.Is(err, os.ErrPermission) {
+				return fmt.Sprintf("组件安全描述符待修复 %s", filepath.Base(comp)), nil
+			}
+			return "", err
 		}
-		if !info.Mode().IsRegular() {
-			return errors.New("invalid helper component")
+		if !compTrusted || !compACL {
+			return fmt.Sprintf("组件安全策略待更新 %s", filepath.Base(comp)), nil
 		}
 	}
-	return nil
+	return "", nil
 }
 
 // Install must be called with an elevated token and after the SCM service stops.

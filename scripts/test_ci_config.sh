@@ -8,6 +8,7 @@ release_assets_workflow="$repo_root/.github/workflows/release-assets.yml"
 rolling_workflow="$repo_root/.github/workflows/rolling.yml"
 dependabot_config="$repo_root/.github/dependabot.yml"
 windows_wintun_setup="$repo_root/scripts/prepare_windows_wintun.ps1"
+windows_helper_smoke="$repo_root/scripts/smoke_windows_helper.ps1"
 
 if [ ! -f "$repo_root/frontend/pnpm-lock.yaml" ] || [ -f "$repo_root/frontend/package-lock.json" ]; then
   echo "frontend must use pnpm-lock.yaml exclusively"
@@ -139,6 +140,15 @@ if [ ! -f "$windows_wintun_setup" ] ||
   ! grep -Fq '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51' "$windows_wintun_setup" ||
   ! grep -Fq 'Expand-Archive' "$windows_wintun_setup"; then
   echo "Windows releases must verify and extract Wintun DLLs via scripts/prepare_windows_wintun.ps1"
+  exit 1
+fi
+
+if [ ! -f "$windows_helper_smoke" ] ||
+  ! grep -Fq 'scripts/smoke_windows_helper.ps1 -InstallerPath "dist/tunnelkit-$env:APP_VERSION-windows-amd64-setup.exe"' "$release_assets_workflow" ||
+  ! grep -Fq 'scripts/smoke_windows_helper.ps1 -InstallerPath "dist/tunnelkit-$env:APP_VERSION-windows-arm64-setup.exe"' "$release_assets_workflow" ||
+  ! grep -Fq 'TestSmokeInstalledWindowsHelperIsCurrent' "$windows_helper_smoke" ||
+  ! grep -Fq 'TestSmokeLaunchInstalledWindowsHelper' "$windows_helper_smoke"; then
+  echo "Windows releases must smoke-test both amd64 and arm64 NSIS installers and helper SCM IPC via scripts/smoke_windows_helper.ps1"
   exit 1
 fi
 

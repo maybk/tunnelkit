@@ -342,6 +342,10 @@ jobs:
             throw "Windows installer was not created: $installer"
           }
 
+      - name: Smoke-test Windows amd64 NSIS installer and helper service
+        shell: pwsh
+        run: ./scripts/smoke_windows_helper.ps1 -InstallerPath "dist/tunnelkit-$env:APP_VERSION-windows-amd64-setup.exe"
+
       - name: Upload Windows amd64 release asset
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -456,6 +460,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
             throw "Windows installer was not created: $installer"
           }
+
+      - name: Smoke-test Windows arm64 NSIS installer and helper service
+        shell: pwsh
+        run: ./scripts/smoke_windows_helper.ps1 -InstallerPath "dist/tunnelkit-$env:APP_VERSION-windows-arm64-setup.exe"
 
       - name: Upload Windows arm64 release asset
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

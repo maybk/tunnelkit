@@ -48,7 +48,7 @@ func (s *onDemandService) Execute(args []string, r <-chan svc.ChangeRequest, cha
 	opts, err := ParseServeArgs(serveArgs, s.version)
 	if err != nil {
 		changes <- svc.Status{State: svc.StopPending}
-		return false, 2
+		return true, 2
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -83,7 +83,7 @@ func (s *onDemandService) Execute(args []string, r <-chan svc.ChangeRequest, cha
 	err = Serve(ctx, opts)
 	changes <- svc.Status{State: svc.StopPending}
 	if err != nil {
-		return false, 1
+		return true, 1
 	}
 	return false, 0
 }

@@ -924,3 +924,69 @@ func TestSyncSavedProfileClearsStaleConnectErrorAndPreservesRecoveryError(t *tes
 		t.Fatal("recovery error must not be cleared while session ticket exists")
 	}
 }
+
+func TestConnectPreLaunchFailureWritesRedactedDiagnosticLog(t *testing.T) {
+	l := &fakeLauncher{
+		launchFn: func(_ context.Context, _ helperclient.LaunchRequest) (Conn, helperclient.Ticket, error) {
+			return nil, helperclient.Ticket{}, errors.New("辅助组件授权配置未完成（服务安全访问控制列表未就绪），请重新安装应用 password=mysecretpw")
+		},
+	}
+	svc, prof := setupTestService(t, l)
+
+	if err := svc.Connect(context.Background(), prof.ID); err == nil {
+		t.Fatal("expected Connect to fail when helper launch fails")
+	}
+	st := svc.State()
+	if st.Status != StatusDisconnected || st.Error == nil || st.Error.Message != "启动连接失败" {
+		t.Fatalf("unexpected state after pre-launch failure: %+v", st)
+	}
+
+	view, err := svc.Log(prof.ID)
+	if err != nil {
+		t.Fatalf("Log(%s): %v", prof.ID, err)
+	}
+	if !view.Exists || view.UpdatedAt == "" {
+		t.Fatalf("expected non-empty log snapshot after pre-launch failure, got %+v", view)
+	}
+	for _, want := range []string{
+		"INFO  正在启动 VPN 连接",
+		"ERROR 启动连接失败: 辅助组件授权配置未完成（服务安全访问控制列表未就绪），请重新安装应用",
+	} {
+		if !strings.Contains(view.Content, want) {
+			t.Fatalf("expected log content to contain %q, got:\n%s", want, view.Content)
+		}
+	}
+	if strings.Contains(view.Content, "mysecretpw") {
+		t.Fatalf("log content leaked secret password:\n%s", view.Content)
+	}
+}
+
+func TestConnectHelperMissingAndCancelWriteLifecycleLog(t *testing.T) {
+	missingErr := true
+	l := &fakeLauncher{
+		launchFn: func(_ context.Context, _ helperclient.LaunchRequest) (Conn, helperclient.Ticket, error) {
+			if missingErr {
+				return nil, helperclient.Ticket{}, helperclient.ErrHelperMissing
+			}
+			return nil, helperclient.Ticket{}, helperclient.ErrElevationCancelled
+		},
+	}
+	svc, prof := setupTestService(t, l)
+
+	if err := svc.Connect(context.Background(), prof.ID); !errors.Is(err, helperclient.ErrHelperMissing) {
+		t.Fatalf("expected ErrHelperMissing, got %v", err)
+	}
+	view, err := svc.Log(prof.ID)
+	if err != nil || !strings.Contains(view.Content, "ERROR 未找到隧道组件 tunnelkit-helper") {
+		t.Fatalf("expected helper missing error in log, got %+v (err=%v)", view, err)
+	}
+
+	missingErr = false
+	if err := svc.Connect(context.Background(), prof.ID); err != nil {
+		t.Fatalf("cancelled elevation must return nil, got %v", err)
+	}
+	view, err = svc.Log(prof.ID)
+	if err != nil || !strings.Contains(view.Content, "INFO  已取消连接请求") {
+		t.Fatalf("expected cancellation entry in log, got %+v (err=%v)", view, err)
+	}
+}

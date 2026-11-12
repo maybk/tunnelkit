@@ -87,7 +87,7 @@ ShowInstDetails show # This will always show the installation details.
     nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -Command "if (Get-Process -Name 'tunnelkit-helper' -ErrorAction SilentlyContinue) { exit 1 }"`
     Pop $0
     ${If} $0 != 0
-        MessageBox MB_ICONSTOP "请先断开 VPN 并退出 TunnelKit，再重试安装或卸载。"
+        MessageBox MB_ICONSTOP "请先断开 VPN 并退出 TunnelKit，再重试安装或卸载。" /SD IDOK
         Abort
     ${EndIf}
 !macroend
@@ -126,7 +126,7 @@ Section
     nsExec::ExecToLog '"$INSTDIR\tunnelkit-helper.exe" install-service'
     Pop $0
     ${If} $0 != 0
-        MessageBox MB_ICONSTOP "无法安装 TunnelKit 特权辅助服务，请确认已授予管理员权限。"
+        MessageBox MB_ICONSTOP "无法安装 TunnelKit 特权辅助服务，请确认已授予管理员权限。" /SD IDOK
         Abort
     ${EndIf}
 
@@ -145,7 +145,7 @@ Section "uninstall"
     nsExec::ExecToLog '"$INSTDIR\tunnelkit-helper.exe" uninstall-service'
     Pop $0
     ${If} $0 != 0
-        MessageBox MB_ICONSTOP "无法停止并卸载 TunnelKit 特权辅助服务，请先断开 VPN 后重试。"
+        MessageBox MB_ICONSTOP "无法停止并卸载 TunnelKit 特权辅助服务，请先断开 VPN 后重试。" /SD IDOK
         Abort
     ${EndIf}
     !insertmacro tunnelkit.requireHelperStopped

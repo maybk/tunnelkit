@@ -7,11 +7,11 @@ import (
 	"runtime"
 )
 
-func serviceCurrent() (bool, error) {
+func checkService() (string, error) {
 	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-		return true, nil
+		return "", nil
 	}
-	return false, errors.New("privileged helper is unsupported on this platform")
+	return "", errors.New("privileged helper is unsupported on this platform")
 }
 
 func InstallService(string) error {

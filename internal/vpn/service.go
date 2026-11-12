@@ -67,6 +67,7 @@ type Service struct {
 	shutdownGate chan struct{}
 	// emitMu 串行化“写状态 + 通知监听者”，保证前端与菜单栏收到的状态顺序与发生顺序一致。
 	emitMu            sync.Mutex
+	logMu             sync.Mutex
 	mu                sync.RWMutex
 	state             State
 	stateChanged      chan struct{}

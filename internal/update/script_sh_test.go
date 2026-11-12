@@ -48,6 +48,18 @@ func TestBuildPOSIXFileUpdateSuccessAndRollback(t *testing.T) {
 	if string(gotGUI) != "new-gui" || string(gotHelper) != "new-helper" {
 		t.Fatalf("unexpected updated contents: gui=%q helper=%q", gotGUI, gotHelper)
 	}
+
+	elevated := buildPOSIXFileUpdateWithHelperSync(
+		stageDir,
+		targetDir,
+		[]string{"tunnelkit", "tunnelkit-helper"},
+		installBin,
+		filepath.Join(targetDir, "tunnelkit-helper"),
+	)
+	wantSync := "if [ -x " + shellQuote(filepath.Join(targetDir, "tunnelkit-helper")) + " ]; then"
+	if !strings.Contains(elevated, wantSync) {
+		t.Fatalf("expected elevated POSIX update script to sync helper, got:\n%s", elevated)
+	}
 }
 
 func TestBuildMacElevatedUpdateShellCmdSuccessAndRollback(t *testing.T) {
@@ -61,6 +73,7 @@ func TestBuildMacElevatedUpdateShellCmdSuccessAndRollback(t *testing.T) {
 		`'/Volumes/TunnelKit/TunnelKit'\''s.app'`,
 		`'/Applications/TunnelKit.app'`,
 		`'/Applications/TunnelKit.app.bak'`,
+		`'/Applications/TunnelKit.app/Contents/MacOS/tunnelkit-helper' install`,
 		"/usr/bin/ditto",
 	} {
 		if !strings.Contains(script, want) {

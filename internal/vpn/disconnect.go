@@ -129,6 +129,19 @@ func (s *Service) disconnectLocked(ctx context.Context) error {
 
 func (s *Service) failDisconnect(profileID, profileName string, vpnErr *Error) {
 	s.detachConn()
+	s.mu.RLock()
+	targetProfileID := profileID
+	if targetProfileID == "" {
+		targetProfileID = s.state.ProfileID
+	}
+	targetErr := vpnErr
+	if targetErr == nil {
+		targetErr = s.state.Error
+	}
+	s.mu.RUnlock()
+	if targetProfileID != "" && targetErr != nil {
+		s.appendErrorLog(targetProfileID, targetErr, nil)
+	}
 	s.updateState(nil, func(state *State) bool {
 		if profileID == "" {
 			profileID = state.ProfileID

@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-  echo "Usage: $0 <version> <sha256sums-file> [output-dir]" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 4 ]; then
+  echo "Usage: $0 <version> <sha256sums-file> [output-dir] [release-date]" >&2
   exit 1
 fi
 
 version="${1#v}"
 sums_file="$2"
 out_dir="${3:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+release_date="${4:-}"
 
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Version must match MAJOR.MINOR.PATCH: $version" >&2
+  exit 1
+fi
+
+if [ -n "$release_date" ] && [[ ! "$release_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  echo "Release date must match YYYY-MM-DD: $release_date" >&2
   exit 1
 fi
 
@@ -80,6 +86,8 @@ cask "tunnelkit" do
   on_macos do
     url "https://github.com/maybk/tunnelkit/releases/download/v#{version}/tunnelkit-#{version}-macos-#{arch}.dmg"
 
+    depends_on macos: :monterey
+
     app "TunnelKit.app"
 
     postflight_steps do
@@ -129,47 +137,55 @@ cask "tunnelkit" do
 end
 EOF
 
-cat > "$out_dir/bucket/tunnelkit.json" <<EOF
-{
-  "version": "${version}",
-  "description": "Cross-platform Fortinet SSL-VPN desktop and menu bar client",
-  "homepage": "https://github.com/maybk/tunnelkit",
-  "license": "MIT",
-  "architecture": {
-    "64bit": {
-      "url": "https://github.com/maybk/tunnelkit/releases/download/v${version}/tunnelkit-${version}-windows-amd64.zip",
-      "hash": "${windows_amd64_sha}"
-    },
-    "arm64": {
-      "url": "https://github.com/maybk/tunnelkit/releases/download/v${version}/tunnelkit-${version}-windows-arm64.zip",
-      "hash": "${windows_arm64_sha}"
-    }
-  },
-  "bin": "tunnelkit.exe",
-  "shortcuts": [
-    [
-      "tunnelkit.exe",
-      "TunnelKit"
-    ]
-  ],
-  "checkver": {
-    "github": "https://github.com/maybk/tunnelkit"
-  },
-  "autoupdate": {
-    "architecture": {
+jq --indent 4 -n \
+  --arg version "$version" \
+  --arg amd64_sha "$windows_amd64_sha" \
+  --arg arm64_sha "$windows_arm64_sha" \
+  '{
+    version: $version,
+    description: "Fortinet SSL-VPN desktop and menu bar client",
+    homepage: "https://github.com/maybk/tunnelkit",
+    license: "MIT",
+    architecture: {
       "64bit": {
-        "url": "https://github.com/maybk/tunnelkit/releases/download/v\$version/tunnelkit-\$version-windows-amd64.zip"
+        url: ("https://github.com/maybk/tunnelkit/releases/download/v" + $version + "/tunnelkit-" + $version + "-windows-amd64.zip"),
+        hash: $amd64_sha
       },
       "arm64": {
-        "url": "https://github.com/maybk/tunnelkit/releases/download/v\$version/tunnelkit-\$version-windows-arm64.zip"
+        url: ("https://github.com/maybk/tunnelkit/releases/download/v" + $version + "/tunnelkit-" + $version + "-windows-arm64.zip"),
+        hash: $arm64_sha
       }
     },
-    "hash": {
-      "url": "\$baseurl/SHA256SUMS.txt"
+    pre_uninstall: [
+      "Get-Process -Name '\''tunnelkit'\'' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue",
+      "if ($cmd -eq '\''uninstall'\'' -and (Get-Service -Name '\''TunnelKitHelper'\'' -ErrorAction SilentlyContinue) -and (Test-Path \"$dir\\tunnelkit-helper.exe\")) {",
+      "    $proc = Start-Process \"$dir\\tunnelkit-helper.exe\" -ArgumentList '\''uninstall-service'\'' -Wait -PassThru -WindowStyle Hidden",
+      "    if ($proc.ExitCode -ne 0) {",
+      "        warn \"Failed to remove '\''TunnelKitHelper'\'' service automatically. Run as Administrator: sc.exe stop TunnelKitHelper; sc.exe delete TunnelKitHelper\"",
+      "    }",
+      "}"
+    ],
+    shortcuts: [
+      [
+        "tunnelkit.exe",
+        "TunnelKit"
+      ]
+    ],
+    checkver: "github",
+    autoupdate: {
+      architecture: {
+        "64bit": {
+          url: "https://github.com/maybk/tunnelkit/releases/download/v$version/tunnelkit-$version-windows-amd64.zip"
+        },
+        "arm64": {
+          url: "https://github.com/maybk/tunnelkit/releases/download/v$version/tunnelkit-$version-windows-arm64.zip"
+        }
+      },
+      hash: {
+        url: "$baseurl/SHA256SUMS.txt"
+      }
     }
-  }
-}
-EOF
+  }' > "$out_dir/bucket/tunnelkit.json"
 
 if [[ "$windows_amd64_setup_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$windows_arm64_setup_sha" =~ ^[0-9a-f]{64}$ ]]; then
   winget_dir="$out_dir/winget/manifests/m/maybk/TunnelKit/${version}"
@@ -187,7 +203,8 @@ ManifestType: version
 ManifestVersion: 1.12.0
 EOF
 
-  cat > "$winget_dir/maybk.TunnelKit.installer.yaml" <<EOF
+  {
+    cat <<EOF
 # yaml-language-server: \$schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 
 PackageIdentifier: maybk.TunnelKit
@@ -197,6 +214,13 @@ Scope: machine
 UpgradeBehavior: install
 ProductCode: maybkTunnelKit
 ElevationRequirement: elevatesSelf
+EOF
+    if [ -n "$release_date" ]; then
+      printf 'ReleaseDate: %s\n' "$release_date"
+    fi
+    cat <<EOF
+InstallationMetadata:
+  DefaultInstallLocation: '%ProgramFiles%\maybk\TunnelKit'
 Installers:
 - Architecture: x64
   InstallerUrl: https://github.com/maybk/tunnelkit/releases/download/v${version}/tunnelkit-${version}-windows-amd64-setup.exe
@@ -207,6 +231,7 @@ Installers:
 ManifestType: installer
 ManifestVersion: 1.12.0
 EOF
+  } > "$winget_dir/maybk.TunnelKit.installer.yaml"
 
   cat > "$winget_dir/maybk.TunnelKit.locale.en-US.yaml" <<EOF
 # yaml-language-server: \$schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
@@ -221,7 +246,7 @@ PackageName: TunnelKit
 PackageUrl: https://github.com/maybk/tunnelkit
 License: MIT
 LicenseUrl: https://github.com/maybk/tunnelkit/blob/HEAD/LICENSE
-ShortDescription: Lightweight cross-platform Fortinet SSL-VPN desktop and menu bar client.
+ShortDescription: Fortinet SSL-VPN desktop and menu bar client
 Tags:
 - fortigate
 - fortinet
@@ -239,6 +264,7 @@ EOF
 PackageIdentifier: maybk.TunnelKit
 PackageVersion: ${version}
 PackageLocale: zh-CN
+PackageName: TunnelKit
 ShortDescription: 简洁轻量的跨平台 Fortinet SSL-VPN 桌面与菜单栏客户端。
 Tags:
 - fortigate

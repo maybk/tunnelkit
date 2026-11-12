@@ -10,6 +10,7 @@ $resolvedInstaller = (Resolve-Path -LiteralPath $InstallerPath).Path
 $installDir = Join-Path $env:SystemDrive ("tunnelkit-smoke-" + [System.Guid]::NewGuid().ToString("N").Substring(0, 8))
 $protectedBinDir = Join-Path $env:ProgramFiles "TunnelKit Helper"
 $protectedStateDir = Join-Path $env:ProgramData "TunnelKit Helper"
+$uninstallRegPath = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\maybkTunnelKit"
 $expectedSddlFragment = "(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCRPRC;;;IU)"
 
 try {
@@ -34,6 +35,14 @@ try {
     }
     if (-not (Test-Path -LiteralPath $protectedStateDir -PathType Container)) {
         throw "Expected protected state directory missing: $protectedStateDir"
+    }
+
+    $uninstProps = Get-ItemProperty -LiteralPath $uninstallRegPath -ErrorAction Stop
+    if ($uninstProps.InstallLocation -ne $installDir) {
+        throw "Expected InstallLocation='$installDir', got '$($uninstProps.InstallLocation)'"
+    }
+    if ($uninstProps.NoModify -ne 1 -or $uninstProps.NoRepair -ne 1) {
+        throw "Expected NoModify=1 and NoRepair=1 on $uninstallRegPath"
     }
 
     $svc = Get-Service -Name "TunnelKitHelper" -ErrorAction Stop
@@ -74,6 +83,9 @@ try {
     }
     if (Test-Path -LiteralPath $protectedBinDir) {
         throw "Protected helper directory still exists after silent uninstall: $protectedBinDir"
+    }
+    if (Test-Path -LiteralPath $uninstallRegPath) {
+        throw "Uninstall registry key still exists after silent uninstall: $uninstallRegPath"
     }
 }
 finally {

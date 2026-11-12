@@ -80,22 +80,28 @@ cask "tunnelkit" do
   on_macos do
     url "https://github.com/maybk/tunnelkit/releases/download/v#{version}/tunnelkit-#{version}-macos-#{arch}.dmg"
 
-    app "tunnelkit.app"
+    app "TunnelKit.app"
 
     postflight_steps do
       run "/usr/bin/xattr",
-          args:           ["-rd", "com.apple.quarantine", "{{appdir}}/tunnelkit.app"],
-          writable_paths: ["tunnelkit.app"],
+          args:           ["-rd", "com.apple.quarantine", "{{appdir}}/TunnelKit.app"],
+          writable_paths: ["TunnelKit.app"],
           writable_base:  :appdir
     end
 
-    zap trash: [
-      "~/.tunnelkit",
-      "~/Library/Application Support/com.tunnelkit.app",
-      "~/Library/Caches/com.tunnelkit.app",
-      "~/Library/Preferences/com.tunnelkit.app.plist",
-      "~/Library/Saved Application State/com.tunnelkit.app.savedState",
-    ]
+    uninstall quit: "com.tunnelkit.app"
+
+    zap delete: [
+          "/Library/Application Support/TunnelKit",
+          "/Library/PrivilegedHelperTools/com.tunnelkit.helper",
+        ],
+        trash:  [
+          "~/.tunnelkit",
+          "~/Library/Application Support/com.tunnelkit.app",
+          "~/Library/Caches/com.tunnelkit.app",
+          "~/Library/Preferences/com.tunnelkit.app.plist",
+          "~/Library/Saved Application State/com.tunnelkit.app.savedState",
+        ]
   end
   on_linux do
     url "https://github.com/maybk/tunnelkit/releases/download/v#{version}/tunnelkit-#{version}-linux-#{arch}.tar.gz"
@@ -103,7 +109,11 @@ cask "tunnelkit" do
     binary "tunnelkit"
     binary "tunnelkit-helper"
 
-    zap trash: "~/.tunnelkit"
+    zap delete: [
+          "/usr/libexec/tunnelkit",
+          "/var/lib/tunnelkit",
+        ],
+        trash:  "~/.tunnelkit"
   end
 
   name "TunnelKit"

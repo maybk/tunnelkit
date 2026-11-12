@@ -15,7 +15,7 @@
 - `test_extract_release_notes.sh`：`extract_release_notes.sh` 与 `CHANGELOG.md` 格式守卫测试。
 - `test_prepare_release.sh`：`prepare_release.sh` 的版本同步与幂等性回归测试。
 - `test_package_manifests.sh`：`render_package_manifests.sh` 的清单渲染回归测试。
-- `test_ci_config.sh`：校验 `.github/workflows/ci.yml`、锁文件唯一性与依赖源安全约束。
+- `test_ci_config.sh`：校验 CI/Release 工作流、平台安装包配置、锁文件唯一性与依赖源安全约束。
 - `test_rolling_release_config.sh`：校验滚动预发布与正式发版工作流编排契约。
 
 ## 开发规范

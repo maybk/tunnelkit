@@ -46,6 +46,7 @@ overrides:
     depends:
       - gtk4
       - webkitgtk-6.0
+      - iproute2
 
 # scripts section to ensure desktop database is updated after install
 scripts:

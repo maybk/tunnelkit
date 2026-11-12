@@ -34,19 +34,26 @@ for required_cask in \
   'arm64_linux:' \
   'x86_64_linux:' \
   'on_macos do' \
-  'app "tunnelkit.app"' \
+  'app "TunnelKit.app"' \
   'postflight_steps do' \
   'run "/usr/bin/xattr"' \
-  'args:           ["-rd", "com.apple.quarantine", "{{appdir}}/tunnelkit.app"]' \
+  'args:           ["-rd", "com.apple.quarantine", "{{appdir}}/TunnelKit.app"]' \
+  'uninstall quit: "com.tunnelkit.app"' \
+  '"/Library/PrivilegedHelperTools/com.tunnelkit.helper"' \
   'on_linux do' \
   'binary "tunnelkit"' \
   'binary "tunnelkit-helper"' \
+  '"/usr/libexec/tunnelkit"' \
   '1111111111111111111111111111111111111111111111111111111111111111'; do
   if ! grep -Fq -- "$required_cask" "$cask_file"; then
     echo "Rendered Cask is missing required stanza: $required_cask" >&2
     exit 1
   fi
 done
+if grep -Eq '(["/])tunnelkit\.app"' "$cask_file"; then
+  echo "Rendered Cask must reference TunnelKit.app matching package_macos_dmg.sh, not lowercase tunnelkit.app" >&2
+  exit 1
+fi
 
 if command -v ruby >/dev/null 2>&1; then
   ruby -c "$cask_file" >/dev/null

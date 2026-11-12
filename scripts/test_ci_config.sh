@@ -152,6 +152,20 @@ if [ ! -f "$windows_helper_smoke" ] ||
   exit 1
 fi
 
+nsis_script="$repo_root/build/windows/nsis/project.nsi"
+if [ ! -f "$nsis_script" ] ||
+  ! grep -Fq '!include "MUI2.nsh"' "$nsis_script" ||
+  ! grep -Fq '!insertmacro MUI_UNPAGE_CONFIRM' "$nsis_script" ||
+  ! grep -Fq '!define MUI_FINISHPAGE_RUN_FUNCTION "LaunchAsDesktopUser"' "$nsis_script" ||
+  ! grep -Fq 'ShowInstDetails hide' "$nsis_script" ||
+  ! grep -Fq 'ShowUnInstDetails hide' "$nsis_script" ||
+  grep -Fq 'MUI_FINISHPAGE_NOAUTOCLOSE' "$nsis_script" ||
+  grep -Fq 'ShowInstDetails show' "$nsis_script" ||
+  grep -Fq 'nsExec::ExecToLog' "$nsis_script"; then
+  echo "Windows NSIS installer must use MUI2, clean hidden details without ExecToLog noise, uninstall confirmation, and non-elevated Explorer launch"
+  exit 1
+fi
+
 if grep -Eq 'PULL_TOKEN|REPO_URL|@main' "$release_workflow" "$release_assets_workflow" "$rolling_workflow"; then
   echo "release workflow must not clone another repository or use floating main actions"
   exit 1
@@ -191,11 +205,19 @@ for required_nfpm in \
   'libgtk-4-1' \
   'libwebkitgtk-6.0-4' \
   'iproute2' \
-  'iproute'; do
+  'iproute' \
+  'postinstall: "./build/linux/nfpm/scripts/postinstall.sh"' \
+  'preremove: "./build/linux/nfpm/scripts/preremove.sh"'; do
   if ! grep -Fq "$required_nfpm" "$nfpm_config"; then
     echo "build/linux/nfpm/nfpm.yaml is missing required deb/rpm metadata: $required_nfpm"
     exit 1
   fi
+done
+
+for nfpm_script in \
+  "$repo_root/build/linux/nfpm/scripts/postinstall.sh" \
+  "$repo_root/build/linux/nfpm/scripts/preremove.sh"; do
+  sh -n "$nfpm_script"
 done
 
 for required_runner in \

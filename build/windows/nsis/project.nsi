@@ -34,6 +34,7 @@ Unicode true
 ## Include the wails tools
 ####
 !include "wails_tools.nsh"
+!include "LogicLib.nsh"
 
 # The version information for this two must consist of 4 parts
 VIProductVersion "${INFO_PRODUCTVERSION}.0"
@@ -49,21 +50,25 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 # Enable HiDPI support. https://nsis.sourceforge.io/Reference/ManifestDPIAware
 ManifestDPIAware true
 
-!include "MUI.nsh"
+!include "MUI2.nsh"
 
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
 # !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
-!define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}"
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
+
+# Launch the desktop client via Windows Explorer so it runs under the signed-in
+# user's standard token rather than inheriting the installer's elevated token.
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_FUNCTION "LaunchAsDesktopUser"
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
 
+!insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES # Uninstalling page
 
 !insertmacro MUI_LANGUAGE "SimpChinese"
@@ -75,40 +80,118 @@ ManifestDPIAware true
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
+
+# Use a compile-time sentinel ending in \${INFO_PRODUCTNAME} so NSIS directory
+# browsing appends \TunnelKit while .onInit preserves /D= overrides and restores
+# the previous 64-bit InstallLocation on upgrades.
+!define PLACEHOLDER_INSTALL_DIR "placeholder\${INFO_PRODUCTNAME}"
 !if "${WAILS_INSTALL_SCOPE}" == "user"
-    InstallDir "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}"
+    !define DEFAULT_INSTALL_DIR "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}"
 !else
-    InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}"
+    !define DEFAULT_INSTALL_DIR "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}"
 !endif
-ShowInstDetails show # This will always show the installation details.
+InstallDir "${PLACEHOLDER_INSTALL_DIR}"
+
+ShowInstDetails hide
+ShowUnInstDetails hide
 
 # Never terminate a privileged VPN helper before it restores host networking.
 !macro tunnelkit.requireHelperStopped
-    nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -Command "if (Get-Process -Name 'tunnelkit-helper' -ErrorAction SilentlyContinue) { exit 1 }"`
+    nsExec::Exec '"$SYSDIR\cmd.exe" /d /c tasklist /FI "IMAGENAME eq tunnelkit-helper.exe" /FO CSV /NH | findstr /I "tunnelkit-helper.exe"'
     Pop $0
-    ${If} $0 != 0
+    ${If} $0 == "0"
+        SetDetailsView show
+        DetailPrint "检测到正在运行的 VPN 会话（tunnelkit-helper.exe）。"
         MessageBox MB_ICONSTOP "请先断开 VPN 并退出 TunnelKit，再重试安装或卸载。" /SD IDOK
         Abort
     ${EndIf}
 !macroend
 
+# Silently close the desktop client only if it is currently running; never emit
+# localized taskkill "process not found" errors during fresh installs.
+!macro tunnelkit.stopDesktopClient
+    nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "${PRODUCT_EXECUTABLE}"'
+    Pop $0
+    ${If} $0 == "0"
+        DetailPrint "正在关闭运行中的 ${INFO_PRODUCTNAME}..."
+        Sleep 500
+    ${EndIf}
+!macroend
+
+# Run a privileged service management command silently; only pop captured output
+# when process creation succeeded ($0 != "error" && $0 != "timeout") and expand
+# diagnostic details only on failure.
+!macro tunnelkit.execServiceCmd CMD ERR_MSG
+    StrCpy $1 ""
+    nsExec::ExecToStack `${CMD}`
+    Pop $0
+    ${If} $0 != "error"
+    ${AndIf} $0 != "timeout"
+        Pop $1
+    ${EndIf}
+    ${If} $0 != "0"
+        SetDetailsView show
+        ${If} $1 != ""
+            DetailPrint "$1"
+        ${EndIf}
+        MessageBox MB_ICONSTOP "${ERR_MSG}" /SD IDOK
+        Abort
+    ${EndIf}
+!macroend
+
+!macro tunnelkit.writeInstallMetadata
+    SetRegView 64
+    !if "${WAILS_INSTALL_SCOPE}" == "user"
+        WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+        WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
+        WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
+    !else
+        WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+        WriteRegDWORD HKLM "${UNINST_KEY}" "NoModify" 1
+        WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
+    !endif
+!macroend
+
+Function LaunchAsDesktopUser
+    SetOutPath "$INSTDIR"
+    !if "${REQUEST_EXECUTION_LEVEL}" == "admin"
+        Exec '"$WINDIR\explorer.exe" "$INSTDIR\${PRODUCT_EXECUTABLE}"'
+    !else
+        Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+    !endif
+FunctionEnd
+
 Function .onInit
-   !insertmacro wails.checkArchitecture
+    !insertmacro wails.checkArchitecture
+
+    ${If} $INSTDIR == "${PLACEHOLDER_INSTALL_DIR}"
+        SetRegView 64
+        !if "${WAILS_INSTALL_SCOPE}" == "user"
+            ReadRegStr $0 HKCU "${UNINST_KEY}" "InstallLocation"
+        !else
+            ReadRegStr $0 HKLM "${UNINST_KEY}" "InstallLocation"
+        !endif
+        ${If} $0 != ""
+            StrCpy $INSTDIR "$0"
+        ${Else}
+            StrCpy $INSTDIR "${DEFAULT_INSTALL_DIR}"
+        ${EndIf}
+    ${EndIf}
 FunctionEnd
 
 Section
     !insertmacro wails.setShellContext
 
+    DetailPrint "正在检查运行环境..."
     !insertmacro tunnelkit.requireHelperStopped
-    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}"'
-    Pop $0
-    Sleep 300
+    !insertmacro tunnelkit.stopDesktopClient
 
     !insertmacro wails.webview2runtime
 
-    SetOutPath $INSTDIR
+    DetailPrint "正在部署 ${INFO_PRODUCTNAME} 程序文件..."
+    SetOutPath "$INSTDIR"
     Delete "$INSTDIR\*.old"
-    
+
     !insertmacro wails.files
     !ifdef ARG_WAILS_HELPER_BINARY
         File "/oname=tunnelkit-helper.exe" "${ARG_WAILS_HELPER_BINARY}"
@@ -123,39 +206,40 @@ Section
         File "..\..\..\bin\wintun.dll"
     !endif
 
-    nsExec::ExecToLog '"$INSTDIR\tunnelkit-helper.exe" install-service'
-    Pop $0
-    ${If} $0 != 0
-        MessageBox MB_ICONSTOP "无法安装 TunnelKit 特权辅助服务，请确认已授予管理员权限。" /SD IDOK
-        Abort
-    ${EndIf}
+    DetailPrint "正在配置 ${INFO_PRODUCTNAME} 系统辅助服务..."
+    !insertmacro tunnelkit.execServiceCmd '"$INSTDIR\tunnelkit-helper.exe" install-service' "无法安装 TunnelKit 特权辅助服务，请确认已授予管理员权限。"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
-    
+
     !insertmacro wails.writeUninstaller
+    !insertmacro tunnelkit.writeInstallMetadata
 SectionEnd
 
-Section "uninstall" 
+Section "uninstall"
     !insertmacro wails.setShellContext
 
-    nsExec::ExecToLog '"$INSTDIR\tunnelkit-helper.exe" uninstall-service'
-    Pop $0
-    ${If} $0 != 0
-        MessageBox MB_ICONSTOP "无法停止并卸载 TunnelKit 特权辅助服务，请先断开 VPN 后重试。" /SD IDOK
-        Abort
-    ${EndIf}
+    DetailPrint "正在检查运行环境..."
     !insertmacro tunnelkit.requireHelperStopped
-    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}"'
-    Pop $0
-    Sleep 300
+    !insertmacro tunnelkit.stopDesktopClient
 
+    ${If} ${FileExists} "$INSTDIR\tunnelkit-helper.exe"
+        DetailPrint "正在移除 ${INFO_PRODUCTNAME} 系统辅助服务..."
+        !insertmacro tunnelkit.execServiceCmd '"$INSTDIR\tunnelkit-helper.exe" uninstall-service' "无法停止并卸载 TunnelKit 特权辅助服务，请先断开 VPN 后重试。"
+    ${Else}
+        nsExec::Exec '"$SYSDIR\sc.exe" stop TunnelKitHelper'
+        Pop $0
+        nsExec::Exec '"$SYSDIR\sc.exe" delete TunnelKitHelper'
+        Pop $0
+        RMDir /r "$PROGRAMFILES64\TunnelKit Helper"
+    ${EndIf}
+
+    SetShellVarContext current
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
-
-    RMDir /r $INSTDIR
+    !insertmacro wails.setShellContext
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
@@ -163,5 +247,11 @@ Section "uninstall"
     !insertmacro wails.unassociateFiles
     !insertmacro wails.unassociateCustomProtocols
 
+    SetOutPath "$TEMP"
     !insertmacro wails.deleteUninstaller
+    RMDir /r "$INSTDIR"
+    !if "${WAILS_INSTALL_SCOPE}" != "user"
+        RMDir "$PROGRAMFILES64\${INFO_COMPANYNAME}"
+        ClearErrors
+    !endif
 SectionEnd

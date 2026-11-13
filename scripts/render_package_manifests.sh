@@ -194,18 +194,18 @@ if [[ "$windows_amd64_setup_sha" =~ ^[0-9a-f]{64}$ ]] && [[ "$windows_arm64_setu
   arm64_upper="$(printf '%s' "$windows_arm64_setup_sha" | tr '[:lower:]' '[:upper:]')"
 
   cat > "$winget_dir/maybk.TunnelKit.yaml" <<EOF
-# yaml-language-server: \$schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json
+# yaml-language-server: \$schema=https://aka.ms/winget-manifest.version.1.28.0.schema.json
 
 PackageIdentifier: maybk.TunnelKit
 PackageVersion: ${version}
 DefaultLocale: en-US
 ManifestType: version
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0
 EOF
 
   {
     cat <<EOF
-# yaml-language-server: \$schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+# yaml-language-server: \$schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
 
 PackageIdentifier: maybk.TunnelKit
 PackageVersion: ${version}
@@ -229,12 +229,12 @@ Installers:
   InstallerUrl: https://github.com/maybk/tunnelkit/releases/download/v${version}/tunnelkit-${version}-windows-arm64-setup.exe
   InstallerSha256: ${arm64_upper}
 ManifestType: installer
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0
 EOF
   } > "$winget_dir/maybk.TunnelKit.installer.yaml"
 
   cat > "$winget_dir/maybk.TunnelKit.locale.en-US.yaml" <<EOF
-# yaml-language-server: \$schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+# yaml-language-server: \$schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
 
 PackageIdentifier: maybk.TunnelKit
 PackageVersion: ${version}
@@ -255,11 +255,11 @@ Tags:
 - vpn
 ReleaseNotesUrl: https://github.com/maybk/tunnelkit/releases/tag/v${version}
 ManifestType: defaultLocale
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0
 EOF
 
   cat > "$winget_dir/maybk.TunnelKit.locale.zh-CN.yaml" <<EOF
-# yaml-language-server: \$schema=https://aka.ms/winget-manifest.locale.1.12.0.schema.json
+# yaml-language-server: \$schema=https://aka.ms/winget-manifest.locale.1.28.0.schema.json
 
 PackageIdentifier: maybk.TunnelKit
 PackageVersion: ${version}
@@ -273,6 +273,6 @@ Tags:
 - vpn
 - 网络
 ManifestType: locale
-ManifestVersion: 1.12.0
+ManifestVersion: 1.28.0
 EOF
 fi

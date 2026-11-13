@@ -6,6 +6,11 @@ on:
       - main
   pull_request:
   workflow_call:
+    inputs:
+      source_sha:
+        description: Optional commit SHA to check out when called from another workflow
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +27,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
 
       - name: Install Linux GTK4 and WebKitGTK 6.0 headers
         run: |

@@ -16,22 +16,27 @@ for workflow in "$build_workflow" "$rolling_workflow"; do
 done
 
 for required in \
-  'workflow_run:' \
-  'workflows: [CI]' \
-  'types: [completed]' \
-  'branches: [main]' \
-  "github.event.workflow_run.conclusion == 'success'" \
-  "github.event.workflow_run.event == 'push'" \
-  "github.event.workflow_run.head_branch == 'main'" \
-  'github.event.workflow_run.head_sha' \
-  "github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha" \
+  'schedule:' \
+  "- cron: '17 18 * * *'" \
   'workflow_dispatch:' \
+  'force:' \
+  "github.event_name == 'schedule'" \
+  "github.event_name == 'workflow_dispatch'" \
+  'actions: read' \
   'group: rolling' \
   'cancel-in-progress: true' \
   'refs/remotes/origin/main' \
+  'git checkout --detach --quiet "$source_sha"' \
   'git merge-base --is-ancestor' \
   'v[0-9]+\.[0-9]+\.[0-9]+' \
   '正式发布提交，跳过 Rolling' \
+  'published_sha="$(git rev-parse --verify --quiet "refs/tags/${rolling_tag}^{commit}" || true)"' \
+  'releases_json="$(gh api "repos/$GH_REPO/releases?per_page=100")"' \
+  'all(.state == "uploaded")' \
+  '当前 main 提交已发布完整 Rolling' \
+  'actions/workflows/ci.yml/runs?head_sha=$source_sha' \
+  'needs_ci: ${{ steps.source.outputs.needs_ci }}' \
+  "needs.prepare.outputs.needs_ci == 'true'" \
   'uses: ./.github/workflows/ci.yml' \
   'uses: ./.github/workflows/release-assets.yml' \
   'retention_days: 1' \
@@ -78,8 +83,13 @@ if [ ! -f "$pending_version_extractor" ]; then
   exit 1
 fi
 
+if grep -Fq 'workflow_run:' "$rolling_workflow" || grep -Fq 'github.event.workflow_run' "$rolling_workflow"; then
+  echo "Rolling workflow must run on daily schedule and manual dispatch rather than every push workflow_run"
+  exit 1
+fi
+
 if grep -Fq 'GITHUB_SHA' "$rolling_workflow"; then
-  echo "Rolling workflow must not use its workflow_run GITHUB_SHA as the source commit"
+  echo "Rolling workflow must not use GITHUB_SHA directly as the source commit"
   exit 1
 fi
 
@@ -90,7 +100,13 @@ fi
 
 if ! grep -Fq "github.event_name == 'workflow_dispatch'" "$rolling_workflow" ||
   ! grep -Fq "github.ref == 'refs/heads/main'" "$rolling_workflow"; then
-  echo "manual Rolling runs must execute CI and only accept the current main branch"
+  echo "Rolling runs must enforce CI gating and only accept the main branch"
+  exit 1
+fi
+
+if ! grep -Fq 'source_sha:' "$ci_workflow" ||
+  ! grep -Fq 'ref: ${{ inputs.source_sha }}' "$ci_workflow"; then
+  echo "reusable CI workflow must accept an optional source_sha input for exact Rolling commit verification"
   exit 1
 fi
 
@@ -209,5 +225,296 @@ fi
 
 if ! grep -Fq 'bash scripts/test_extract_pending_version.sh' "$ci_workflow"; then
   echo "ordinary CI must test pending changelog version extraction"
+  exit 1
+fi
+
+# Behavioral state-machine tests against the extracted Rolling prepare script
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+prepare_script="$tmp_dir/prepare.sh"
+awk '
+  /^      - name: Validate source commit$/ { in_step=1; next }
+  in_step && /^        run: \|$/ { in_run=1; next }
+  in_run {
+    if ($0 ~ /^  [a-zA-Z0-9_-]+:/ || $0 ~ /^      - name:/) { exit }
+    sub(/^          /, "")
+    print
+  }
+' "$rolling_workflow" > "$prepare_script"
+test -s "$prepare_script"
+bash -n "$prepare_script"
+
+mock_bin="$tmp_dir/bin"
+mkdir -p "$mock_bin"
+cat > "$mock_bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "api" ]; then
+  endpoint="${2:-}"
+  case "$endpoint" in
+    repos/*/releases\?per_page=100)
+      if [ "${MOCK_RELEASES_API_FAIL:-false}" = "true" ]; then
+        echo "HTTP 502 Bad Gateway" >&2
+        exit 1
+      fi
+      cat "$MOCK_RELEASES_JSON_FILE"
+      exit 0
+      ;;
+    repos/*/actions/workflows/ci.yml/runs*)
+      if [ "${MOCK_CI_API_FAIL:-false}" = "true" ]; then
+        exit 1
+      fi
+      cat "$MOCK_CI_JSON_FILE"
+      exit 0
+      ;;
+  esac
+fi
+echo "unexpected gh command: $*" >&2
+exit 1
+EOF
+chmod +x "$mock_bin/gh"
+
+releases_json_file="$tmp_dir/releases.json"
+ci_json_file="$tmp_dir/ci_runs.json"
+printf '[]\n' > "$releases_json_file"
+printf '{"workflow_runs":[]}\n' > "$ci_json_file"
+
+write_complete_release_json() {
+  local ver="$1"
+  local ssha="$2"
+  local draft="${3:-false}"
+  local asset_state="${4:-uploaded}"
+  local omit_last="${5:-false}"
+  jq -n \
+    --arg tag "v${ver}-pre" \
+    --arg ver "$ver" \
+    --arg ssha "$ssha" \
+    --argjson draft "$draft" \
+    --arg state "$asset_state" \
+    --argjson omit "$omit_last" \
+    '
+      (
+        ["SHA256SUMS.txt"] + (
+          [
+            "macos-universal.dmg",
+            "macos-arm64.dmg",
+            "macos-amd64.dmg",
+            "windows-amd64-setup.exe",
+            "windows-amd64.zip",
+            "windows-arm64-setup.exe",
+            "windows-arm64.zip",
+            "linux-amd64.tar.gz",
+            "linux-amd64.deb",
+            "linux-amd64.rpm",
+            "linux-arm64.tar.gz",
+            "linux-arm64.deb",
+            "linux-arm64.rpm"
+          ] | map("tunnelkit-\($ver)-rolling-\($ssha)-" + .)
+        )
+      ) as $names |
+      [
+        {
+          tag_name: $tag,
+          draft: $draft,
+          prerelease: true,
+          assets: (
+            (if $omit then $names[0:13] else $names end)
+            | map({ name: ., state: $state })
+          )
+        }
+      ]
+    ' > "$releases_json_file"
+}
+
+origin_repo="$tmp_dir/origin.git"
+work_repo="$tmp_dir/work"
+git init --bare --quiet "$origin_repo"
+git init --quiet "$work_repo"
+git -C "$work_repo" checkout -q -b main
+git -C "$work_repo" config user.name "Test Bot"
+git -C "$work_repo" config user.email "test@example.com"
+git -C "$work_repo" remote add origin "$origin_repo"
+
+mkdir -p "$work_repo/build" "$work_repo/scripts"
+cp "$repo_root/scripts/extract_pending_version.sh" "$work_repo/scripts/"
+cp "$repo_root/scripts/extract_release_notes.sh" "$work_repo/scripts/"
+cat > "$work_repo/build/config.yml" <<'EOF'
+info:
+  version: "1.0.1"
+EOF
+cat > "$work_repo/CHANGELOG.md" <<'EOF'
+# 更新日志
+
+## [1.0.2] - 未发布
+
+### 修复
+
+- 修复测试问题。
+
+## [1.0.1] - 2026-11-11
+
+### 修复
+
+- 初始正式版。
+EOF
+git -C "$work_repo" add .
+git -C "$work_repo" commit -q -m "feat: pending change"
+git -C "$work_repo" push -q origin main
+
+run_prepare() {
+  local out_file="$tmp_dir/github_output.txt"
+  : > "$out_file"
+  (
+    cd "$work_repo"
+    PATH="$mock_bin:$PATH" \
+      RUNNER_TEMP="$tmp_dir" \
+      GITHUB_OUTPUT="$out_file" \
+      GH_TOKEN="dummy" \
+      GH_REPO="maybk/tunnelkit" \
+      MOCK_RELEASES_JSON_FILE="$releases_json_file" \
+      MOCK_CI_JSON_FILE="$ci_json_file" \
+      EVENT_NAME="${1:-schedule}" \
+      EVENT_REF="${2:-refs/heads/main}" \
+      FORCE_PUBLISH="${3:-false}" \
+      bash "$prepare_script" >/dev/null
+  ) && cat "$out_file"
+}
+
+# 1. No -pre tag online, pending changelog non-empty, no prior CI success -> publish + run CI
+printf '[]\n' > "$releases_json_file"
+printf '{"workflow_runs":[]}\n' > "$ci_json_file"
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=true" <<<"$out"
+grep -Fq "needs_ci=true" <<<"$out"
+grep -Fq "rolling_version=1.0.2" <<<"$out"
+
+# 2. Matching -pre tag online + complete public prerelease (14 uploaded assets with matching short_sha) -> skip
+head_sha="$(git -C "$work_repo" rev-parse HEAD)"
+head_short_sha="${head_sha:0:12}"
+git -C "$work_repo" tag -a -f "v1.0.2-pre" -m "Rolling" "$head_sha"
+git -C "$work_repo" push -q --force origin "refs/tags/v1.0.2-pre"
+write_complete_release_json "1.0.2" "$head_short_sha" false uploaded false
+printf '{"workflow_runs":[{"event":"push","head_branch":"main","conclusion":"success"}]}\n' > "$ci_json_file"
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=false" <<<"$out"
+grep -Fq "needs_ci=false" <<<"$out"
+
+# 3. Same published commit, but manual dispatch with force=true and passing latest push CI -> rebuild without rerunning CI
+out="$(run_prepare workflow_dispatch refs/heads/main true)"
+grep -Fq "should_publish=true" <<<"$out"
+grep -Fq "needs_ci=false" <<<"$out"
+
+# 3b. Latest push CI rerun failed even if an older run succeeded -> must require CI gate
+printf '{"workflow_runs":[{"event":"push","head_branch":"main","conclusion":"failure"},{"event":"push","head_branch":"main","conclusion":"success"}]}\n' > "$ci_json_file"
+out="$(run_prepare workflow_dispatch refs/heads/main true)"
+grep -Fq "should_publish=true" <<<"$out"
+grep -Fq "needs_ci=true" <<<"$out"
+printf '{"workflow_runs":[{"event":"push","head_branch":"main","conclusion":"success"}]}\n' > "$ci_json_file"
+
+# 4a. Orphan tag (no matching GitHub Release) -> self-heal and rebuild
+printf '[]\n' > "$releases_json_file"
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=true" <<<"$out"
+
+# 4b. Incomplete Rolling release (draft=true, <14 assets, starter state, or mismatched asset short_sha) -> self-heal
+write_complete_release_json "1.0.2" "$head_short_sha" true uploaded false
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=true" <<<"$out"
+
+write_complete_release_json "1.0.2" "$head_short_sha" false uploaded true
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=true" <<<"$out"
+
+write_complete_release_json "1.0.2" "$head_short_sha" false starter false
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=true" <<<"$out"
+
+write_complete_release_json "1.0.2" "deadbeefcafe" false uploaded false
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=true" <<<"$out"
+
+# 4c. Transient GitHub Releases API failure (5xx) -> fast-fail rather than falsely rebuilding
+if MOCK_RELEASES_API_FAIL=true run_prepare schedule refs/heads/main false >/dev/null 2>&1; then
+  echo "prepare must fail fast on GitHub Releases API errors rather than triggering a spurious rebuild"
+  exit 1
+fi
+
+# 5. Formal release commit tagged vX.Y.Z -> skip Rolling even without -pre tag
+git -C "$work_repo" push -q origin ":refs/tags/v1.0.2-pre"
+git -C "$work_repo" tag -d "v1.0.2-pre" >/dev/null
+git -C "$work_repo" tag -a "v1.0.2" -m "TunnelKit v1.0.2" "$head_sha"
+git -C "$work_repo" push -q origin "refs/tags/v1.0.2"
+printf '[]\n' > "$releases_json_file"
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=false" <<<"$out"
+
+# 6. Empty pending changelog section after release (on a new untagged commit) -> skip Rolling
+git -C "$work_repo" checkout -q main
+cat > "$work_repo/CHANGELOG.md" <<'EOF'
+# 更新日志
+
+## [1.0.3] - 未发布
+
+## [1.0.2] - 2026-11-13
+
+### 修复
+
+- 修复测试问题。
+EOF
+git -C "$work_repo" add CHANGELOG.md
+git -C "$work_repo" commit -q -m "chore: empty pending changelog"
+git -C "$work_repo" push -q origin main
+empty_head_sha="$(git -C "$work_repo" rev-parse refs/heads/main)"
+[ "$empty_head_sha" != "$head_sha" ]
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=false" <<<"$out"
+
+# 7. New commit with non-empty pending changelog advances past older -pre tag -> publish new Rolling
+git -C "$work_repo" checkout -q main
+git -C "$work_repo" tag -a -f "v1.0.3-pre" -m "Old Rolling" "$empty_head_sha"
+git -C "$work_repo" push -q --force origin "refs/tags/v1.0.3-pre"
+write_complete_release_json "1.0.3" "${empty_head_sha:0:12}" false uploaded false
+cat > "$work_repo/CHANGELOG.md" <<'EOF'
+# 更新日志
+
+## [1.0.3] - 未发布
+
+### 新增
+
+- 新增每日定时 Rolling 构建。
+
+## [1.0.2] - 2026-11-13
+
+### 修复
+
+- 修复测试问题。
+EOF
+git -C "$work_repo" add CHANGELOG.md
+git -C "$work_repo" commit -q -m "feat: add new feature for 1.0.3"
+git -C "$work_repo" push -q origin main
+new_head_sha="$(git -C "$work_repo" rev-parse refs/heads/main)"
+out="$(run_prepare schedule refs/heads/main false)"
+grep -Fq "should_publish=true" <<<"$out"
+grep -Fq "needs_ci=false" <<<"$out"
+grep -Fq "rolling_version=1.0.3" <<<"$out"
+grep -Fq "source_sha=$new_head_sha" <<<"$out"
+
+# 8. Manual dispatch from non-main branch -> must fail
+if (
+  cd "$work_repo"
+  PATH="$mock_bin:$PATH" \
+    RUNNER_TEMP="$tmp_dir" \
+    GITHUB_OUTPUT="$tmp_dir/github_output_err.txt" \
+    GH_TOKEN="dummy" \
+    GH_REPO="maybk/tunnelkit" \
+    MOCK_RELEASES_JSON_FILE="$releases_json_file" \
+    MOCK_CI_JSON_FILE="$ci_json_file" \
+    EVENT_NAME="workflow_dispatch" \
+    EVENT_REF="refs/heads/feature" \
+    FORCE_PUBLISH="false" \
+    bash "$prepare_script" >/dev/null 2>&1
+); then
+  echo "manual Rolling dispatch from a non-main branch must be rejected"
   exit 1
 fi

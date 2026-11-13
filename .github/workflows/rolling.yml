@@ -1,11 +1,15 @@
 name: Rolling
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+  schedule:
+    - cron: '17 18 * * *' # 每日 02:17 (UTC+8)
   workflow_dispatch:
+    inputs:
+      force:
+        description: 强制重新打包（即使没有新提交）
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -18,13 +22,13 @@ jobs:
   prepare:
     name: Select current main commit
     if: >-
-      (github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main') ||
+      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
       short_sha: ${{ steps.source.outputs.short_sha }}
@@ -32,56 +36,52 @@ jobs:
       app_version: ${{ steps.source.outputs.app_version }}
       rolling_version: ${{ steps.source.outputs.rolling_version }}
       should_publish: ${{ steps.source.outputs.should_publish }}
+      needs_ci: ${{ steps.source.outputs.needs_ci }}
     steps:
       - name: Check out candidate source and tags
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Validate source commit
         id: source
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_REF: ${{ github.ref }}
-          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
-          DISPATCH_SHA: ${{ github.sha }}
+          FORCE_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && (inputs.force == true || inputs.force == 'true') && 'true' || 'false' }}
         run: |
           set -euo pipefail
 
-          if [ "$EVENT_NAME" = workflow_run ]; then
-            source_sha="$WORKFLOW_RUN_SHA"
-          else
-            if [ "$EVENT_REF" != refs/heads/main ]; then
-              echo "手动 Rolling 只能从 main 分支运行" >&2
-              exit 1
-            fi
-            source_sha="$DISPATCH_SHA"
+          if [ "$EVENT_NAME" = workflow_dispatch ] && [ "$EVENT_REF" != refs/heads/main ]; then
+            echo "手动 Rolling 只能从 main 分支运行" >&2
+            exit 1
           fi
-
-          if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Rolling source must be a full commit SHA: $source_sha" >&2
+          if [ "$EVENT_REF" != refs/heads/main ]; then
+            echo "Rolling 只能从 main 分支运行: $EVENT_REF" >&2
             exit 1
           fi
 
           git fetch origin main:refs/remotes/origin/main --no-tags
           git fetch origin --force --tags
-          main_head="$(git rev-parse refs/remotes/origin/main)"
-          if [ "$source_sha" != "$main_head" ]; then
-            echo "目标提交已不是 origin/main HEAD，跳过过期 Rolling: $source_sha"
-            echo "should_publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          source_sha="$(git rev-parse refs/remotes/origin/main)"
+          if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Rolling source must be a full commit SHA: $source_sha" >&2
+            exit 1
           fi
           if ! git merge-base --is-ancestor "$source_sha" refs/remotes/origin/main; then
             echo "Rolling source must be contained in origin/main" >&2
             exit 1
           fi
+          git checkout --detach --quiet "$source_sha"
 
           formal_tag="$(git tag --points-at "$source_sha" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
           if [ -n "$formal_tag" ]; then
             echo "正式发布提交，跳过 Rolling: $formal_tag"
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "needs_ci=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -93,6 +93,7 @@ jobs:
           rolling_version="$(bash scripts/extract_pending_version.sh CHANGELOG.md)"
           app_version="${rolling_version}-pre"
           build_version="${rolling_version}-pre"
+          rolling_tag="v${rolling_version}-pre"
 
           notes_error_file="$RUNNER_TEMP/pending-release-notes-error.log"
           set +e
@@ -104,6 +105,7 @@ jobs:
             rm -f "$notes_error_file"
             echo "待发布版本暂无内容，跳过 Rolling: $rolling_version"
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "needs_ci=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$notes_status" -ne 0 ]; then
@@ -112,32 +114,90 @@ jobs:
           fi
           rm -f "$notes_error_file"
 
+          short_sha="${source_sha:0:12}"
+          published_sha="$(git rev-parse --verify --quiet "refs/tags/${rolling_tag}^{commit}" || true)"
+          if [ "$FORCE_PUBLISH" != true ] && [ "$published_sha" = "$source_sha" ]; then
+            releases_json="$(gh api "repos/$GH_REPO/releases?per_page=100")"
+            release_status="$(
+              jq -r \
+                --arg tag "$rolling_tag" \
+                --arg prefix "tunnelkit-${rolling_version}-rolling-${short_sha}-" \
+                '
+                  ([.[] | select(.tag_name == $tag)] | first) as $rel |
+                  if $rel == null then
+                    "missing"
+                  elif ($rel.draft == false)
+                    and ($rel.prerelease == true)
+                    and (($rel.assets | length) == 14)
+                    and ($rel.assets | all(.state == "uploaded"))
+                    and ([$rel.assets[].name] | index("SHA256SUMS.txt") != null)
+                    and ([$rel.assets[].name | select(. != "SHA256SUMS.txt")] | length == 13)
+                    and ([$rel.assets[].name | select(. != "SHA256SUMS.txt")] | all(startswith($prefix)))
+                  then
+                    "complete"
+                  else
+                    "incomplete"
+                  end
+                ' <<<"$releases_json"
+            )"
+            if [ "$release_status" = complete ]; then
+              echo "当前 main 提交已发布完整 Rolling ($rolling_tag @ $short_sha)，跳过重复构建"
+              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+              echo "needs_ci=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "线上标签 ${rolling_tag} 对应的 Release 状态为 ${release_status}，将重新构建修复"
+          fi
+
+          needs_ci=true
+          if ci_runs_json="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?head_sha=$source_sha&status=completed&per_page=20" 2>/dev/null)"; then
+            latest_push_ci="$(
+              jq -r '
+                [.workflow_runs[] | select(.event == "push" and .head_branch == "main")]
+                | first
+                | .conclusion // ""
+              ' <<<"$ci_runs_json"
+            )"
+            if [ "$latest_push_ci" = success ]; then
+              echo "目标提交最新 main push CI 已通过 ($short_sha)，跳过重复 CI"
+              needs_ci=false
+            else
+              echo "目标提交尚无通过的 main push CI 记录 ($short_sha, latest=${latest_push_ci:-none})，将先执行 Rolling CI 门禁"
+            fi
+          else
+            echo "无法查询历史 CI 记录 ($short_sha)，回退执行 Rolling CI 门禁"
+          fi
+
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${source_sha:0:12}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
           echo "build_version=$build_version" >> "$GITHUB_OUTPUT"
           echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
           echo "rolling_version=$rolling_version" >> "$GITHUB_OUTPUT"
           echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          echo "needs_ci=$needs_ci" >> "$GITHUB_OUTPUT"
 
-  manual-ci:
-    name: Run manual Rolling CI gate
+  ci:
+    name: Run Rolling CI gate
     needs: prepare
     if: >-
-      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
-      needs.prepare.outputs.should_publish == 'true'
+      needs.prepare.outputs.should_publish == 'true' &&
+      needs.prepare.outputs.needs_ci == 'true'
     uses: ./.github/workflows/ci.yml
+    with:
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
 
   build:
     name: Build Rolling assets
     needs:
       - prepare
-      - manual-ci
+      - ci
     if: >-
       always() &&
+      !cancelled() &&
       needs.prepare.result == 'success' &&
       needs.prepare.outputs.should_publish == 'true' &&
-      (needs.manual-ci.result == 'success' || needs.manual-ci.result == 'skipped')
+      (needs.ci.result == 'success' || needs.ci.result == 'skipped')
     uses: ./.github/workflows/release-assets.yml
     with:
       source_sha: ${{ needs.prepare.outputs.source_sha }}

@@ -73,7 +73,7 @@ func replaceWindowsFilesElevated(ctx context.Context, stageDir, targetDir string
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := runElevatedInstaller(scriptPath, stageDir); err != nil {
+	if err := runElevatedInstaller(ctx, scriptPath, stageDir); err != nil {
 		return err
 	}
 	if _, err := os.Stat(okSentinel); err == nil {

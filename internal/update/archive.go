@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -273,17 +274,21 @@ func copyAndRenameFile(srcPath, dstPath string, mode os.FileMode) error {
 
 // ResolveMacAppBundlePath 从可执行文件路径向上查找所属的 .app 包根目录。
 func ResolveMacAppBundlePath(exePath string) (string, bool) {
-	cleaned := filepath.Clean(exePath)
-	dir := filepath.Dir(cleaned)
-	if filepath.Base(dir) != "MacOS" {
+	if !path.IsAbs(exePath) || strings.HasSuffix(exePath, "/") {
 		return "", false
 	}
-	contentsDir := filepath.Dir(dir)
-	if filepath.Base(contentsDir) != "Contents" {
+	cleaned := path.Clean(exePath)
+	dir := path.Dir(cleaned)
+	if path.Base(dir) != "MacOS" {
 		return "", false
 	}
-	bundleDir := filepath.Dir(contentsDir)
-	if !strings.HasSuffix(strings.ToLower(bundleDir), ".app") {
+	contentsDir := path.Dir(dir)
+	if path.Base(contentsDir) != "Contents" {
+		return "", false
+	}
+	bundleDir := path.Dir(contentsDir)
+	base := path.Base(bundleDir)
+	if len(base) <= len(".app") || !strings.EqualFold(path.Ext(base), ".app") {
 		return "", false
 	}
 	return bundleDir, true

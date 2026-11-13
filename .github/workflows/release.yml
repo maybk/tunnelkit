@@ -143,10 +143,20 @@ jobs:
             cd release-files
             sha256sum "${expected[@]}" > SHA256SUMS.txt
           )
-          bash scripts/render_package_manifests.sh "$APP_VERSION" release-files/SHA256SUMS.txt "$RUNNER_TEMP/manifests"
+          release_date="$(awk -v p="## [$APP_VERSION] - " 'index($0, p) == 1 { print substr($0, length(p) + 1); exit }' CHANGELOG.md)"
+          test -n "$release_date"
+          bash scripts/render_package_manifests.sh "$APP_VERSION" release-files/SHA256SUMS.txt "$RUNNER_TEMP/manifests" "$release_date"
           ruby -c "$RUNNER_TEMP/manifests/Casks/tunnelkit.rb" >/dev/null
-          python3 -m json.tool "$RUNNER_TEMP/manifests/bucket/tunnelkit.json" >/dev/null
-          test -s "$RUNNER_TEMP/manifests/winget/manifests/m/maybk/TunnelKit/$APP_VERSION/maybk.TunnelKit.installer.yaml"
+          jq -e . "$RUNNER_TEMP/manifests/bucket/tunnelkit.json" >/dev/null
+          winget_dir="$RUNNER_TEMP/manifests/winget/manifests/m/maybk/TunnelKit/$APP_VERSION"
+          for wf in \
+            "$winget_dir/maybk.TunnelKit.yaml" \
+            "$winget_dir/maybk.TunnelKit.installer.yaml" \
+            "$winget_dir/maybk.TunnelKit.locale.en-US.yaml" \
+            "$winget_dir/maybk.TunnelKit.locale.zh-CN.yaml"; do
+            test -s "$wf"
+            ruby -rpsych -rdate -e 'Psych.safe_load_file(ARGV[0], permitted_classes: [Date])' "$wf"
+          done
 
       - name: Prepare release notes
         shell: bash
@@ -180,13 +190,31 @@ jobs:
 
           gh release upload "$tag" release-files/* --clobber
 
-          asset_count="$(gh release view "$tag" --json assets --jq '.assets | length')"
+          draft_view="$(gh release view "$tag" --json assets,isDraft)"
+          asset_count="$(jq -r '.assets | length' <<<"$draft_view")"
           if [ "$asset_count" -ne 14 ]; then
             echo "Draft release contains $asset_count assets; expected 14" >&2
             exit 1
           fi
 
+          expected_names="$(cd release-files && printf '%s\n' * | sort)"
+          actual_names="$(jq -r '.assets[].name' <<<"$draft_view" | sort)"
+          if [ "$actual_names" != "$expected_names" ]; then
+            echo "Draft release asset names do not match the verified local assets" >&2
+            diff -u <(printf '%s\n' "$expected_names") <(printf '%s\n' "$actual_names") || true
+            exit 1
+          fi
+          if ! jq -e '(.isDraft == true) and (.assets | all(.state == "uploaded"))' <<<"$draft_view" >/dev/null; then
+            echo "Release must remain a verified draft with all 14 uploaded assets before publishing" >&2
+            exit 1
+          fi
+
           gh release edit "$tag" --draft=false --latest
+
+          if [ "$(gh release view "$tag" --json isDraft --jq .isDraft)" != "false" ]; then
+            echo "Release $tag was not published publicly" >&2
+            exit 1
+          fi
 
   cleanup-rolling:
     name: Remove superseded Rolling release

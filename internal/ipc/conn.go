@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -26,12 +28,13 @@ func NewConn(raw net.Conn) *Conn {
 
 // WriteEnvelope serializes and writes an Envelope with a 4-byte big-endian length prefix.
 func (c *Conn) WriteEnvelope(env Envelope) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return c.writeEnvelope(ctx, env)
+	return c.writeEnvelope(context.Background(), env)
 }
 
 func (c *Conn) writeEnvelope(ctx context.Context, env Envelope) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	payload, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("ipc: marshal envelope: %w", err)
@@ -49,25 +52,50 @@ func (c *Conn) writeEnvelope(ctx context.Context, env Envelope) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = c.raw.SetWriteDeadline(deadline)
+
+	deadline := time.Now().Add(5 * time.Second)
+	usedCtxDeadline := false
+	if limit, ok := ctx.Deadline(); ok && limit.Before(deadline) {
+		deadline = limit
+		usedCtxDeadline = true
 	}
-	finished := make(chan struct{})
-	stop := context.AfterFunc(ctx, func() { _ = c.raw.SetWriteDeadline(time.Now()); close(finished) })
+	_ = c.raw.SetWriteDeadline(deadline)
+
+	var (
+		stop     func() bool
+		finished chan struct{}
+	)
+	if ctx.Done() != nil {
+		finished = make(chan struct{})
+		stop = context.AfterFunc(ctx, func() {
+			_ = c.raw.SetWriteDeadline(time.Now())
+			close(finished)
+		})
+	}
 	defer func() {
-		if !stop() {
+		if stop != nil && !stop() {
 			<-finished
 		}
 		_ = c.raw.SetWriteDeadline(time.Time{})
 	}()
-	n, err := c.raw.Write(frame)
-	if ctx.Err() != nil {
-		return ctx.Err()
+
+	for len(frame) > 0 {
+		n, err := c.raw.Write(frame)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			if usedCtxDeadline && errors.Is(err, os.ErrDeadlineExceeded) {
+				return context.DeadlineExceeded
+			}
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		frame = frame[n:]
 	}
-	if err == nil && n != len(frame) {
-		return io.ErrShortWrite
-	}
-	return err
+	return nil
 }
 
 // Send marshals payload into an Envelope and writes it to the connection.
@@ -113,6 +141,9 @@ func (c *Conn) ReadEnvelope() (Envelope, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&env); err != nil {
 		return Envelope{}, fmt.Errorf("ipc: decode envelope: %w", err)
+	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return Envelope{}, errors.New("ipc: unexpected trailing envelope data")
 	}
 	return env, nil
 }

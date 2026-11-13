@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"net"
@@ -69,6 +70,35 @@ func TestTokenHashAndDecodeStrict(t *testing.T) {
 	_, err = DecodeStrict[HelloData](json.RawMessage(`{"protocol":1,"token":"abc","unknown":true}`))
 	if err == nil {
 		t.Fatalf("expected DecodeStrict to reject unknown field")
+	}
+	_, err = DecodeStrict[HelloData](json.RawMessage(`{"protocol":1,"token":"abc"}{"extra":1}`))
+	if err == nil {
+		t.Fatalf("expected DecodeStrict to reject trailing JSON data")
+	}
+}
+
+func TestReadEnvelopeRejectsTrailingDataAndSendContextHonorsDeadline(t *testing.T) {
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+
+	left := NewConn(c1)
+	right := NewConn(c2)
+
+	badBody := []byte(`{"type":"hello"}{}`)
+	var hdr [4]byte
+	binary.BigEndian.PutUint32(hdr[:], uint32(len(badBody)))
+	go func() {
+		_, _ = c1.Write(append(hdr[:], badBody...))
+	}()
+	if _, err := right.ReadEnvelope(); err == nil {
+		t.Fatal("expected ReadEnvelope to reject trailing envelope JSON")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	if err := left.SendContext(ctx, TypeHello, 1, HelloData{Protocol: ProtocolVersion, Token: "tok"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("SendContext err = %v, want context.DeadlineExceeded", err)
 	}
 }
 

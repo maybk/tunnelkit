@@ -120,7 +120,7 @@ func replaceMacAppBundleElevated(ctx context.Context, srcAppPath, dstAppPath, ba
 	}
 	shellCmd := buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath)
 	// 提权后的脚本必须完成替换或回滚，不能在文件事务中途中断。
-	if err := privilege.RunElevatedDarwinShell(context.Background(), shellCmd); err != nil {
+	if err := privilege.RunElevatedDarwinShell(context.WithoutCancel(ctx), shellCmd); err != nil {
 		if errors.Is(err, privilege.ErrCancelled) {
 			return ErrElevationCancelled
 		}

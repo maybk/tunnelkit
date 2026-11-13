@@ -112,9 +112,20 @@ tasks:
       - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.DOCKER_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} {{if eq .OBFUSCATED "true"}}-e OBFUSCATED=true{{end}} {{if .GARBLE_ARGS}}-e GARBLE_ARGS="{{.GARBLE_ARGS}}"{{end}} {{.CROSS_IMAGE}} windows {{.DOCKER_ARCH}}
       - cmd: docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
         platforms: [linux, darwin]
+      - |
+        if [ "bin/{{.APP_NAME}}-windows-{{.DOCKER_ARCH}}.exe" != "{{.OUTPUT}}" ]; then
+          mv "bin/{{.APP_NAME}}-windows-{{.DOCKER_ARCH}}.exe" "{{.OUTPUT}}"
+        fi
+        if [ "bin/tunnelkit-helper-windows-{{.DOCKER_ARCH}}.exe" != "{{.HELPER_OUTPUT}}" ]; then
+          mv "bin/tunnelkit-helper-windows-{{.DOCKER_ARCH}}.exe" "{{.HELPER_OUTPUT}}"
+        fi
       - rm -f *.syso
     vars:
       DOCKER_ARCH: '{{.ARCH | default "amd64"}}'
+      DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}.exe'
+      OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
+      DEFAULT_HELPER_OUTPUT: '{{.BIN_DIR}}/tunnelkit-helper.exe'
+      HELPER_OUTPUT: '{{ .HELPER_OUTPUT | default .DEFAULT_HELPER_OUTPUT }}'
       # Generate Docker volume mounts: Go module cache + go.mod replace directives
       # Uses wails3 tool docker-mounts for cross-platform compatibility (Windows/Linux/macOS)
       DOCKER_MOUNTS:

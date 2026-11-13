@@ -37,7 +37,7 @@ describe('UpdateDialog and WorkspaceView components', () => {
       },
     })
     expect(wrapper.text()).toContain('发现新版本')
-    expect(wrapper.text()).toContain('v0.4.0')
+    expect(wrapper.find('[data-testid="update-latest-version"]').text()).toBe('v0.4.0')
     expect(wrapper.text()).toContain('立即更新')
     expect(wrapper.find('[data-testid="update-release-link"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="update-download-btn"]').exists()).toBe(false)
@@ -52,6 +52,17 @@ describe('UpdateDialog and WorkspaceView components', () => {
 
     await wrapper.find('[data-testid="update-dismiss-btn"]').trigger('click')
     expect(wrapper.emitted('dismissVersion')).toEqual([['0.4.0']])
+
+    await wrapper.setProps({ opening: true })
+    expect(
+      wrapper.find<HTMLButtonElement>('[data-testid="update-release-link"]').element.disabled,
+    ).toBe(true)
+    expect(
+      wrapper.find<HTMLButtonElement>('[data-testid="update-apply-btn"]').element.disabled,
+    ).toBe(true)
+    expect(
+      wrapper.find<HTMLButtonElement>('[data-testid="update-dismiss-btn"]').element.disabled,
+    ).toBe(true)
 
     wrapper.findComponent(Dialog).vm.$emit('update:open', false)
     expect(wrapper.emitted('update:open')).toEqual([[false]])

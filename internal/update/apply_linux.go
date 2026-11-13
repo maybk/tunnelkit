@@ -69,7 +69,7 @@ func replaceLinuxFilesElevated(ctx context.Context, stageDir, targetDir string) 
 		filepath.Join(targetDir, "tunnelkit-helper"),
 	)
 	// 授权后的文件事务必须完成或回滚，不因 GUI 请求取消而中断在两次替换之间。
-	if err := privilege.RunElevatedLinux(context.Background(), "/bin/sh", "-c", script); err != nil {
+	if err := privilege.RunElevatedLinux(context.WithoutCancel(ctx), "/bin/sh", "-c", script); err != nil {
 		if errors.Is(err, privilege.ErrCancelled) {
 			return ErrElevationCancelled
 		}

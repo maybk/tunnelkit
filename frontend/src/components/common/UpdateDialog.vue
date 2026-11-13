@@ -8,13 +8,21 @@ import AppDialogDescription from '@/components/base/AppDialogDescription.vue'
 import AppDialogTitle from '@/components/base/AppDialogTitle.vue'
 import { Dialog } from '@/components/ui/dialog'
 import BrandMark from '@/components/common/BrandMark.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
 
-const props = defineProps<{
-  updateInfo: UpdateInfo | null
-  opening?: boolean
-  applying?: boolean
-  progress?: UpdateProgress | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    updateInfo: UpdateInfo | null
+    opening?: boolean
+    applying?: boolean
+    progress?: UpdateProgress | null
+  }>(),
+  {
+    opening: false,
+    applying: false,
+    progress: null,
+  },
+)
 
 const open = defineModel<boolean>('open', { required: true })
 
@@ -51,6 +59,10 @@ const handleOpenAutoFocus = (event: Event) => {
   }
 }
 
+const guardBusyDismiss = (event: Event) => {
+  if (props.applying) event.preventDefault()
+}
+
 const handleDialogOpenChange = (next: boolean) => {
   if (!next && props.applying) return
   open.value = next
@@ -82,6 +94,9 @@ const handleDismiss = () => {
       size="md"
       :show-close-button="!applying"
       @open-auto-focus="handleOpenAutoFocus"
+      @escape-key-down="guardBusyDismiss"
+      @pointer-down-outside="guardBusyDismiss"
+      @interact-outside="guardBusyDismiss"
     >
       <div class="flex items-center gap-3.5 pr-6">
         <BrandMark class="size-11 p-1.5" />
@@ -99,12 +114,15 @@ const handleDismiss = () => {
           <div class="inline-flex min-w-0 items-center gap-2 font-mono tabular-nums">
             <span class="truncate text-muted-foreground">v{{ updateInfo.currentVersion }}</span>
             <ArrowRight class="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden="true" />
-            <span
-              class="shrink-0 rounded-md bg-primary/12 px-2 py-0.5 font-semibold text-primary"
+            <StatusBadge
+              tone="brand"
+              size="sm"
+              mono
+              class="font-semibold"
               data-testid="update-latest-version"
             >
               v{{ updateInfo.latestVersion }}
-            </span>
+            </StatusBadge>
           </div>
 
           <button
@@ -112,7 +130,7 @@ const handleDismiss = () => {
             type="button"
             data-testid="update-release-link"
             :disabled="busy"
-            class="-mr-1.5 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-45"
+            class="-mr-1.5 inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-muted-foreground transition-[color,background-color,scale] duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none active:scale-[0.96] disabled:pointer-events-none disabled:opacity-45"
             @click="handleOpenRelease"
           >
             <span>查看发布页</span>
@@ -136,7 +154,7 @@ const handleDismiss = () => {
             class="h-1.5 w-full overflow-hidden rounded-full bg-muted"
           >
             <div
-              class="h-full rounded-full bg-primary transition-[width] duration-150"
+              class="h-full rounded-full bg-primary motion-safe:transition-[width] motion-safe:duration-150"
               :style="{ width: `${progressPercent}%` }"
             />
           </div>

@@ -2,7 +2,7 @@ package update
 
 import (
 	"fmt"
-	"path/filepath"
+	"path"
 	"strings"
 
 	"tunnelkit/internal/privilege"
@@ -22,7 +22,7 @@ func buildPOSIXFileUpdateWithHelperSync(stageDir, targetDir string, names []stri
 	}
 	lines = append(lines, "rollback() {", "status=$?", "trap - EXIT HUP INT TERM", "if [ \"$status\" -ne 0 ]; then")
 	for i := len(names) - 1; i >= 0; i-- {
-		dst := filepath.Join(targetDir, names[i])
+		dst := path.Join(targetDir, names[i])
 		lines = append(lines,
 			fmt.Sprintf("if [ \"$installed_%d\" -eq 1 ]; then rm -f %s %s || status=1; fi", i, shellQuote(dst), shellQuote(dst+".new")),
 			fmt.Sprintf("if [ \"$backed_%d\" -eq 1 ]; then mv -f %s %s || status=1; fi", i, shellQuote(dst+".old"), shellQuote(dst)),
@@ -30,24 +30,24 @@ func buildPOSIXFileUpdateWithHelperSync(stageDir, targetDir string, names []stri
 	}
 	lines = append(lines, "fi", "exit \"$status\"", "}", "trap rollback EXIT", "trap 'exit 1' HUP INT TERM")
 	for i, name := range names {
-		dst := filepath.Join(targetDir, name)
+		dst := path.Join(targetDir, name)
 		lines = append(lines,
 			"rm -f "+shellQuote(dst+".old"),
 			fmt.Sprintf("if [ -e %s ]; then mv %s %s; backed_%d=1; fi", shellQuote(dst), shellQuote(dst), shellQuote(dst+".old"), i),
 		)
 	}
 	for i, name := range names {
-		dst := filepath.Join(targetDir, name)
+		dst := path.Join(targetDir, name)
 		lines = append(lines,
 			fmt.Sprintf("installed_%d=1", i),
-			shellQuote(installBin)+" -m 0755 "+shellQuote(filepath.Join(stageDir, name))+" "+shellQuote(dst+".new"),
+			shellQuote(installBin)+" -m 0755 "+shellQuote(path.Join(stageDir, name))+" "+shellQuote(dst+".new"),
 			"mv -f "+shellQuote(dst+".new")+" "+shellQuote(dst),
 		)
 	}
 	lines = append(lines, "trap - EXIT HUP INT TERM")
 	if helperExe != "" {
 		helperQ := shellQuote(helperExe)
-		lines = append(lines, "if [ -x "+helperQ+" ]; then "+helperQ+" install >/dev/null 2>&1 || true; fi")
+		lines = append(lines, "if [ -x "+helperQ+" ]; then "+privilege.ShellQuoteCommand(helperExe, []string{"install"})+" >/dev/null 2>&1 || true; fi")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -57,7 +57,8 @@ func buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath string) s
 	srcQ := shellQuote(srcAppPath)
 	dstQ := shellQuote(dstAppPath)
 	bakQ := shellQuote(backupPath)
-	helperQ := shellQuote(strings.TrimRight(dstAppPath, "/") + "/Contents/MacOS/tunnelkit-helper")
+	helperPath := path.Join(dstAppPath, "Contents", "MacOS", "tunnelkit-helper")
+	helperQ := shellQuote(helperPath)
 	return strings.Join([]string{
 		"set -eu",
 		"/bin/rm -rf " + bakQ,
@@ -65,7 +66,7 @@ func buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath string) s
 		"if /usr/bin/ditto " + srcQ + " " + dstQ + "; then",
 		"  /usr/bin/xattr -dr com.apple.quarantine " + dstQ + " || true;",
 		"  /bin/rm -rf " + bakQ + ";",
-		"  if [ -x " + helperQ + " ]; then " + helperQ + " install >/dev/null 2>&1 || true; fi;",
+		"  if [ -x " + helperQ + " ]; then " + privilege.ShellQuoteCommand(helperPath, []string{"install"}) + " >/dev/null 2>&1 || true; fi;",
 		"else",
 		"  /bin/rm -rf " + dstQ + ";",
 		"  /bin/mv " + bakQ + " " + dstQ + ";",

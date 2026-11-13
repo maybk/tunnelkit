@@ -129,6 +129,7 @@ const handleOpenAbout = () => {
       v-model:open="systemStore.updateDialogOpen"
       :update-info="systemStore.updateInfo"
       :progress="systemStore.updateProgress"
+      :opening="systemStore.isOpeningRelease"
       :applying="systemStore.isApplyingUpdate"
       @apply-update="systemStore.applyUpdate()"
       @open-release="(url) => systemStore.openReleasePage(url)"

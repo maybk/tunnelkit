@@ -2,6 +2,7 @@ package helper
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -46,6 +47,11 @@ func (w *eventWriter) close() {
 	w.once.Do(func() { close(w.done) })
 }
 
+func popFront[T any](slice []T) (T, []T) {
+	item := slice[0]
+	return item, slices.Delete(slice, 0, 1)
+}
+
 func isDroppableStatsEvent(f outboundFrame) bool {
 	if f.msgType != ipc.TypeEvent {
 		return false
@@ -73,7 +79,7 @@ func (s *sessionState) enqueueFrameLocked(f outboundFrame) bool {
 		dropped := false
 		for i, item := range w.queue {
 			if isDroppableStatsEvent(item) || item.msgType == ipc.TypeLog {
-				w.queue = append(w.queue[:i], w.queue[i+1:]...)
+				w.queue = slices.Delete(w.queue, i, i+1)
 				dropped = true
 				break
 			}
@@ -115,9 +121,8 @@ func (s *sessionState) writeEvents(w *eventWriter) {
 				s.mu.Unlock()
 				break
 			}
-			frame := w.queue[0]
-			w.queue[0] = outboundFrame{}
-			w.queue = w.queue[1:]
+			frame, nextQueue := popFront(w.queue)
+			w.queue = nextQueue
 			s.mu.Unlock()
 
 			deadline := 5 * time.Second

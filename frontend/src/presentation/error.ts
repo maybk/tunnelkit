@@ -22,3 +22,11 @@ export function formatErrorMessage(
   }
   return fallback
 }
+
+export function isElevationCancelledError(err: unknown): boolean {
+  const message = formatErrorMessage(err, '')
+  return (
+    message.includes('已取消管理员授权') ||
+    message.toLowerCase().includes('authorization cancelled')
+  )
+}

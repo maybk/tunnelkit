@@ -92,4 +92,20 @@ func TestTailAndResetFile(t *testing.T) {
 	if !strings.Contains(tail2.Content, "user=alice") || !strings.Contains(tail2.Content, "host=vpn.example.com") {
 		t.Fatalf("TailFile wiped non-sensitive fields: %s", tail2.Content)
 	}
+
+	// Verify truncated single huge line drops unkeyed secret tail without trailing newline.
+	hugePath := filepath.Join(dir, "huge.log")
+	if err := os.WriteFile(hugePath, []byte("password="+strings.Repeat("S", 512)), 0600); err != nil {
+		t.Fatalf("WriteFile huge: %v", err)
+	}
+	tailHuge, err := TailFile(hugePath, 128)
+	if err != nil {
+		t.Fatalf("TailFile huge: %v", err)
+	}
+	if strings.Contains(tailHuge.Content, "SSSS") {
+		t.Fatalf("TailFile leaked secret tail from truncated line: %q", tailHuge.Content)
+	}
+	if tailHuge.Content != "... 已省略更早的日志" {
+		t.Fatalf("TailFile huge content = %q, want clean omission notice without trailing newline", tailHuge.Content)
+	}
 }

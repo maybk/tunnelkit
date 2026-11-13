@@ -61,7 +61,11 @@ func TailFile(path string, maxBytes int64) (LogTail, error) {
 	}
 	content := strings.TrimRight(Redact(string(data)), "\n")
 	if start > 0 {
-		content = "... 已省略更早的日志\n" + content
+		if content == "" {
+			content = "... 已省略更早的日志"
+		} else {
+			content = "... 已省略更早的日志\n" + content
+		}
 	}
 	return LogTail{Content: content, Exists: true, ModTime: info.ModTime()}, nil
 }

@@ -144,11 +144,21 @@ func TestExtractArchiveAndAtomicReplaceHelpers(t *testing.T) {
 		t.Fatalf("ResolveExecutablePath failed: exe=%q err=%v", exe, err)
 	}
 	bundle, ok := ResolveMacAppBundlePath("/Applications/tunnelkit.app/Contents/MacOS/tunnelkit")
-	if !ok || filepath.ToSlash(bundle) != "/Applications/tunnelkit.app" {
+	if !ok || bundle != "/Applications/tunnelkit.app" {
 		t.Fatalf("unexpected bundle path: %q (ok=%v)", bundle, ok)
 	}
-	if _, ok := ResolveMacAppBundlePath("/usr/local/bin/tunnelkit"); ok {
-		t.Fatal("expected ok=false for non-app-bundle path")
+	if backslashDir, ok := ResolveMacAppBundlePath(`/Users/alice/a\b/TunnelKit.App/Contents/MacOS/tunnelkit`); !ok || backslashDir != `/Users/alice/a\b/TunnelKit.App` {
+		t.Fatalf("expected literal backslash in POSIX directory to be preserved: %q (ok=%v)", backslashDir, ok)
+	}
+	for _, invalid := range []string{
+		"/usr/local/bin/tunnelkit",
+		"/.app/Contents/MacOS/tunnelkit",
+		"TunnelKit.app/Contents/MacOS/tunnelkit",
+		`\Applications\TunnelKit.App\Contents\MacOS\tunnelkit`,
+	} {
+		if _, ok := ResolveMacAppBundlePath(invalid); ok {
+			t.Fatalf("expected ok=false for non-app-bundle path %q", invalid)
+		}
 	}
 
 	if !CanInstallInPlace("darwin", "/Applications/TunnelKit.app/Contents/MacOS/tunnelkit", "") {

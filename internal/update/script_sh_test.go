@@ -9,6 +9,34 @@ import (
 	"testing"
 )
 
+func TestBuildPOSIXFileUpdatePortableGeneration(t *testing.T) {
+	posixScript := buildPOSIXFileUpdateWithHelperSync(
+		"/tmp/stage",
+		"/usr/local/bin",
+		[]string{"tunnelkit", "tunnelkit-helper"},
+		"/usr/bin/install",
+		"/usr/local/bin/tunnelkit-helper",
+	)
+	for _, want := range []string{
+		"'/usr/bin/install' -m 0755 '/tmp/stage/tunnelkit' '/usr/local/bin/tunnelkit.new'",
+		"'/usr/bin/install' -m 0755 '/tmp/stage/tunnelkit-helper' '/usr/local/bin/tunnelkit-helper.new'",
+		"if [ -x '/usr/local/bin/tunnelkit-helper' ]; then '/usr/local/bin/tunnelkit-helper' 'install' >/dev/null 2>&1 || true; fi",
+	} {
+		if !strings.Contains(posixScript, want) {
+			t.Fatalf("expected POSIX update script to contain %q, got:\n%s", want, posixScript)
+		}
+	}
+	if strings.Contains(posixScript, `\`) {
+		t.Fatalf("expected POSIX update script not to contain Windows backslashes:\n%s", posixScript)
+	}
+
+	if _, err := os.Stat("/bin/sh"); err == nil {
+		if out, err := exec.Command("/bin/sh", "-n", "-c", posixScript).CombinedOutput(); err != nil {
+			t.Fatalf("POSIX update script syntax error: %s (%v)", out, err)
+		}
+	}
+}
+
 func TestBuildPOSIXFileUpdateSuccessAndRollback(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX shell test")
@@ -49,14 +77,15 @@ func TestBuildPOSIXFileUpdateSuccessAndRollback(t *testing.T) {
 		t.Fatalf("unexpected updated contents: gui=%q helper=%q", gotGUI, gotHelper)
 	}
 
+	helperPath := filepath.Join(targetDir, "tunnelkit-helper")
 	elevated := buildPOSIXFileUpdateWithHelperSync(
 		stageDir,
 		targetDir,
 		[]string{"tunnelkit", "tunnelkit-helper"},
 		installBin,
-		filepath.Join(targetDir, "tunnelkit-helper"),
+		helperPath,
 	)
-	wantSync := "if [ -x " + shellQuote(filepath.Join(targetDir, "tunnelkit-helper")) + " ]; then"
+	wantSync := "if [ -x " + shellQuote(helperPath) + " ]; then " + shellQuote(helperPath) + " 'install'"
 	if !strings.Contains(elevated, wantSync) {
 		t.Fatalf("expected elevated POSIX update script to sync helper, got:\n%s", elevated)
 	}
@@ -73,11 +102,16 @@ func TestBuildMacElevatedUpdateShellCmdSuccessAndRollback(t *testing.T) {
 		`'/Volumes/TunnelKit/TunnelKit'\''s.app'`,
 		`'/Applications/TunnelKit.app'`,
 		`'/Applications/TunnelKit.app.bak'`,
-		`'/Applications/TunnelKit.app/Contents/MacOS/tunnelkit-helper' install`,
+		`'/Applications/TunnelKit.app/Contents/MacOS/tunnelkit-helper' 'install'`,
 		"/usr/bin/ditto",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("expected macOS update script to contain %q, got:\n%s", want, script)
+		}
+	}
+	if _, err := os.Stat("/bin/sh"); err == nil {
+		if out, err := exec.Command("/bin/sh", "-n", "-c", script).CombinedOutput(); err != nil {
+			t.Fatalf("macOS update script syntax error: %s (%v)", out, err)
 		}
 	}
 

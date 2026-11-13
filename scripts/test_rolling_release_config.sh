@@ -203,9 +203,10 @@ for required in \
   '!cancelled()' \
   "needs.prepare.result == 'success'" \
   "needs.prepare.outputs.should_publish == 'true'" \
-  "needs.build.result == 'success'"; do
+  "needs.build.result == 'success'" \
+  '.assets | all(.state == "uploaded")'; do
   if ! grep -Fq -- "$required" <<<"$rolling_publish_job"; then
-    echo "Rolling publish must override skipped dependency propagation safely: $required"
+    echo "Rolling publish must override skipped dependency propagation safely and verify uploaded asset state: $required"
     exit 1
   fi
 done

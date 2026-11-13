@@ -10,9 +10,9 @@ import (
 	"tunnelkit/internal/privilege"
 )
 
-func runElevatedInstaller(scriptPath, directory string) error {
+func runElevatedInstaller(ctx context.Context, scriptPath, directory string) error {
 	// 文件事务开始后不能取消等待并删除 staging，否则子进程可能仍在写入组件。
-	code, err := privilege.RunElevatedWindows(context.Background(), "cmd.exe", `/d /c ""`+scriptPath+`""`, directory)
+	code, err := privilege.RunElevatedWindows(context.WithoutCancel(ctx), "cmd.exe", `/d /c ""`+scriptPath+`""`, directory)
 	if err != nil {
 		if errors.Is(err, privilege.ErrCancelled) {
 			return ErrElevationCancelled

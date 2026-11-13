@@ -202,4 +202,28 @@ func TestTicketStoreRejectsMalformedVersionedOrOutOfBoundsPayloads(t *testing.T)
 			t.Fatalf("rejected ticket %s must not overwrite original file", raw)
 		}
 	}
+
+	t.Run("oversized and non-regular ticket files", func(t *testing.T) {
+		root := t.TempDir()
+		store := NewTicketStore(root)
+		oversized := `{"endpoint":"/tmp/s","token":"` + strings.Repeat("a", maxTicketFileBytes) + `"}`
+		if err := storage.WriteFile(store.path, []byte(oversized), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Load(); err == nil {
+			t.Fatal("expected oversized ticket file to be rejected")
+		}
+		if err := os.Remove(store.path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(store.path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Load(); err == nil {
+			t.Fatal("expected directory at ticket path to be rejected")
+		}
+		if _, err := os.Stat(storage.SecretKeyPath(root)); err == nil {
+			t.Fatal("rejected ticket file must not create secret.key")
+		}
+	})
 }

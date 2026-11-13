@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"strings"
 	"testing"
 
 	"tunnelkit/fortivpn"
@@ -28,5 +29,44 @@ func TestWriterReportsCriticalQueueOverflow(t *testing.T) {
 	}
 	if s.enqueueFrameLocked(outboundFrame{msgType: ipc.TypePrompt}) || !s.writer.failed {
 		t.Fatal("critical queue overflow was hidden")
+	}
+}
+
+func TestPopFrontAndBoundedLogBacklogPreserveCapacity(t *testing.T) {
+	queue := make([]outboundFrame, 0, 8)
+	queue = append(queue,
+		outboundFrame{msgType: ipc.TypeLog, logLine: "first"},
+		outboundFrame{msgType: ipc.TypeLog, logLine: "second"},
+	)
+	initialCap := cap(queue)
+
+	for i := range 200 {
+		got, next := popFront(queue)
+		if got.logLine == "" {
+			t.Fatalf("iteration %d: unexpected empty dequeued item", i)
+		}
+		queue = append(next, outboundFrame{msgType: ipc.TypeLog, logLine: "next"})
+		if cap(queue) != initialCap {
+			t.Fatalf("iteration %d: queue capacity drifted from %d to %d", i, initialCap, cap(queue))
+		}
+	}
+	if backing := queue[:cap(queue)]; backing[len(queue)].logLine != "" || backing[len(queue)].payload != nil {
+		t.Fatalf("expected popped tail slot to be zeroed for GC, got %+v", backing[len(queue)])
+	}
+
+	s := newSessionState(0)
+	chunk := strings.Repeat("a", 8<<10) // 8 KiB per line, cap at 128 KiB (~16 lines)
+	for range 20 {
+		s.appendLogBacklogLocked(chunk)
+	}
+	steadyCap := cap(s.logBacklog)
+	for range 200 {
+		s.appendLogBacklogLocked(chunk)
+		if cap(s.logBacklog) != steadyCap {
+			t.Fatalf("logBacklog capacity drifted from %d to %d", steadyCap, cap(s.logBacklog))
+		}
+		if s.logBacklogBytes > 128<<10 {
+			t.Fatalf("logBacklogBytes %d exceeded 128 KiB limit", s.logBacklogBytes)
+		}
 	}
 }

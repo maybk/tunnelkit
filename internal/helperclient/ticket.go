@@ -4,6 +4,7 @@ package helperclient
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"tunnelkit/internal/ipc"
 	"tunnelkit/internal/storage"
 )
+
+const maxTicketFileBytes = 16 << 10 // 16 KiB
 
 // Ticket 保存跨 GUI 重启重新接入运行中 helper 所需的会话凭据（~/.tunnelkit/run/session.json）。
 type Ticket struct {
@@ -82,9 +85,31 @@ func (s *TicketStore) saveLocked(t Ticket) error {
 func (s *TicketStore) Load() (Ticket, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, err := os.ReadFile(s.path)
+	linfo, err := os.Lstat(s.path)
 	if err != nil {
 		return Ticket{}, err
+	}
+	if !linfo.Mode().IsRegular() || linfo.Size() > maxTicketFileBytes {
+		return Ticket{}, errors.New("invalid session ticket file")
+	}
+	f, err := os.Open(s.path)
+	if err != nil {
+		return Ticket{}, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return Ticket{}, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxTicketFileBytes {
+		return Ticket{}, errors.New("invalid session ticket file")
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxTicketFileBytes+1))
+	if err != nil {
+		return Ticket{}, err
+	}
+	if len(data) > maxTicketFileBytes {
+		return Ticket{}, errors.New("invalid session ticket file")
 	}
 	t, migrate, err := s.decodeTicket(data)
 	if err != nil {

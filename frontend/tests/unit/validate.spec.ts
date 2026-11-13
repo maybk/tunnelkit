@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 import { toProfileDraft } from '@/domain/profile'
-import { formatErrorMessage } from '@/presentation/error'
+import { formatErrorMessage, isElevationCancelledError } from '@/presentation/error'
 import { describeVpnPhase, getStatusMeta, getViewingStatusMeta } from '@/presentation/vpn'
 import { validateProfileDraft } from '@/validate/profile'
 import { parseCachedAppearance } from '@/validate/storage'
@@ -92,5 +92,8 @@ describe('validate and presentation layers', () => {
     expect(formatErrorMessage(new Error('连接超时'))).toBe('连接超时')
     expect(formatErrorMessage({ error: '认证被拒绝' })).toBe('认证被拒绝')
     expect(formatErrorMessage(null, '默认错误')).toBe('默认错误')
+    expect(isElevationCancelledError(new Error('已取消管理员授权，更新未安装'))).toBe(true)
+    expect(isElevationCancelledError({ message: 'Authorization cancelled by user' })).toBe(true)
+    expect(isElevationCancelledError(new Error('下载失败'))).toBe(false)
   })
 })

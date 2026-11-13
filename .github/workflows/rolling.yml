@@ -403,7 +403,8 @@ jobs:
 
           gh release upload "$rolling_tag" release-files/*
 
-          asset_count="$(gh release view "$rolling_tag" --json assets --jq '.assets | length')"
+          draft_view="$(gh release view "$rolling_tag" --json assets,isDraft,isPrerelease)"
+          asset_count="$(jq -r '.assets | length' <<<"$draft_view")"
           if [ "$asset_count" -ne 14 ]; then
             echo "Draft Rolling release contains $asset_count assets; expected 14" >&2
             exit 1
@@ -424,15 +425,19 @@ jobs:
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-amd64.zip" \
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-arm64-setup.exe" \
             "tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-windows-arm64.zip" | sort)"
-          actual_names="$(gh release view "$rolling_tag" --json assets --jq '.assets[].name' | sort)"
+          actual_names="$(jq -r '.assets[].name' <<<"$draft_view" | sort)"
           if [ "$actual_names" != "$expected_names" ]; then
             echo "Draft Rolling release asset names do not match the verified local assets" >&2
             diff -u <(printf '%s\n' "$expected_names") <(printf '%s\n' "$actual_names") || true
             exit 1
           fi
+          if ! jq -e '.assets | all(.state == "uploaded")' <<<"$draft_view" >/dev/null; then
+            echo "Draft Rolling release contains incompletely uploaded assets" >&2
+            exit 1
+          fi
 
-          draft_state="$(gh release view "$rolling_tag" --json isDraft --jq .isDraft)"
-          prerelease_state="$(gh release view "$rolling_tag" --json isPrerelease --jq .isPrerelease)"
+          draft_state="$(jq -r .isDraft <<<"$draft_view")"
+          prerelease_state="$(jq -r .isPrerelease <<<"$draft_view")"
           if [ "$draft_state" != true ] || [ "$prerelease_state" != true ]; then
             echo "Rolling must remain a draft prerelease until all assets are verified" >&2
             exit 1

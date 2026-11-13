@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -162,10 +163,13 @@ func (s *sessionState) appendLogBacklogLocked(line string) {
 	// filesystem writes. Attach flushes it as a small number of bounded frames.
 	s.logBacklog = append(s.logBacklog, line)
 	s.logBacklogBytes += len(line)
-	for s.logBacklogBytes > 128<<10 {
-		s.logBacklogBytes -= len(s.logBacklog[0])
-		s.logBacklog[0] = ""
-		s.logBacklog = s.logBacklog[1:]
+	drop := 0
+	for drop < len(s.logBacklog) && s.logBacklogBytes > 128<<10 {
+		s.logBacklogBytes -= len(s.logBacklog[drop])
+		drop++
+	}
+	if drop > 0 {
+		s.logBacklog = slices.Delete(s.logBacklog, 0, drop)
 	}
 }
 

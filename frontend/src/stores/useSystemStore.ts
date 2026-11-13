@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { systemApi } from '@/api/system'
 import { GITHUB_RELEASES_URL, GITHUB_REPO_URL } from '@/constants/releases'
 import { DISMISSED_UPDATE_VERSION_KEY } from '@/constants/storage'
+import { formatErrorMessage, isElevationCancelledError } from '@/presentation/error'
 import { useNoticeStore } from '@/stores/useNoticeStore'
 import type { SystemInfo, UpdateInfo, UpdateProgress } from '@/types/system'
 
@@ -27,10 +28,13 @@ export const useSystemStore = defineStore('system', () => {
   const checkingSystem = ref(false)
   const isCheckingUpdate = ref(false)
   const isApplyingUpdate = ref(false)
+  const isOpeningRelease = ref(false)
   const updateUpToDate = ref(false)
   const hasCheckedUpdateOnce = ref(false)
   const dismissedVersion = ref<string>(readDismissedVersion())
 
+  let checkInFlight: Promise<UpdateInfo | null> | null = null
+  let explicitCheckPending = false
   let stopProgressSub: (() => void) | null = null
   let upToDateTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -98,58 +102,70 @@ export const useSystemStore = defineStore('system', () => {
   }
 
   const checkUpdate = async (options: { silent?: boolean } = {}): Promise<UpdateInfo | null> => {
-    if (isCheckingUpdate.value) return updateInfo.value
-    if (options.silent && hasCheckedUpdateOnce.value) return updateInfo.value
+    const requestedSilent = Boolean(options.silent)
+    if (requestedSilent && (hasCheckedUpdateOnce.value || checkInFlight !== null)) {
+      return checkInFlight ?? updateInfo.value
+    }
+
+    if (!requestedSilent) {
+      explicitCheckPending = true
+      clearUpToDateFeedback()
+    }
+    if (checkInFlight) {
+      return checkInFlight
+    }
 
     hasCheckedUpdateOnce.value = true
     isCheckingUpdate.value = true
-    if (!options.silent) {
-      clearUpToDateFeedback()
-    }
 
-    try {
-      const info = await systemApi.checkUpdate()
-      updateInfo.value = info
-      if (info.hasUpdate) {
-        clearUpToDateFeedback()
-        if (!options.silent) {
-          aboutDialogOpen.value = false
-          updateDialogOpen.value = true
-        } else {
+    const task = (async (): Promise<UpdateInfo | null> => {
+      try {
+        const info = await systemApi.checkUpdate()
+        const silent = !explicitCheckPending
+        updateInfo.value = info
+        if (info.hasUpdate) {
+          clearUpToDateFeedback()
           const isDismissed =
             Boolean(dismissedVersion.value) && dismissedVersion.value === info.latestVersion
-          if (!isDismissed) {
+          if (!silent || !isDismissed) {
             aboutDialogOpen.value = false
             updateDialogOpen.value = true
           }
+        } else if (aboutDialogOpen.value) {
+          markUpToDateFeedback()
+        } else if (!silent) {
+          noticeStore.showSuccess(
+            '当前已是最新版本',
+            info.currentVersion ? `v${info.currentVersion}` : undefined,
+          )
         }
-      } else if (aboutDialogOpen.value) {
-        markUpToDateFeedback()
-      } else if (!options.silent) {
-        noticeStore.showSuccess(
-          '当前已是最新版本',
-          info.currentVersion ? `v${info.currentVersion}` : undefined,
-        )
+        return info
+      } catch (err) {
+        const silent = !explicitCheckPending
+        clearUpToDateFeedback()
+        if (!silent) {
+          noticeStore.showError(err, '检查更新失败')
+        }
+        return null
+      } finally {
+        checkInFlight = null
+        explicitCheckPending = false
+        isCheckingUpdate.value = false
       }
-      return info
-    } catch (err) {
-      clearUpToDateFeedback()
-      if (!options.silent) {
-        noticeStore.showError(err, '检查更新失败')
-      }
-      return null
-    } finally {
-      isCheckingUpdate.value = false
-    }
+    })()
+
+    checkInFlight = task
+    return task
   }
 
   const applyUpdate = async () => {
     if (isApplyingUpdate.value) return
+    startWatching()
     isApplyingUpdate.value = true
     updateProgress.value = {
       stage: 'preparing',
       downloadedBytes: 0,
-      totalBytes: 0,
+      totalBytes: updateInfo.value?.assetSize ?? 0,
       percent: 0,
       message: '正在准备下载更新包…',
     }
@@ -158,12 +174,23 @@ export const useSystemStore = defineStore('system', () => {
     } catch (err) {
       isApplyingUpdate.value = false
       updateProgress.value = null
-      noticeStore.showError(err, '自动更新失败')
+      if (isElevationCancelledError(err)) {
+        const detail = formatErrorMessage(err, '已取消管理员授权')
+        noticeStore.showWarning(
+          '已取消管理员授权',
+          detail === '已取消管理员授权'
+            ? undefined
+            : detail.replace(/^已取消管理员授权[，,:：\s]*/, '') || undefined,
+        )
+      } else {
+        noticeStore.showError(err, '自动更新失败')
+      }
     }
   }
 
   const dismissUpdate = (version?: string) => {
-    const target = version || updateInfo.value?.latestVersion || ''
+    if (isApplyingUpdate.value) return
+    const target = (version || updateInfo.value?.latestVersion || '').trim()
     if (target) {
       dismissedVersion.value = target
       try {
@@ -181,11 +208,18 @@ export const useSystemStore = defineStore('system', () => {
   }
 
   const openReleasePage = async (url?: string) => {
+    if (isOpeningRelease.value) return
     const targetUrl = url || updateInfo.value?.releaseUrl || GITHUB_RELEASES_URL
+    isOpeningRelease.value = true
     try {
       await systemApi.openExternalUrl(targetUrl)
+      if (!isApplyingUpdate.value) {
+        updateDialogOpen.value = false
+      }
     } catch (err) {
       noticeStore.showError(err, '打开版本发布页面失败')
+    } finally {
+      isOpeningRelease.value = false
     }
   }
 
@@ -206,6 +240,7 @@ export const useSystemStore = defineStore('system', () => {
     checkingSystem,
     isCheckingUpdate,
     isApplyingUpdate,
+    isOpeningRelease,
     updateUpToDate,
     appVersion,
     hasUpdate,

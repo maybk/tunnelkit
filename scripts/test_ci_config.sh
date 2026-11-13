@@ -193,8 +193,11 @@ for expected_asset in \
 done
 
 if ! grep -Fq 'if [ "$asset_count" -ne 14 ]; then' <<<"$publish_job" ||
-  ! grep -Fq 'expected 14' <<<"$publish_job"; then
-  echo "published releases must contain all thirteen platform packages plus SHA256SUMS.txt (14 total)"
+  ! grep -Fq 'expected 14' <<<"$publish_job" ||
+  ! grep -Fq 'all(.state == "uploaded")' <<<"$publish_job" ||
+  ! grep -Fq 'bash scripts/render_package_manifests.sh "$APP_VERSION" release-files/SHA256SUMS.txt "$RUNNER_TEMP/manifests" "$release_date"' <<<"$publish_job" ||
+  ! grep -Fq 'Psych.safe_load_file' <<<"$publish_job"; then
+  echo "published releases must verify 14 uploaded draft assets and render/validate dated package manifests before publishing"
   exit 1
 fi
 

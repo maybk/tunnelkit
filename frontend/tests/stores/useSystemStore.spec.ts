@@ -112,4 +112,109 @@ describe('useSystemStore', () => {
     expect(store.aboutDialogOpen).toBe(false)
     expect(store.updateDialogOpen).toBe(true)
   })
+
+  it('reuses an in-flight silent check when manually checking updates and reopens dismissed updates', async () => {
+    let resolveCheck!: (info: Awaited<ReturnType<typeof systemApi.checkUpdate>>) => void
+    const checkSpy = vi.spyOn(systemApi, 'checkUpdate').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCheck = resolve
+        }),
+    )
+
+    const store = useSystemStore()
+    store.dismissUpdate('1.2.0')
+
+    const silentPromise = store.checkUpdate({ silent: true })
+    const explicitPromise = store.checkUpdate({ silent: false })
+    expect(checkSpy).toHaveBeenCalledTimes(1)
+
+    resolveCheck({
+      currentVersion: '1.1.0',
+      latestVersion: '1.2.0',
+      hasUpdate: true,
+      releaseUrl: 'https://github.com/maybk/tunnelkit/releases/tag/v1.2.0',
+      canSelfUpdate: true,
+      assetName: 'tunnelkit-darwin-arm64.dmg',
+      assetUrl: 'https://github.com/maybk/tunnelkit/releases/download/v1.2.0/tunnelkit.dmg',
+      assetSize: 4096,
+      assetSha256: 'def456',
+    })
+
+    const [silentInfo, explicitInfo] = await Promise.all([silentPromise, explicitPromise])
+    expect(silentInfo?.latestVersion).toBe('1.2.0')
+    expect(explicitInfo?.latestVersion).toBe('1.2.0')
+    expect(store.updateDialogOpen).toBe(true)
+  })
+
+  it('downgrades elevation cancellation to warning during applyUpdate and guards dismiss while applying', async () => {
+    let rejectApply!: (reason?: unknown) => void
+    const subscribeSpy = vi.spyOn(systemApi, 'subscribeUpdateProgress').mockReturnValue(() => {})
+    vi.spyOn(systemApi, 'applyUpdate').mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectApply = reject
+        }),
+    )
+
+    const store = useSystemStore()
+    const noticeStore = useNoticeStore()
+    store.updateInfo = {
+      currentVersion: '1.1.0',
+      latestVersion: '1.2.0',
+      hasUpdate: true,
+      releaseUrl: 'https://github.com/maybk/tunnelkit/releases/tag/v1.2.0',
+      canSelfUpdate: true,
+      assetName: 'tunnelkit-darwin-arm64.dmg',
+      assetUrl: 'https://github.com/maybk/tunnelkit/releases/download/v1.2.0/tunnelkit.dmg',
+      assetSize: 8192,
+      assetSha256: 'def456',
+    }
+    store.updateDialogOpen = true
+
+    const applyPromise = store.applyUpdate()
+    expect(subscribeSpy).toHaveBeenCalledTimes(1)
+    expect(store.isApplyingUpdate).toBe(true)
+    expect(store.updateProgress?.totalBytes).toBe(8192)
+
+    store.dismissUpdate('1.2.0')
+    expect(store.updateDialogOpen).toBe(true)
+
+    rejectApply(new Error('已取消管理员授权，更新未安装'))
+    await applyPromise
+
+    expect(store.isApplyingUpdate).toBe(false)
+    expect(store.updateProgress).toBeNull()
+    expect(store.updateDialogOpen).toBe(true)
+    expect(noticeStore.items).toHaveLength(1)
+    expect(noticeStore.items[0]).toMatchObject({
+      tone: 'warning',
+      title: '已取消管理员授权',
+      message: '更新未安装',
+    })
+  })
+
+  it('prevents duplicate release page launches and closes update dialog on open', async () => {
+    let resolveOpen!: () => void
+    const openSpy = vi.spyOn(systemApi, 'openExternalUrl').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveOpen = resolve
+        }),
+    )
+
+    const store = useSystemStore()
+    store.updateDialogOpen = true
+
+    const first = store.openReleasePage('https://github.com/maybk/tunnelkit/releases/tag/v1.2.0')
+    const second = store.openReleasePage('https://github.com/maybk/tunnelkit/releases/tag/v1.2.0')
+    expect(store.isOpeningRelease).toBe(true)
+    expect(openSpy).toHaveBeenCalledTimes(1)
+
+    resolveOpen()
+    await Promise.all([first, second])
+
+    expect(store.isOpeningRelease).toBe(false)
+    expect(store.updateDialogOpen).toBe(false)
+  })
 })

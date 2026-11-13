@@ -546,7 +546,7 @@ jobs:
           test -s bin/tunnelkit.rpm
 
           cp build/linux/tunnelkit.desktop bin/tunnelkit.desktop
-          cp build/appicon.png bin/tunnelkit.png
+          cp build/linux/icons/hicolor/256x256/apps/tunnelkit.png bin/tunnelkit.png
           tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-amd64.tar.gz" tunnelkit tunnelkit-helper tunnelkit.desktop tunnelkit.png
           cp "bin/tunnelkit.deb" "dist/tunnelkit-$APP_VERSION-linux-amd64.deb"
           cp "bin/tunnelkit.rpm" "dist/tunnelkit-$APP_VERSION-linux-amd64.rpm"
@@ -573,7 +573,8 @@ jobs:
             "/usr/local/bin/tunnelkit" \
             "/usr/local/bin/tunnelkit-helper" \
             "/usr/share/applications/tunnelkit.desktop" \
-            "/usr/share/icons/hicolor/128x128/apps/tunnelkit.png"; do
+            "/usr/share/icons/hicolor/256x256/apps/tunnelkit.png" \
+            "/usr/share/icons/hicolor/scalable/apps/tunnelkit.svg"; do
             if ! grep -Fq "$required_file" <<<"$deb_contents"; then
               echo "deb package is missing file: $required_file" >&2
               exit 1
@@ -706,7 +707,7 @@ jobs:
           test -s bin/tunnelkit.rpm
 
           cp build/linux/tunnelkit.desktop bin/tunnelkit.desktop
-          cp build/appicon.png bin/tunnelkit.png
+          cp build/linux/icons/hicolor/256x256/apps/tunnelkit.png bin/tunnelkit.png
           tar -C bin -czf "dist/tunnelkit-$APP_VERSION-linux-arm64.tar.gz" tunnelkit tunnelkit-helper tunnelkit.desktop tunnelkit.png
           cp "bin/tunnelkit.deb" "dist/tunnelkit-$APP_VERSION-linux-arm64.deb"
           cp "bin/tunnelkit.rpm" "dist/tunnelkit-$APP_VERSION-linux-arm64.rpm"
@@ -733,7 +734,8 @@ jobs:
             "/usr/local/bin/tunnelkit" \
             "/usr/local/bin/tunnelkit-helper" \
             "/usr/share/applications/tunnelkit.desktop" \
-            "/usr/share/icons/hicolor/128x128/apps/tunnelkit.png"; do
+            "/usr/share/icons/hicolor/256x256/apps/tunnelkit.png" \
+            "/usr/share/icons/hicolor/scalable/apps/tunnelkit.svg"; do
             if ! grep -Fq "$required_file" <<<"$deb_contents"; then
               echo "deb package is missing file: $required_file" >&2
               exit 1

@@ -15,37 +15,51 @@ import (
 	"tunnelkit/internal/vpn"
 )
 
+// iconSet 汇总内嵌至二进制的应用与托盘运行时图标。
 type iconSet struct {
 	appIcon          []byte
-	trayTemplateIcon []byte
-	trayColorIcon    []byte
+	trayTemplateIcon []byte // macOS 菜单栏模板图像（单色 + Alpha）
+	trayWindowsIcon  []byte // Windows 彩色多帧 ICO，按 SM_CXSMICON 选帧
+	trayColorIcon    []byte // Linux StatusNotifierItem 彩色 PNG
+}
+
+// trayIcon 描述某个平台的托盘图标装配方式。
+type trayIcon struct {
+	icon     []byte
+	template bool // 仅 macOS：交由 AppKit 按菜单栏外观着色
 }
 
 func loadIcons(assets fs.FS) (iconSet, error) {
-	appIcon, err := fs.ReadFile(assets, "assets/icons/app-icon.png")
-	if err != nil {
-		return iconSet{}, fmt.Errorf("读取应用图标失败: %w", err)
+	var icons iconSet
+	files := []struct {
+		path  string
+		label string
+		dst   *[]byte
+	}{
+		{"assets/icons/app-icon.png", "应用图标", &icons.appIcon},
+		{"assets/icons/tray-icon.png", "菜单栏模板图标", &icons.trayTemplateIcon},
+		{"assets/icons/tray-icon-windows.ico", "Windows 托盘图标", &icons.trayWindowsIcon},
+		{"assets/icons/tray-icon-color.png", "托盘彩色图标", &icons.trayColorIcon},
 	}
-	trayTemplate, err := fs.ReadFile(assets, "assets/icons/tray-icon.png")
-	if err != nil {
-		return iconSet{}, fmt.Errorf("读取菜单栏模板图标失败: %w", err)
+	for _, f := range files {
+		data, err := fs.ReadFile(assets, f.path)
+		if err != nil {
+			return iconSet{}, fmt.Errorf("读取%s失败: %w", f.label, err)
+		}
+		*f.dst = data
 	}
-	trayColor, err := fs.ReadFile(assets, "assets/icons/tray-icon-color.png")
-	if err != nil {
-		return iconSet{}, fmt.Errorf("读取托盘彩色图标失败: %w", err)
-	}
-	return iconSet{
-		appIcon:          appIcon,
-		trayTemplateIcon: trayTemplate,
-		trayColorIcon:    trayColor,
-	}, nil
+	return icons, nil
 }
 
-func (s iconSet) trayIconForPlatform(goos string) (icon []byte, isTemplate bool) {
-	if goos == "darwin" {
-		return s.trayTemplateIcon, true
+func (s iconSet) trayIconForPlatform(goos string) trayIcon {
+	switch goos {
+	case "darwin":
+		return trayIcon{icon: s.trayTemplateIcon, template: true}
+	case "windows":
+		return trayIcon{icon: s.trayWindowsIcon}
+	default:
+		return trayIcon{icon: s.trayColorIcon}
 	}
-	return s.trayColorIcon, false
 }
 
 // trayController 维护菜单栏图标与菜单；在 Wails 主线程事件循环就绪前不会调用 InvokeAsync，
@@ -125,10 +139,10 @@ func (t *trayController) init(
 	icons iconSet,
 ) {
 	tray := wailsApp.SystemTray.New()
-	if icon, isTemplate := icons.trayIconForPlatform(runtime.GOOS); isTemplate {
-		tray.SetTemplateIcon(icon)
+	if icon := icons.trayIconForPlatform(runtime.GOOS); icon.template {
+		tray.SetTemplateIcon(icon.icon)
 	} else {
-		tray.SetIcon(icon)
+		tray.SetIcon(icon.icon)
 	}
 	tray.SetTooltip(ApplicationName)
 	if runtime.GOOS == "linux" {

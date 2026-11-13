@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"image/png"
@@ -41,19 +42,24 @@ func TestLoadIconsAndPlatformSelection(t *testing.T) {
 		t.Fatalf("trayTemplateIcon must be a valid PNG: %v", err)
 	}
 	bounds := img.Bounds()
-	if bounds.Dx() != 64 || bounds.Dy() != 64 {
-		t.Fatalf("trayTemplateIcon size = %dx%d, want 64x64", bounds.Dx(), bounds.Dy())
+	// 44px = macOS 菜单栏 22pt 的 @2x 像素，Wails 按状态栏厚度设置模板图像尺寸。
+	if bounds.Dx() != 44 || bounds.Dy() != 44 {
+		t.Fatalf("trayTemplateIcon size = %dx%d, want 44x44", bounds.Dx(), bounds.Dy())
 	}
 	visiblePixels := 0
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			if _, _, _, a := img.At(x, y).RGBA(); a > 0x0800 {
+			r, g, b, a := img.At(x, y).RGBA()
+			if a > 0x0800 {
 				visiblePixels++
+			}
+			if a > 0x4000 && (r|g|b)>>8 > 2 {
+				t.Fatalf("trayTemplateIcon pixel (%d,%d) must be black for template mode", x, y)
 			}
 		}
 	}
-	if visiblePixels < 1000 {
-		t.Fatalf("trayTemplateIcon visiblePixels = %d, want >= 1000", visiblePixels)
+	if visiblePixels < 400 {
+		t.Fatalf("trayTemplateIcon visiblePixels = %d, want >= 400", visiblePixels)
 	}
 
 	appImg, err := png.Decode(bytes.NewReader(loaded.appIcon))
@@ -89,8 +95,18 @@ func TestLoadIconsAndPlatformSelection(t *testing.T) {
 			bodyWidth, bodyHeight, minX, minY, maxX, maxY)
 	}
 
-	if icon, isTemplate := loaded.trayIconForPlatform("darwin"); !isTemplate || !bytes.Equal(icon, loaded.trayTemplateIcon) {
+	if icon := loaded.trayIconForPlatform("darwin"); !icon.template || !bytes.Equal(icon.icon, loaded.trayTemplateIcon) {
 		t.Fatal("darwin must use trayTemplateIcon in template mode")
+	}
+
+	if icon := loaded.trayIconForPlatform("windows"); icon.template || !bytes.Equal(icon.icon, loaded.trayWindowsIcon) {
+		t.Fatal("windows must use the full-color multi-frame tray ICO in non-template mode")
+	}
+	sizes := icoFrameSizes(t, loaded.trayWindowsIcon)
+	for _, want := range []int{16, 20, 24, 32} {
+		if !sizes[want] {
+			t.Fatalf("windows tray ICO must contain a %dpx frame for SM_CXSMICON, got %v", want, sizes)
+		}
 	}
 
 	trayColorImg, err := png.Decode(bytes.NewReader(loaded.trayColorIcon))
@@ -100,11 +116,30 @@ func TestLoadIconsAndPlatformSelection(t *testing.T) {
 	if trayColorImg.Bounds().Dx() != 64 || trayColorImg.Bounds().Dy() != 64 {
 		t.Fatalf("trayColorIcon size = %dx%d, want 64x64", trayColorImg.Bounds().Dx(), trayColorImg.Bounds().Dy())
 	}
-	for _, goos := range []string{"windows", "linux"} {
-		if icon, isTemplate := loaded.trayIconForPlatform(goos); isTemplate || !bytes.Equal(icon, loaded.trayColorIcon) {
-			t.Fatalf("%s must use 64x64 full-color trayColorIcon in non-template mode", goos)
-		}
+	if icon := loaded.trayIconForPlatform("linux"); icon.template || !bytes.Equal(icon.icon, loaded.trayColorIcon) {
+		t.Fatal("linux must use 64x64 full-color trayColorIcon in non-template mode")
 	}
+}
+
+// icoFrameSizes 解析 ICO 目录并返回其中包含的帧尺寸集合。
+func icoFrameSizes(t *testing.T, data []byte) map[int]bool {
+	t.Helper()
+	if len(data) < 6 || binary.LittleEndian.Uint16(data[0:2]) != 0 || binary.LittleEndian.Uint16(data[2:4]) != 1 {
+		t.Fatal("tray icon must be a valid ICO file")
+	}
+	count := int(binary.LittleEndian.Uint16(data[4:6]))
+	if count == 0 || len(data) < 6+16*count {
+		t.Fatal("tray ICO directory is truncated")
+	}
+	sizes := map[int]bool{}
+	for i := range count {
+		size := int(data[6+16*i])
+		if size == 0 {
+			size = 256
+		}
+		sizes[size] = true
+	}
+	return sizes
 }
 
 func TestTraySelectionAndConnectState(t *testing.T) {

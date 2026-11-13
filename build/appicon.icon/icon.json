@@ -1,37 +1,73 @@
 {
-  "fill" : {
-    "automatic-gradient" : "extended-gray:1.00000,1.00000"
-  },
-  "groups" : [
+  "fill-specializations": [
     {
-      "layers" : [
+      "value": {
+        "linear-gradient": [
+          "srgb:1.00000,1.00000,1.00000,1.00000",
+          "srgb:0.93333,0.95686,1.00000,1.00000"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.125,
+            "y": 0.0625
+          },
+          "stop": {
+            "x": 0.875,
+            "y": 0.9375
+          }
+        }
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.09020,0.15686,0.26667,1.00000",
+          "srgb:0.02353,0.04314,0.07843,1.00000"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.125,
+            "y": 0.0625
+          },
+          "stop": {
+            "x": 0.875,
+            "y": 0.9375
+          }
+        }
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
         {
-          "image-name" : "tunnelkit_portal.svg",
-          "name" : "tunnelkit_portal",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
+          "image-name": "tunnelkit_glyph.svg",
+          "name": "tunnelkit_glyph",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
               0,
               0
             ]
           }
         }
       ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.35
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.35
       },
-      "specular" : false,
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0
       }
     }
   ],
-  "supported-platforms" : {
-    "circles" : [
+  "supported-platforms": {
+    "circles": [
       "watchOS"
     ],
-    "squares" : "shared"
+    "squares": "shared"
   }
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Check, ExternalLink, RefreshCw, Sparkles } from '@lucide/vue'
+import BrandMark from '@/components/common/BrandMark.vue'
 import StateText from '@/components/common/StateText.vue'
 import StatusDot from '@/components/common/StatusDot.vue'
 import AppButton from '@/components/base/button/AppButton.vue'
@@ -57,11 +58,7 @@ const checkLabel = computed(() => {
   <Dialog v-model:open="open">
     <AppDialogContent size="md">
       <div class="flex items-center gap-3.5">
-        <img
-          src="/favicon.svg"
-          alt="TunnelKit"
-          class="size-11 shrink-0 rounded-xl shadow-xs ring-1 ring-black/6 dark:ring-white/10"
-        />
+        <BrandMark class="size-11 p-1.5" />
         <div>
           <div class="flex items-center gap-2">
             <AppDialogTitle>TunnelKit</AppDialogTitle>

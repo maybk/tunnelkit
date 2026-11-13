@@ -1,0 +1,31 @@
+{
+  "master": "assets/brand/brand-mark.svg",
+  "linuxIconName": "tunnelkit",
+  "trayStyle": "tile",
+  "windowsTray": "color",
+  "glyphRatio": { "default": 0.72 },
+  "darkGlyphColors": {
+    "#1D4ED8": "#3B82F6",
+    "#2563EB": "#60A5FA",
+    "#059669": "#10B981"
+  },
+  "plate": {
+    "background": [
+      { "offset": 0, "color": "#FFFFFF" },
+      { "offset": 0.62, "color": "#F8FAFC" },
+      { "offset": 1, "color": "#EEF4FF" }
+    ],
+    "glow": [
+      { "offset": 0, "color": "#10B981", "opacity": 0.12 },
+      { "offset": 0.52, "color": "#3B82F6", "opacity": 0.1 },
+      { "offset": 1, "color": "#EEF4FF", "opacity": 0 }
+    ],
+    "edge": "#0F172A",
+    "edgeOpacity": 0.08
+  },
+  "iconComposer": {
+    "layer": "tunnelkit_glyph",
+    "lightGradient": ["srgb:1.00000,1.00000,1.00000,1.00000", "srgb:0.93333,0.95686,1.00000,1.00000"],
+    "darkGradient": ["srgb:0.09020,0.15686,0.26667,1.00000", "srgb:0.02353,0.04314,0.07843,1.00000"]
+  }
+}

@@ -7,6 +7,7 @@ import AppDialogContent from '@/components/base/AppDialogContent.vue'
 import AppDialogDescription from '@/components/base/AppDialogDescription.vue'
 import AppDialogTitle from '@/components/base/AppDialogTitle.vue'
 import { Dialog } from '@/components/ui/dialog'
+import BrandMark from '@/components/common/BrandMark.vue'
 
 const props = defineProps<{
   updateInfo: UpdateInfo | null
@@ -83,11 +84,7 @@ const handleDismiss = () => {
       @open-auto-focus="handleOpenAutoFocus"
     >
       <div class="flex items-center gap-3.5 pr-6">
-        <img
-          src="/favicon.svg"
-          alt="TunnelKit"
-          class="size-11 shrink-0 rounded-xl shadow-xs ring-1 ring-black/6 dark:ring-white/10"
-        />
+        <BrandMark class="size-11 p-1.5" />
         <div class="min-w-0">
           <AppDialogTitle>{{ dialogTitle }}</AppDialogTitle>
           <AppDialogDescription class="mt-0.5">{{ dialogDescription }}</AppDialogDescription>

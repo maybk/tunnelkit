@@ -150,7 +150,7 @@ tasks:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}} -ts
 
   generate:icons:
-    summary: Generates Windows `.ico` and Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms).
+    summary: Generates Mac `.icns` from `appicon.png`; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms). Windows `icon.ico` is maintained separately because it uses a full-bleed plate instead of the macOS safe area.
     dir: build
     run: once
     sources:
@@ -158,9 +158,9 @@ tasks:
       - "appicon.icon"
     generates:
       - "darwin/icons.icns"
-      - "windows/icon.ico"
     cmds:
-      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico -iconcomposerinput appicon.icon -macassetdir darwin
+      # -windowsfilename 默认值为 build/windows/icon.ico，必须显式置空，避免用 macOS 安全区留白覆盖满幅 Windows 图标。
+      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename "" -iconcomposerinput appicon.icon -macassetdir darwin
 
   dev:frontend:
     summary: Runs the frontend in development mode

@@ -55,8 +55,8 @@ tunnelkit/
 │   ├── update/                # 版本更新检查、多源回退、版本比较与原子自更新
 │   └── vpn/                   # 桌面连接状态机、维护门禁与会话恢复
 ├── assets/
-│   ├── brand/                 # 品牌与菜单栏图标 SVG 母版
-│   └── icons/                 # 桌面端与系统托盘内嵌 PNG 图标
+│   ├── brand/                 # 品牌母版与图标生成参数
+│   └── icons/                 # 窗口与三端托盘内嵌图标
 ├── frontend/                  # Vue 3 前端工程
 ├── build/                     # Wails 构建配置、平台图标与打包脚本
 ├── scripts/                   # 版本提取、Windows 驱动准备与 CI/Release 契约测试

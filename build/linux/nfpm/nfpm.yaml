@@ -21,8 +21,13 @@ contents:
     dst: "/usr/local/bin/tunnelkit"
   - src: "./bin/tunnelkit-helper"
     dst: "/usr/local/bin/tunnelkit-helper"
-  - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/tunnelkit.png"
+  # hicolor 图标主题：scalable 覆盖任意尺寸，48 为规范最低兜底，256 供不支持 SVG 的环境；目录尺寸必须与文件实际像素一致。
+  - src: "./build/linux/icons/hicolor/48x48/apps/tunnelkit.png"
+    dst: "/usr/share/icons/hicolor/48x48/apps/tunnelkit.png"
+  - src: "./build/linux/icons/hicolor/256x256/apps/tunnelkit.png"
+    dst: "/usr/share/icons/hicolor/256x256/apps/tunnelkit.png"
+  - src: "./build/linux/icons/hicolor/scalable/apps/tunnelkit.svg"
+    dst: "/usr/share/icons/hicolor/scalable/apps/tunnelkit.svg"
   - src: "./build/linux/tunnelkit.desktop"
     dst: "/usr/share/applications/tunnelkit.desktop"
 

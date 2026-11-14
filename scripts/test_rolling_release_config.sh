@@ -183,17 +183,17 @@ rolling_notes_step="$(awk \
   '/^      - name: Prepare Rolling notes$/,/^      - name: Create draft, upload, verify, and publish Rolling$/' \
   "$rolling_workflow")"
 for required in \
-  'pending_notes_file="$RUNNER_TEMP/rolling-changelog.md"' \
-  'bash scripts/extract_release_notes.sh "$ROLLING_VERSION" CHANGELOG.md > "$pending_notes_file"' \
-  'cat "$pending_notes_file"' \
-  '## 更新内容' \
-  '## 构建信息' \
-  '预览版本' \
-  '应用版本' \
-  '提交：' \
-  '构建时间'; do
+  'bash scripts/render_release_notes.sh \' \
+  '--rolling' \
+  '--version "$ROLLING_VERSION"' \
+  '--app-version "$APP_VERSION"' \
+  '--source-sha "$SOURCE_SHA"' \
+  '--built-at "$built_at"' \
+  '--repo "$GITHUB_REPOSITORY"' \
+  '--server-url "$GITHUB_SERVER_URL"' \
+  '--changelog CHANGELOG.md > "$release_notes_file"'; do
   if ! grep -Fq -- "$required" <<<"$rolling_notes_step"; then
-    echo "Rolling notes must include pending CHANGELOG content and concise build metadata: $required"
+    echo "Rolling notes step must delegate rendering to scripts/render_release_notes.sh: $required"
     exit 1
   fi
 done

@@ -163,7 +163,11 @@ jobs:
         run: |
           set -euo pipefail
           release_notes_file="$RUNNER_TEMP/release-notes.md"
-          bash scripts/extract_release_notes.sh "$APP_VERSION" CHANGELOG.md > "$release_notes_file"
+          bash scripts/render_release_notes.sh \
+            --version "$APP_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --server-url "$GITHUB_SERVER_URL" \
+            --changelog CHANGELOG.md > "$release_notes_file"
           test -s "$release_notes_file"
 
       - name: Create draft, upload, verify, and publish

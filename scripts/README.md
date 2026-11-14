@@ -1,18 +1,19 @@
 # 构建与发版脚本 (`scripts`)
 
-存放跨平台驱动资产准备、安装包制作、版本与发版说明提取、包管理器清单渲染及配套自检脚本。
+存放跨平台驱动资产准备、安装包制作、版本提取、Release 说明与包管理器清单渲染及配套自检脚本。
 
 ## 目录结构
 
 - `extract_pending_version.sh`：从 `CHANGELOG.md` 顶部提取待发布版本号（`## [X.Y.Z] - 未发布`）。
-- `extract_release_notes.sh`：从 `CHANGELOG.md` 提取指定正式版本或待发布版本的更新说明正文。
+- `extract_release_notes.sh`：从 `CHANGELOG.md` 提取指定正式版本或待发布版本的更新内容。
+- `render_release_notes.sh`：渲染正式版与 Rolling 预览版的 GitHub Release 说明及常用安装包下载表。
 - `prepare_release.sh`：发版前统一更新 `build/config.yml` 版本号与 `CHANGELOG.md` 正式版本标题及日期。
 - `package_macos_dmg.sh`：基于 `dmgbuild` 与 `build/darwin/dmg/` 资产打包 macOS `.dmg` 安装镜像。
 - `prepare_windows_wintun.ps1`：下载固定版本官方 Wintun 驱动压缩包、校验 SHA-256 并按目标架构提取 `wintun.dll`。
 - `smoke_windows_helper.ps1`：静默安装与卸载 Windows 安装包，校验系统服务与本地 IPC 会话。
 - `render_package_manifests.sh`：根据发版版本号与 `SHA256SUMS.txt` 渲染并校验 Homebrew Cask、Scoop 与 WinGet 清单文件。
 - `test_extract_pending_version.sh`：`extract_pending_version.sh` 的边界回归测试。
-- `test_extract_release_notes.sh`：`extract_release_notes.sh` 与 `CHANGELOG.md` 格式守卫测试。
+- `test_extract_release_notes.sh`：`extract_release_notes.sh`、`render_release_notes.sh` 与 `CHANGELOG.md` 格式守卫测试。
 - `test_prepare_release.sh`：`prepare_release.sh` 的版本同步与幂等性回归测试。
 - `test_package_manifests.sh`：`render_package_manifests.sh` 的清单渲染回归测试。
 - `test_ci_config.sh`：校验 CI/Release 工作流、平台安装包配置、锁文件唯一性与依赖源安全约束。

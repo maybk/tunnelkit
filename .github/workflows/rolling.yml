@@ -350,21 +350,16 @@ jobs:
         run: |
           set -euo pipefail
           release_notes_file="$RUNNER_TEMP/rolling-notes.md"
-          pending_notes_file="$RUNNER_TEMP/rolling-changelog.md"
-          bash scripts/extract_release_notes.sh "$ROLLING_VERSION" CHANGELOG.md > "$pending_notes_file"
-          test -s "$pending_notes_file"
           built_at="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          {
-            printf '%s\n%s\n\n' '> [!WARNING]' '> 此版本为自动构建的测试版，可能不稳定，请勿用于重要环境。'
-            printf '## 更新内容\n\n'
-            cat "$pending_notes_file"
-            printf '\n## 构建信息\n\n'
-            printf -- '- 预览版本：`%s`\n' "$ROLLING_VERSION"
-            printf -- '- 应用版本：`%s`\n' "$APP_VERSION"
-            printf -- '- 提交：[`%s`](%s/%s/commit/%s)\n' \
-              "$SHORT_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$SOURCE_SHA"
-            printf -- '- 构建时间：`%s`\n' "$built_at"
-          } > "$release_notes_file"
+          bash scripts/render_release_notes.sh \
+            --rolling \
+            --version "$ROLLING_VERSION" \
+            --app-version "$APP_VERSION" \
+            --source-sha "$SOURCE_SHA" \
+            --built-at "$built_at" \
+            --repo "$GITHUB_REPOSITORY" \
+            --server-url "$GITHUB_SERVER_URL" \
+            --changelog CHANGELOG.md > "$release_notes_file"
           test -s "$release_notes_file"
 
       - name: Create draft, upload, verify, and publish Rolling

@@ -12,7 +12,8 @@ TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自
 - [`smoke_windows_helper.ps1`](../../scripts/smoke_windows_helper.ps1)：静默安装与卸载 Windows 安装包，校验系统服务与本地 IPC 会话
 - [`package_macos_dmg.sh`](../../scripts/package_macos_dmg.sh) 与 [`build/darwin/dmg/settings.py`](../../build/darwin/dmg/settings.py)：使用 `dmgbuild` 直接写入 `.DS_Store`、`Applications` 拖拽快捷方式、Retina `@1x/@2x` 引导背景图与卷标图标
 - [`extract_pending_version.sh`](../../scripts/extract_pending_version.sh)：读取并校验 `CHANGELOG.md` 顶部唯一的待发布版本
-- [`extract_release_notes.sh`](../../scripts/extract_release_notes.sh)：从 `CHANGELOG.md` 提取指定版本的发布说明
+- [`extract_release_notes.sh`](../../scripts/extract_release_notes.sh)：从 `CHANGELOG.md` 提取指定版本的更新内容
+- [`render_release_notes.sh`](../../scripts/render_release_notes.sh)：渲染正式版与 Rolling 预览版的 GitHub Release 说明及常用安装包下载表
 - [`prepare_release.sh`](../../scripts/prepare_release.sh)：一键同步 `build/config.yml` 与 `CHANGELOG.md` 版本段落
 - [`render_package_manifests.sh`](../../scripts/render_package_manifests.sh)：根据版本号与 `SHA256SUMS.txt` 渲染并校验 Homebrew Cask、Scoop 与 WinGet 清单（跨应用发布中心位于 [`maybk/homebrew-tap`](https://github.com/maybk/homebrew-tap)）
 - [`build/config.yml`](../../build/config.yml)：应用版本号唯一权威来源（`info.version`）
@@ -102,6 +103,7 @@ wails3 task linux:create:rpm
   - `tunnelkit-<version>-linux-arm64.deb`
   - `tunnelkit-<version>-linux-arm64.rpm`
   - `SHA256SUMS.txt`
+- Release 说明由 `render_release_notes.sh` 统一生成，包含更新内容与常用安装包（Windows Setup、macOS Apple Silicon/Intel DMG、Linux DEB/RPM）下载徽章；通用包、便携包与 `SHA256SUMS.txt` 保留在底部 `Assets` 列表。
 - workflow 先创建 Draft Release，上传并校验全部 14 个资产后才公开为 Latest；正式版成功公开后自动清理指向该提交或其祖先的 `rolling` 预发布与标签。
 - 所有第三方 GitHub Actions 均锁定到完整 40 位 commit SHA，并由 Dependabot 按周分组更新。
 

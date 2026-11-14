@@ -152,19 +152,103 @@ if [ ! -f "$windows_helper_smoke" ] ||
   exit 1
 fi
 
+windows_taskfile="$repo_root/build/windows/Taskfile.yml"
+if [ ! -f "$windows_taskfile" ] ||
+  [ "$(grep -Fc 'makensis -INPUTCHARSET UTF8' "$windows_taskfile")" -ne 2 ] ||
+  grep -E '^[[:space:]]*makensis([[:space:]]|$)' "$windows_taskfile" | grep -Fv 'makensis -INPUTCHARSET UTF8' >/dev/null; then
+  echo "build/windows/Taskfile.yml must invoke makensis with -INPUTCHARSET UTF8 on all host platforms"
+  exit 1
+fi
+
 nsis_script="$repo_root/build/windows/nsis/project.nsi"
 if [ ! -f "$nsis_script" ] ||
+  ! grep -Fq 'Unicode true' "$nsis_script" ||
   ! grep -Fq '!include "MUI2.nsh"' "$nsis_script" ||
   ! grep -Fq '!insertmacro MUI_UNPAGE_CONFIRM' "$nsis_script" ||
   ! grep -Fq '!define MUI_FINISHPAGE_RUN_FUNCTION "LaunchAsDesktopUser"' "$nsis_script" ||
   ! grep -Fq 'ShowInstDetails hide' "$nsis_script" ||
   ! grep -Fq 'ShowUnInstDetails hide' "$nsis_script" ||
+  ! grep -Fq '!define WAILS_WIN10_REQUIRED "$(MSG_WIN10_REQUIRED)"' "$nsis_script" ||
+  ! grep -Fq '!define WAILS_ARCHITECTURE_NOT_SUPPORTED "$(MSG_ARCH_NOT_SUPPORTED)"' "$nsis_script" ||
+  ! grep -Fq '!define WAILS_INSTALL_WEBVIEW_DETAILPRINT "$(MSG_INSTALL_WEBVIEW2)"' "$nsis_script" ||
   grep -Fq 'MUI_FINISHPAGE_NOAUTOCLOSE' "$nsis_script" ||
   grep -Fq 'ShowInstDetails show' "$nsis_script" ||
   grep -Fq 'nsExec::ExecToLog' "$nsis_script"; then
-  echo "Windows NSIS installer must use MUI2, clean hidden details without ExecToLog noise, uninstall confirmation, and non-elevated Explorer launch"
+  echo "Windows NSIS installer must use Unicode MUI2, localized Wails messages, clean hidden details without ExecToLog noise, uninstall confirmation, and non-elevated Explorer launch"
   exit 1
 fi
+
+nsis_en_line="$(grep -nF '!insertmacro MUI_LANGUAGE "English"' "$nsis_script" | head -n 1 | cut -d: -f1)"
+nsis_zh_line="$(grep -nF '!insertmacro MUI_LANGUAGE "SimpChinese"' "$nsis_script" | head -n 1 | cut -d: -f1)"
+if [ -z "$nsis_en_line" ] || [ -z "$nsis_zh_line" ] || [ "$nsis_en_line" -ge "$nsis_zh_line" ]; then
+  echo "Windows NSIS installer must declare English before SimpChinese so non-Chinese systems default to English"
+  exit 1
+fi
+
+LC_ALL=C awk '
+  /^[[:space:]]*[#;]/ { next }
+  /^[[:space:]]*LangString[[:space:]]+/ {
+    id = $2
+    lang = $3
+    ids[id] = 1
+    if (lang != "${LANG_ENGLISH}" && lang != "${LANG_SIMPCHINESE}") {
+      printf("invalid LangString language token on line %d: %s\n", NR, lang) > "/dev/stderr"
+      err = 1
+    }
+    if ($0 !~ /^[[:space:]]*LangString[[:space:]]+[A-Z0-9_]+[[:space:]]+\$\{LANG_(ENGLISH|SIMPCHINESE)\}[[:space:]]+"[^"]+"[[:space:]]*$/) {
+      printf("malformed LangString syntax or unescaped quote on line %d: %s\n", NR, $0) > "/dev/stderr"
+      err = 1
+    }
+    if (lang == "${LANG_ENGLISH}") {
+      en[id]++
+      if ($0 ~ /[^[:print:][:space:]]/) {
+        printf("English LangString must be pure ASCII on line %d: %s\n", NR, id) > "/dev/stderr"
+        err = 1
+      }
+    }
+    if (lang == "${LANG_SIMPCHINESE}") {
+      zh[id]++
+    }
+    next
+  }
+  {
+    if ($0 ~ /[^[:print:][:space:]]/) {
+      printf("hardcoded non-ASCII text outside LangString on line %d: %s\n", NR, $0) > "/dev/stderr"
+      err = 1
+    }
+    line = $0
+    while (match(line, /\$\([A-Za-z0-9_]+\)/)) {
+      ref = substr(line, RSTART + 2, RLENGTH - 3)
+      refs[ref]++
+      line = substr(line, RSTART + RLENGTH)
+    }
+  }
+  END {
+    count = 0
+    for (id in ids) {
+      count++
+      if (en[id] != 1 || zh[id] != 1) {
+        printf("LangString %s must define exactly one English and one SimpChinese entry (got en=%d, zh=%d)\n", id, en[id], zh[id]) > "/dev/stderr"
+        err = 1
+      }
+      if (!refs[id]) {
+        printf("unused LangString: %s\n", id) > "/dev/stderr"
+        err = 1
+      }
+    }
+    for (ref in refs) {
+      if (!ids[ref]) {
+        printf("undefined LangString reference: $(%s)\n", ref) > "/dev/stderr"
+        err = 1
+      }
+    }
+    if (count < 12) {
+      printf("expected at least 12 localized NSIS LangStrings, got %d\n", count) > "/dev/stderr"
+      err = 1
+    }
+    exit err
+  }
+' "$nsis_script"
 
 if grep -Eq 'PULL_TOKEN|REPO_URL|@main' "$release_workflow" "$release_assets_workflow" "$rolling_workflow"; then
   echo "release workflow must not clone another repository or use floating main actions"

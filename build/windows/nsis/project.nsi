@@ -11,11 +11,11 @@ Unicode true
 ## > wails build --target windows/amd64 --nsis
 ## Then you can call makensis on this file with specifying the path to your binary:
 ## For a AMD64 only installer:
-## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app.exe
+## > makensis -INPUTCHARSET UTF8 -DARG_WAILS_AMD64_BINARY=..\..\..\bin\app.exe project.nsi
 ## For a ARM64 only installer:
-## > makensis -DARG_WAILS_ARM64_BINARY=..\..\bin\app.exe
+## > makensis -INPUTCHARSET UTF8 -DARG_WAILS_ARM64_BINARY=..\..\..\bin\app.exe project.nsi
 ## For a installer with both architectures:
-## > makensis -DARG_WAILS_AMD64_BINARY=..\..\bin\app-amd64.exe -DARG_WAILS_ARM64_BINARY=..\..\bin\app-arm64.exe
+## > makensis -INPUTCHARSET UTF8 -DARG_WAILS_AMD64_BINARY=..\..\..\bin\app-amd64.exe -DARG_WAILS_ARM64_BINARY=..\..\..\bin\app-arm64.exe project.nsi
 ####
 ## The following information is taken from the wails_tools.nsh file, but they can be overwritten here.
 ####
@@ -71,8 +71,56 @@ ManifestDPIAware true
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES # Uninstalling page
 
+# Put English first as the default fallback for non-Chinese systems; NSIS/MUI2
+# automatically selects SimpChinese when the user's Windows UI language is zh-CN.
+!insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "SimpChinese"
-!insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
+
+LangString MSG_WIN10_REQUIRED ${LANG_ENGLISH} "${INFO_PRODUCTNAME} requires Windows 10 (Server 2016) or later."
+LangString MSG_WIN10_REQUIRED ${LANG_SIMPCHINESE} "${INFO_PRODUCTNAME} 仅支持 Windows 10（Server 2016）及更高版本。"
+
+LangString MSG_ARCH_NOT_SUPPORTED ${LANG_ENGLISH} "This installer does not support the current Windows architecture (supported: ${ARCH})."
+LangString MSG_ARCH_NOT_SUPPORTED ${LANG_SIMPCHINESE} "当前安装包不支持此系统的处理器架构（支持架构：${ARCH}）。"
+
+LangString MSG_INSTALL_WEBVIEW2 ${LANG_ENGLISH} "Installing Microsoft Edge WebView2 Runtime..."
+LangString MSG_INSTALL_WEBVIEW2 ${LANG_SIMPCHINESE} "正在安装 Microsoft Edge WebView2 运行时..."
+
+LangString MSG_CHECKING_ENV ${LANG_ENGLISH} "Checking runtime environment..."
+LangString MSG_CHECKING_ENV ${LANG_SIMPCHINESE} "正在检查运行环境..."
+
+LangString MSG_HELPER_RUNNING_DETAIL ${LANG_ENGLISH} "Detected an active VPN session (tunnelkit-helper.exe)."
+LangString MSG_HELPER_RUNNING_DETAIL ${LANG_SIMPCHINESE} "检测到正在运行的 VPN 会话（tunnelkit-helper.exe）。"
+
+LangString MSG_HELPER_RUNNING_STOP ${LANG_ENGLISH} "Please disconnect the VPN and exit ${INFO_PRODUCTNAME} before installing or uninstalling."
+LangString MSG_HELPER_RUNNING_STOP ${LANG_SIMPCHINESE} "请先断开 VPN 并退出 ${INFO_PRODUCTNAME}，再重试安装或卸载。"
+
+LangString MSG_STOPPING_CLIENT ${LANG_ENGLISH} "Closing running ${INFO_PRODUCTNAME}..."
+LangString MSG_STOPPING_CLIENT ${LANG_SIMPCHINESE} "正在关闭运行中的 ${INFO_PRODUCTNAME}..."
+
+LangString MSG_DEPLOYING_FILES ${LANG_ENGLISH} "Deploying ${INFO_PRODUCTNAME} files..."
+LangString MSG_DEPLOYING_FILES ${LANG_SIMPCHINESE} "正在部署 ${INFO_PRODUCTNAME} 程序文件..."
+
+LangString MSG_CONFIGURING_SERVICE ${LANG_ENGLISH} "Configuring ${INFO_PRODUCTNAME} system helper service..."
+LangString MSG_CONFIGURING_SERVICE ${LANG_SIMPCHINESE} "正在配置 ${INFO_PRODUCTNAME} 系统辅助服务..."
+
+LangString MSG_INSTALL_SERVICE_FAILED ${LANG_ENGLISH} "Failed to install the ${INFO_PRODUCTNAME} privileged helper service. Please ensure administrator privileges are granted."
+LangString MSG_INSTALL_SERVICE_FAILED ${LANG_SIMPCHINESE} "无法安装 ${INFO_PRODUCTNAME} 特权辅助服务，请确认已授予管理员权限。"
+
+LangString MSG_REMOVING_SERVICE ${LANG_ENGLISH} "Removing ${INFO_PRODUCTNAME} system helper service..."
+LangString MSG_REMOVING_SERVICE ${LANG_SIMPCHINESE} "正在移除 ${INFO_PRODUCTNAME} 系统辅助服务..."
+
+LangString MSG_UNINSTALL_SERVICE_FAILED ${LANG_ENGLISH} "Failed to stop and remove the ${INFO_PRODUCTNAME} privileged helper service. Please disconnect the VPN and try again."
+LangString MSG_UNINSTALL_SERVICE_FAILED ${LANG_SIMPCHINESE} "无法停止并卸载 ${INFO_PRODUCTNAME} 特权辅助服务，请先断开 VPN 后重试。"
+
+!ifndef WAILS_WIN10_REQUIRED
+    !define WAILS_WIN10_REQUIRED "$(MSG_WIN10_REQUIRED)"
+!endif
+!ifndef WAILS_ARCHITECTURE_NOT_SUPPORTED
+    !define WAILS_ARCHITECTURE_NOT_SUPPORTED "$(MSG_ARCH_NOT_SUPPORTED)"
+!endif
+!ifndef WAILS_INSTALL_WEBVIEW_DETAILPRINT
+    !define WAILS_INSTALL_WEBVIEW_DETAILPRINT "$(MSG_INSTALL_WEBVIEW2)"
+!endif
 
 ## The following two statements can be used to sign the installer and the uninstaller. The path to the binaries are provided in %1
 #!uninstfinalize 'signtool --file "%1"'
@@ -101,8 +149,8 @@ ShowUnInstDetails hide
     Pop $0
     ${If} $0 == "0"
         SetDetailsView show
-        DetailPrint "检测到正在运行的 VPN 会话（tunnelkit-helper.exe）。"
-        MessageBox MB_ICONSTOP "请先断开 VPN 并退出 TunnelKit，再重试安装或卸载。" /SD IDOK
+        DetailPrint "$(MSG_HELPER_RUNNING_DETAIL)"
+        MessageBox MB_ICONSTOP "$(MSG_HELPER_RUNNING_STOP)" /SD IDOK
         Abort
     ${EndIf}
 !macroend
@@ -113,7 +161,7 @@ ShowUnInstDetails hide
     nsExec::Exec '"$SYSDIR\taskkill.exe" /F /T /IM "${PRODUCT_EXECUTABLE}"'
     Pop $0
     ${If} $0 == "0"
-        DetailPrint "正在关闭运行中的 ${INFO_PRODUCTNAME}..."
+        DetailPrint "$(MSG_STOPPING_CLIENT)"
         Sleep 500
     ${EndIf}
 !macroend
@@ -182,13 +230,13 @@ FunctionEnd
 Section
     !insertmacro wails.setShellContext
 
-    DetailPrint "正在检查运行环境..."
+    DetailPrint "$(MSG_CHECKING_ENV)"
     !insertmacro tunnelkit.requireHelperStopped
     !insertmacro tunnelkit.stopDesktopClient
 
     !insertmacro wails.webview2runtime
 
-    DetailPrint "正在部署 ${INFO_PRODUCTNAME} 程序文件..."
+    DetailPrint "$(MSG_DEPLOYING_FILES)"
     SetOutPath "$INSTDIR"
     Delete "$INSTDIR\*.old"
 
@@ -206,8 +254,8 @@ Section
         File "..\..\..\bin\wintun.dll"
     !endif
 
-    DetailPrint "正在配置 ${INFO_PRODUCTNAME} 系统辅助服务..."
-    !insertmacro tunnelkit.execServiceCmd '"$INSTDIR\tunnelkit-helper.exe" install-service' "无法安装 TunnelKit 特权辅助服务，请确认已授予管理员权限。"
+    DetailPrint "$(MSG_CONFIGURING_SERVICE)"
+    !insertmacro tunnelkit.execServiceCmd '"$INSTDIR\tunnelkit-helper.exe" install-service' "$(MSG_INSTALL_SERVICE_FAILED)"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -222,13 +270,13 @@ SectionEnd
 Section "uninstall"
     !insertmacro wails.setShellContext
 
-    DetailPrint "正在检查运行环境..."
+    DetailPrint "$(MSG_CHECKING_ENV)"
     !insertmacro tunnelkit.requireHelperStopped
     !insertmacro tunnelkit.stopDesktopClient
 
     ${If} ${FileExists} "$INSTDIR\tunnelkit-helper.exe"
-        DetailPrint "正在移除 ${INFO_PRODUCTNAME} 系统辅助服务..."
-        !insertmacro tunnelkit.execServiceCmd '"$INSTDIR\tunnelkit-helper.exe" uninstall-service' "无法停止并卸载 TunnelKit 特权辅助服务，请先断开 VPN 后重试。"
+        DetailPrint "$(MSG_REMOVING_SERVICE)"
+        !insertmacro tunnelkit.execServiceCmd '"$INSTDIR\tunnelkit-helper.exe" uninstall-service' "$(MSG_UNINSTALL_SERVICE_FAILED)"
     ${Else}
         nsExec::Exec '"$SYSDIR\sc.exe" stop TunnelKitHelper'
         Pop $0

@@ -227,3 +227,97 @@ func TestTicketStoreRejectsMalformedVersionedOrOutOfBoundsPayloads(t *testing.T)
 		}
 	})
 }
+
+type trackedTicketFile struct {
+	*os.File
+	closed bool
+	open   *int
+}
+
+func (f *trackedTicketFile) Close() error {
+	if !f.closed {
+		f.closed = true
+		*f.open--
+	}
+	return f.File.Close()
+}
+
+func TestTicketStoreClosesReadHandleBeforeMigrationRename(t *testing.T) {
+	newTrackedStore := func(t *testing.T) (*TicketStore, *int) {
+		t.Helper()
+		store := NewTicketStore(t.TempDir())
+		openHandles := 0
+		store.openFile = func(p string) (ticketFile, error) {
+			rawFile, err := openCertificateFile(p)
+			if err != nil {
+				return nil, err
+			}
+			openHandles++
+			return &trackedTicketFile{File: rawFile, open: &openHandles}, nil
+		}
+		store.writeFile = func(p string, data []byte, perm os.FileMode) error {
+			if openHandles > 0 {
+				return errors.New("destination file still has an open read handle (Windows ERROR_ACCESS_DENIED)")
+			}
+			return storage.WriteFile(p, data, perm)
+		}
+		return store, &openHandles
+	}
+
+	t.Run("legacy plaintext ticket migration", func(t *testing.T) {
+		store, openHandles := newTrackedStore(t)
+		legacy := []byte(`{"endpoint":"/tmp/win-lock-repro","token":"synthetic-legacy-token","pid":4242,"profileId":"p1"}`)
+		if err := storage.WriteFile(store.path, legacy, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.Load()
+		if err != nil {
+			t.Fatalf("Load migration failed: %v", err)
+		}
+		if got.Token != "synthetic-legacy-token" || got.Protocol != 1 || *openHandles != 0 {
+			t.Fatalf("unexpected migrated state: got=%+v openHandles=%d", got, *openHandles)
+		}
+	})
+
+	t.Run("earlier encrypted protocol migration", func(t *testing.T) {
+		store, openHandles := newTrackedStore(t)
+		sealed, err := store.sealer.Encrypt("synthetic-encrypted-token")
+		if err != nil {
+			t.Fatal(err)
+		}
+		unversioned, err := json.Marshal(map[string]any{
+			"endpoint":    "/tmp/win-encrypted-repro",
+			"sealedToken": sealed,
+			"pid":         4242,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := storage.WriteFile(store.path, unversioned, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.Load()
+		if err != nil {
+			t.Fatalf("Load encrypted migration failed: %v", err)
+		}
+		if got.Token != "synthetic-encrypted-token" || got.Protocol != 2 || *openHandles != 0 {
+			t.Fatalf("unexpected migrated state: got=%+v openHandles=%d", got, *openHandles)
+		}
+	})
+
+	t.Run("rejected ticket releases handle before overwrite or clear", func(t *testing.T) {
+		store, openHandles := newTrackedStore(t)
+		if err := storage.WriteFile(store.path, []byte(`{"schemaVersion":99,"data":{}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Load(); err == nil {
+			t.Fatal("expected unsupported schema ticket to be rejected")
+		}
+		if *openHandles != 0 {
+			t.Fatalf("expected openHandles=0 after rejected Load, got %d", *openHandles)
+		}
+		if err := store.Save(Ticket{Endpoint: "/tmp/recovered", Token: "synthetic-fresh-token"}); err != nil {
+			t.Fatalf("Save after rejected Load failed: %v", err)
+		}
+	})
+}

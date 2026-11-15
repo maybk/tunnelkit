@@ -29,11 +29,19 @@ type Ticket struct {
 	StartedAt   string             `json:"startedAt"`
 }
 
+type ticketFile interface {
+	io.Reader
+	io.Closer
+	Stat() (os.FileInfo, error)
+}
+
 // TicketStore 负责加密持久化与清理 helper IPC 会话凭据。
 type TicketStore struct {
-	mu     sync.Mutex
-	path   string
-	sealer *credentials.Sealer
+	mu        sync.Mutex
+	path      string
+	sealer    *credentials.Sealer
+	openFile  func(string) (ticketFile, error)
+	writeFile func(string, []byte, os.FileMode) error
 }
 
 // NewTicketStore 创建会话凭据仓库。
@@ -42,6 +50,20 @@ func NewTicketStore(rootDir string) *TicketStore {
 		path:   storage.TicketPath(rootDir),
 		sealer: credentials.New(rootDir),
 	}
+}
+
+func (s *TicketStore) open(path string) (ticketFile, error) {
+	if s.openFile != nil {
+		return s.openFile(path)
+	}
+	return openCertificateFile(path)
+}
+
+func (s *TicketStore) write(path string, data []byte, perm os.FileMode) error {
+	if s.writeFile != nil {
+		return s.writeFile(path, data, perm)
+	}
+	return storage.WriteFile(path, data, perm)
 }
 
 // HasPending 判断是否存在待接管或待清理的会话票据文件，不触发密钥初始化或密文解封。
@@ -78,38 +100,16 @@ func (s *TicketStore) saveLocked(t Ticket) error {
 	if err != nil {
 		return err
 	}
-	return storage.WriteFile(s.path, append(data, '\n'), 0o600)
+	return s.write(s.path, append(data, '\n'), 0o600)
 }
 
 // Load 读取并解密已保存的会话凭据。
 func (s *TicketStore) Load() (Ticket, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	linfo, err := os.Lstat(s.path)
+	data, err := s.readTicketBytes()
 	if err != nil {
 		return Ticket{}, err
-	}
-	if !linfo.Mode().IsRegular() || linfo.Size() > maxTicketFileBytes {
-		return Ticket{}, errors.New("invalid session ticket file")
-	}
-	f, err := os.Open(s.path)
-	if err != nil {
-		return Ticket{}, err
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return Ticket{}, err
-	}
-	if !info.Mode().IsRegular() || info.Size() > maxTicketFileBytes {
-		return Ticket{}, errors.New("invalid session ticket file")
-	}
-	data, err := io.ReadAll(io.LimitReader(f, maxTicketFileBytes+1))
-	if err != nil {
-		return Ticket{}, err
-	}
-	if len(data) > maxTicketFileBytes {
-		return Ticket{}, errors.New("invalid session ticket file")
 	}
 	t, migrate, err := s.decodeTicket(data)
 	if err != nil {
@@ -122,6 +122,41 @@ func (s *TicketStore) Load() (Ticket, error) {
 	}
 	t.SealedToken = credentials.Sealed{}
 	return t, nil
+}
+
+// readTicketBytes 校验并有界读取常规会话票据文件，返回前确保关闭读取句柄，
+// 避免 Windows 在执行迁移原子重命名（MoveFileExW）时因句柄占用报错。
+func (s *TicketStore) readTicketBytes() ([]byte, error) {
+	linfo, err := os.Lstat(s.path)
+	if err != nil {
+		return nil, err
+	}
+	if !linfo.Mode().IsRegular() || linfo.Size() > maxTicketFileBytes {
+		return nil, errors.New("invalid session ticket file")
+	}
+	f, err := s.open(s.path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxTicketFileBytes {
+		return nil, errors.New("invalid session ticket file")
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxTicketFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxTicketFileBytes {
+		return nil, errors.New("invalid session ticket file")
+	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 // Clear 删除已保存的会话凭据。

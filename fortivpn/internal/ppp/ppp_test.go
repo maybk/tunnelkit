@@ -431,7 +431,7 @@ func TestFSMNakLoopCapAndFallbackLocalIP(t *testing.T) {
 	})
 	fsm.Open(nil)
 	fsm.Up(nil)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		fsm.Input(Packet{
 			Code: CodeConfigureNak,
 			ID:   lastSent.ID,

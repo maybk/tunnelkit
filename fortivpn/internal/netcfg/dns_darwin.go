@@ -80,7 +80,7 @@ func applyDarwinDNS(ctx context.Context, run cmdRunner, key string, plan DNSPlan
 	if err != nil {
 		return fmt.Errorf("scutil set %s: %w", key, err)
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.Contains(strings.ToLower(trimmed), "no such key") {
 			continue
@@ -100,7 +100,7 @@ func removeDarwinDNS(ctx context.Context, run cmdRunner, key string) error {
 	if err != nil {
 		return fmt.Errorf("scutil remove %s: %w", key, err)
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.Contains(strings.ToLower(trimmed), "no such key") {
 			continue

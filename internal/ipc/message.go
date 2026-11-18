@@ -9,11 +9,11 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
-	"io"
 	"strings"
+	"time"
 
 	"tunnelkit/fortivpn"
 )
@@ -44,9 +44,9 @@ const (
 
 // Envelope is the outer wire frame for all IPC messages.
 type Envelope struct {
-	Type MessageType     `json:"type"`
-	ID   uint64          `json:"id,omitempty"`
-	Data json.RawMessage `json:"data,omitempty"`
+	Type MessageType    `json:"type"`
+	ID   uint64         `json:"id,omitzero"`
+	Data jsontext.Value `json:"data,omitempty"`
 }
 
 // HelloData is sent by the GUI as the first message on a newly connected IPC stream.
@@ -77,12 +77,12 @@ type StartData struct {
 type AnswerData struct {
 	PromptID string `json:"promptId"`
 	Value    string `json:"value,omitempty"`
-	Cancel   bool   `json:"cancel,omitempty"`
+	Cancel   bool   `json:"cancel,omitzero"`
 }
 
 // RecoverData carries bounded, validated recovery records, never filesystem paths.
 type RecoverData struct {
-	Journal json.RawMessage `json:"journal,omitempty"`
+	Journal jsontext.Value `json:"journal,omitempty"`
 }
 
 // StopData requests graceful VPN disconnection.
@@ -90,15 +90,25 @@ type StopData struct{}
 
 // ResultData acknowledges a request (start, answer, stop) with an optional error.
 type ResultData struct {
-	ID    uint64 `json:"id,omitempty"`
+	ID    uint64 `json:"id,omitzero"`
 	Error string `json:"error,omitempty"`
 }
 
+var ipcJSONOptions = json.JoinOptions(
+	json.RejectUnknownMembers(true),
+	json.WithMarshalers(json.MarshalToFunc(func(enc *jsontext.Encoder, d time.Duration) error {
+		return enc.WriteToken(jsontext.Int(int64(d)))
+	})),
+	json.WithUnmarshalers(json.UnmarshalFromFunc(func(dec *jsontext.Decoder, d *time.Duration) error {
+		return json.UnmarshalDecode(dec, (*int64)(d))
+	})),
+)
+
 // NewEnvelope marshals payload into an Envelope.
 func NewEnvelope(msgType MessageType, id uint64, payload any) (Envelope, error) {
-	var raw json.RawMessage
+	var raw jsontext.Value
 	if payload != nil {
-		b, err := json.Marshal(payload)
+		b, err := json.Marshal(payload, ipcJSONOptions)
 		if err != nil {
 			return Envelope{}, fmt.Errorf("ipc: marshal %s payload: %w", msgType, err)
 		}
@@ -112,18 +122,13 @@ func NewEnvelope(msgType MessageType, id uint64, payload any) (Envelope, error) 
 }
 
 // DecodeStrict unmarshals raw JSON into T while rejecting unknown fields and trailing data.
-func DecodeStrict[T any](raw json.RawMessage) (T, error) {
+func DecodeStrict[T any](raw jsontext.Value) (T, error) {
 	var out T
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return out, nil
 	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&out); err != nil {
+	if err := json.Unmarshal(raw, &out, ipcJSONOptions); err != nil {
 		return out, err
-	}
-	if err := dec.Decode(new(any)); err != io.EOF {
-		return out, errors.New("unexpected trailing JSON data")
 	}
 	return out, nil
 }

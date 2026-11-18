@@ -79,7 +79,7 @@ func lookupLinuxRoute(ctx context.Context, run cmdRunner, gateway netip.Addr, sk
 
 func parseLinuxRouteGet(out string, skipIface string) Snapshot {
 	var fallback Snapshot
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		var lineSnap Snapshot
 		fields := strings.Fields(line)
 		for i := 0; i < len(fields)-1; i++ {

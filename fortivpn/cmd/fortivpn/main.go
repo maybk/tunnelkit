@@ -10,7 +10,8 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -121,9 +122,8 @@ func runCheck(ctx context.Context, args []string) error {
 		return err
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(info)
+	enc := jsontext.NewEncoder(os.Stdout, jsontext.WithIndent("  "))
+	return json.MarshalEncode(enc, info)
 }
 
 func runRecover(ctx context.Context, args []string) error {

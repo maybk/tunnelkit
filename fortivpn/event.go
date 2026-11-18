@@ -35,13 +35,13 @@ type TunnelInfo struct {
 	Interface            string   `json:"interface,omitempty"`
 	LocalIP              string   `json:"localIp,omitempty"`
 	PeerIP               string   `json:"peerIp,omitempty"`
-	MTU                  int      `json:"mtu,omitempty"`
+	MTU                  int      `json:"mtu,omitempty,omitzero"`
 	RouteCount           int      `json:"routeCount"`
 	Routes               []string `json:"routes,omitempty"`
 	DNSMode              DNSMode  `json:"dnsMode,omitempty"`
 	DNSServers           []string `json:"dnsServers,omitempty"`
 	DNSDomains           []string `json:"dnsDomains,omitempty"`
-	SplitDNSNeedsDomains bool     `json:"splitDnsNeedsDomains,omitempty"`
+	SplitDNSNeedsDomains bool     `json:"splitDnsNeedsDomains,omitempty,omitzero"`
 	GatewayHost          string   `json:"gatewayHost,omitempty"`
 	GatewayIP            string   `json:"gatewayIp,omitempty"`
 	FortiOS              string   `json:"fortiOs,omitempty"`

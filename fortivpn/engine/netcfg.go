@@ -55,7 +55,7 @@ func (s *session) buildDesiredAndInfo(
 		peerIP = netcfg.DefaultPeerIP
 	}
 
-	excludes := append([]netip.Prefix(nil), tunCfg.ExcludeRoutes...)
+	excludes := slices.Clone(tunCfg.ExcludeRoutes)
 
 	routes, _, err := netcfg.SanitizeRoutes(
 		cfg.Routes,

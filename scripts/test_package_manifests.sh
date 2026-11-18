@@ -80,6 +80,8 @@ for wf in \
   "$winget_out/maybk.TunnelKit.locale.en-US.yaml" \
   "$winget_out/maybk.TunnelKit.locale.zh-CN.yaml"; do
   test -s "$wf"
+  grep -Fq '.1.28.0.schema.json' "$wf"
+  grep -Fq 'ManifestVersion: 1.28.0' "$wf"
   if command -v ruby >/dev/null 2>&1; then
     ruby -rpsych -rdate -e 'Psych.safe_load_file(ARGV[0], permitted_classes: [Date])' "$wf"
   fi

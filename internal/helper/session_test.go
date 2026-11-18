@@ -11,8 +11,7 @@ import (
 
 func TestPromptCancellationRevokesAnswerability(t *testing.T) {
 	s := newSessionState(time.Second)
-	ctx, stop := context.WithCancel(context.Background())
-	defer stop()
+	ctx := t.Context()
 	done := make(chan error, 1)
 	go func() {
 		_, err := s.Prompt(ctx, fortivpn.Prompt{ID: "active", Kind: fortivpn.PromptOTP})

@@ -5,6 +5,7 @@ package netcfg
 import (
 	"context"
 	"net/netip"
+	"slices"
 	"sync"
 
 	"tunnelkit/fortivpn"
@@ -226,8 +227,8 @@ func (a *unixApplied) Close(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	for i := len(a.tunnelRoutes) - 1; i >= 0; i-- {
-		_ = a.ops.deleteTunnelRoute(ctx, a.run, a.tunnelRoutes[i], a.desired.Iface)
+	for _, route := range slices.Backward(a.tunnelRoutes) {
+		_ = a.ops.deleteTunnelRoute(ctx, a.run, route, a.desired.Iface)
 	}
 	a.tunnelRoutes = nil
 

@@ -45,11 +45,13 @@ scoop bucket add maybk https://github.com/maybk/homebrew-tap
 scoop install maybk/tunnelkit
 ```
 
+<!-- WinGet 官方源 PR #479203 待合入后启用
 **WinGet（Windows）**
 
 ```powershell
 winget install maybk.TunnelKit
 ```
+-->
 
 ### 手动下载
 
@@ -96,7 +98,7 @@ xattr -dr com.apple.quarantine "/Applications/TunnelKit.app"
 
 ## 🚀 快速开始
 
-本地开发需要 Go 1.27+、Node.js 24+、pnpm 以及 [Wails v3 CLI](https://v3.wails.io/quick-start/installation/)：
+本地开发需要 Go 1.27+、Node.js 26+、pnpm 以及 [Wails v3 CLI](https://v3.wails.io/quick-start/installation/)：
 
 ```bash
 pnpm --dir frontend install

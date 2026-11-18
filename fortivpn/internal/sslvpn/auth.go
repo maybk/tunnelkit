@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"slices"
 	"strings"
 	"time"
 
@@ -75,8 +76,7 @@ func (c *Client) Login(ctx context.Context, promptFn func(ctx context.Context, p
 
 		res, respCookie, err = c.postLogin(ctx, BuildChallengeForm(c.cfg.Username, code, c.cfg.Realm, chal))
 		if err != nil {
-			var fe *fortivpn.Error
-			if errors.As(err, &fe) && fe.Code == fortivpn.CodeAuthFailed {
+			if fe, ok := errors.AsType[*fortivpn.Error](err); ok && fe.Code == fortivpn.CodeAuthFailed {
 				return "", fortivpn.NewError(fortivpn.CodeOTPInvalid, "gateway rejected the verification code")
 			}
 			return "", err
@@ -172,9 +172,7 @@ func (c *Client) postLogin(ctx context.Context, form string) (LoginResult, strin
 // from a previous authentication exchange.
 func responseCookie(resp *http.Response) string {
 	for resp != nil {
-		cookies := resp.Cookies()
-		for i := len(cookies) - 1; i >= 0; i-- {
-			ck := cookies[i]
+		for _, ck := range slices.Backward(resp.Cookies()) {
 			if ck.Name != CookieName {
 				continue
 			}

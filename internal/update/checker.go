@@ -3,12 +3,13 @@ package update
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -66,7 +67,7 @@ func WithHTTPClient(client *http.Client) Option {
 func WithReleaseURLs(urls ...string) Option {
 	return func(c *Checker) {
 		if len(urls) > 0 {
-			c.releaseURLs = append([]string(nil), urls...)
+			c.releaseURLs = slices.Clone(urls)
 		}
 	}
 }
@@ -276,8 +277,7 @@ func (c *Checker) fetchReleaseFrom(parentCtx context.Context, endpoint, currentV
 	}
 
 	var payload githubReleasePayload
-	dec := json.NewDecoder(io.LimitReader(resp.Body, maxReleaseResponseBytes))
-	if err := dec.Decode(&payload); err != nil {
+	if err := json.UnmarshalRead(io.LimitReader(resp.Body, maxReleaseResponseBytes), &payload); err != nil {
 		return Info{}, ErrInvalidReleaseInfo
 	}
 

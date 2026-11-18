@@ -192,8 +192,7 @@ func (c *Client) classifyTransportError(err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	var fe *fortivpn.Error
-	if errors.As(err, &fe) {
+	if fe, ok := errors.AsType[*fortivpn.Error](err); ok {
 		return fe
 	}
 	return fortivpn.WrapError(fortivpn.CodeGatewayUnreachable, err.Error(), err)

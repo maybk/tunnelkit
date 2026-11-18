@@ -32,7 +32,7 @@ type session struct {
 	txBytes   atomic.Uint64
 	rxPackets atomic.Uint64
 	txPackets atomic.Uint64
-	rttMillis int64
+	rttMillis atomic.Int64
 }
 
 func newSession(cfg fortivpn.Config, h Handler, opts options, checkOnly bool) *session {
@@ -341,7 +341,7 @@ func (s *session) snapshotStats() fortivpn.Stats {
 		TxBytes:   s.txBytes.Load(),
 		RxPackets: s.rxPackets.Load(),
 		TxPackets: s.txPackets.Load(),
-		RTTMillis: atomic.LoadInt64(&s.rttMillis),
+		RTTMillis: s.rttMillis.Load(),
 	}
 }
 

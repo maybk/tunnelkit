@@ -48,13 +48,13 @@ func ParseConfigText(text string) (Config, []Warning, error) {
 			continue
 		}
 
-		eqIdx := strings.IndexByte(rawLine, '=')
-		if eqIdx < 0 {
+		before, after, ok := strings.Cut(rawLine, "=")
+		if !ok {
 			return Config{}, warnings, NewFieldError("configText", fmt.Sprintf("line %d: expected key = value", lineNum))
 		}
 
-		key := strings.ToLower(strings.TrimSpace(rawLine[:eqIdx]))
-		val := strings.TrimSpace(rawLine[eqIdx+1:])
+		key := strings.ToLower(strings.TrimSpace(before))
+		val := strings.TrimSpace(after)
 		if key == "" {
 			return Config{}, warnings, NewFieldError("configText", fmt.Sprintf("line %d: missing option key", lineNum))
 		}
@@ -259,20 +259,16 @@ func FormatConfigText(c Config, includePassword bool) string {
 }
 
 func splitHostPortValue(val string) (host, port string, ok bool) {
-	colon := strings.LastIndexByte(val, ':')
-	if colon <= 0 || colon == len(val)-1 {
+	host, p, ok := strings.CutLast(val, ":")
+	if !ok || host == "" || p == "" || strings.Contains(host, ":") {
 		return "", "", false
 	}
-	if strings.IndexByte(val[:colon], ':') >= 0 {
-		return "", "", false
-	}
-	p := val[colon+1:]
-	for i := 0; i < len(p); i++ {
+	for i := range len(p) {
 		if p[i] < '0' || p[i] > '9' {
 			return "", "", false
 		}
 	}
-	return val[:colon], p, true
+	return host, p, true
 }
 
 func isTruthy(val string) bool {
@@ -286,7 +282,7 @@ func isTruthy(val string) bool {
 
 func splitList(val string) []string {
 	var out []string
-	for _, item := range strings.FieldsFunc(val, func(r rune) bool {
+	for item := range strings.FieldsFuncSeq(val, func(r rune) bool {
 		return r == ',' || r == ' ' || r == '\t'
 	}) {
 		if trimmed := strings.TrimSpace(item); trimmed != "" {

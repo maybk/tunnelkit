@@ -3,7 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"image/png"
 	"net/http"
@@ -70,21 +70,13 @@ func TestLoadIconsAndPlatformSelection(t *testing.T) {
 		t.Fatalf("appIcon size = %dx%d, want 256x256", appImg.Bounds().Dx(), appImg.Bounds().Dy())
 	}
 	minX, minY, maxX, maxY := 256, 256, 0, 0
-	for y := 0; y < 256; y++ {
-		for x := 0; x < 256; x++ {
+	for y := range 256 {
+		for x := range 256 {
 			if _, _, _, a := appImg.At(x, y).RGBA(); a > 0x8000 {
-				if x < minX {
-					minX = x
-				}
-				if y < minY {
-					minY = y
-				}
-				if x > maxX {
-					maxX = x
-				}
-				if y > maxY {
-					maxY = y
-				}
+				minX = min(minX, x)
+				minY = min(minY, y)
+				maxX = max(maxX, x)
+				maxY = max(maxY, y)
 			}
 		}
 	}
@@ -346,7 +338,7 @@ func TestTrayControllerCoalescesConcurrentRefreshes(t *testing.T) {
 
 	close(blockFirst)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		select {
 		case <-done:
 		case <-time.After(time.Second):

@@ -92,7 +92,7 @@ func lookupDarwinRoute(ctx context.Context, run cmdRunner, gateway netip.Addr, s
 
 func parseDarwinRouteGet(out string) Snapshot {
 	var snap Snapshot
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if after, ok := strings.CutPrefix(trimmed, "gateway:"); ok {
 			if addr, err := netip.ParseAddr(strings.TrimSpace(after)); err == nil && addr.Is4() {

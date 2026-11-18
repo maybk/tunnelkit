@@ -24,7 +24,7 @@ func TestWriterPreservesPhaseChangesUnderLogBackpressure(t *testing.T) {
 func TestWriterReportsCriticalQueueOverflow(t *testing.T) {
 	s := newSessionState(0)
 	s.writer = newEventWriter(nil)
-	for i := 0; i < maxQueuedFrames; i++ {
+	for range maxQueuedFrames {
 		s.enqueueFrameLocked(outboundFrame{msgType: ipc.TypeEvent})
 	}
 	if s.enqueueFrameLocked(outboundFrame{msgType: ipc.TypePrompt}) || !s.writer.failed {

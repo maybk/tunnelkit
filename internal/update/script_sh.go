@@ -3,6 +3,7 @@ package update
 import (
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"tunnelkit/internal/privilege"
@@ -21,8 +22,8 @@ func buildPOSIXFileUpdateWithHelperSync(stageDir, targetDir string, names []stri
 		lines = append(lines, fmt.Sprintf("backed_%d=0; installed_%d=0", i, i))
 	}
 	lines = append(lines, "rollback() {", "status=$?", "trap - EXIT HUP INT TERM", "if [ \"$status\" -ne 0 ]; then")
-	for i := len(names) - 1; i >= 0; i-- {
-		dst := path.Join(targetDir, names[i])
+	for i, name := range slices.Backward(names) {
+		dst := path.Join(targetDir, name)
 		lines = append(lines,
 			fmt.Sprintf("if [ \"$installed_%d\" -eq 1 ]; then rm -f %s %s || status=1; fi", i, shellQuote(dst), shellQuote(dst+".new")),
 			fmt.Sprintf("if [ \"$backed_%d\" -eq 1 ]; then mv -f %s %s || status=1; fi", i, shellQuote(dst+".old"), shellQuote(dst)),

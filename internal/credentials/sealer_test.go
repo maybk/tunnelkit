@@ -60,17 +60,15 @@ func TestSealerConcurrentFirstKeyCreation(t *testing.T) {
 	sealedList := make([]Sealed, workers)
 
 	for i := range workers {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
+		wg.Go(func() {
 			s := New(root)
 			out, err := s.Encrypt("concurrent-secret")
 			if err != nil {
 				errs <- err
 				return
 			}
-			sealedList[idx] = out
-		}(i)
+			sealedList[i] = out
+		})
 	}
 	wg.Wait()
 	close(errs)

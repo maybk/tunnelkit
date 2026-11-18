@@ -291,10 +291,7 @@ func (c *Checker) downloadFromEndpoint(
 			}
 			pct := 0
 			if totalBytes > 0 {
-				pct = int(downloaded * 100 / totalBytes)
-				if pct > 100 {
-					pct = 100
-				}
+				pct = min(int(downloaded*100/totalBytes), 100)
 			}
 			now := time.Now()
 			if pct != lastReportPct && (pct == 100 || now.Sub(lastReportTime) >= 80*time.Millisecond) {

@@ -150,7 +150,7 @@ func newID() (string, error) {
 func cleanStringList(items []string) []string {
 	var out []string
 	for _, raw := range items {
-		for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+		for part := range strings.FieldsFuncSeq(raw, func(r rune) bool {
 			return r == '\n' || r == '\r' || r == ',' || r == ';'
 		}) {
 			trimmed := strings.TrimSpace(part)

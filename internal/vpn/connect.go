@@ -72,8 +72,7 @@ func (s *Service) Connect(ctx context.Context, profileID string) error {
 	cfg := prof.ToConfig(password)
 	if err := cfg.Validate(); err != nil {
 		_ = s.resetLog(prof.ID)
-		var fe *fortivpn.Error
-		if errors.As(err, &fe) {
+		if fe, ok := errors.AsType[*fortivpn.Error](err); ok {
 			vpnErr := MapError(fe)
 			s.failConnectErr(prof.ID, prof.Name, vpnErr, err)
 			return errors.New(vpnErr.Message)

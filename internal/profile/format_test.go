@@ -2,7 +2,8 @@ package profile
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"os"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestLegacyDocumentsRemainReadableAndBecomeVersionedOnSave(t *testing.T) {
 			t.Fatal(err)
 		}
 		var envelope struct {
-			Data json.RawMessage `json:"data"`
+			Data jsontext.Value `json:"data"`
 		}
 		_ = json.Unmarshal(raw, &envelope)
 		if len(envelope.Data) > 0 {

@@ -65,7 +65,7 @@ func protectDirectory(path string) error {
 	}
 	paths := []string{base}
 	if rel != "." {
-		for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		for part := range strings.SplitSeq(rel, string(os.PathSeparator)) {
 			paths = append(paths, filepath.Join(paths[len(paths)-1], part))
 		}
 	}

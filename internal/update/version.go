@@ -124,7 +124,7 @@ func ParseSHA256Sums(content, targetAsset string) (string, bool) {
 	if targetAsset == "" {
 		return "", false
 	}
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -151,11 +151,8 @@ func IsNewerVersion(current, latest string) bool {
 	if !curOK || !latOK {
 		return false
 	}
-	maxLen := len(curParts)
-	if len(latParts) > maxLen {
-		maxLen = len(latParts)
-	}
-	for i := 0; i < maxLen; i++ {
+	maxLen := max(len(curParts), len(latParts))
+	for i := range maxLen {
 		var curVal, latVal int
 		if i < len(curParts) {
 			curVal = curParts[i]
@@ -175,9 +172,7 @@ func IsNewerVersion(current, latest string) bool {
 
 func hasPrereleaseSuffix(v string) bool {
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	if plus := strings.IndexByte(v, '+'); plus >= 0 {
-		v = v[:plus]
-	}
+	v, _, _ = strings.Cut(v, "+")
 	return strings.Contains(v, "-")
 }
 

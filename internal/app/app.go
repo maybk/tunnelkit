@@ -39,7 +39,7 @@ func loadVersion(assets fs.FS) (string, error) {
 		return "", fmt.Errorf("读取应用版本配置失败: %w", err)
 	}
 	inInfo := false
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
@@ -49,11 +49,8 @@ func loadVersion(assets fs.FS) (string, error) {
 			continue
 		}
 		if inInfo && strings.HasPrefix(trimmed, "version:") {
-			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "version:"))
-			if idx := strings.Index(rest, "#"); idx >= 0 {
-				rest = strings.TrimSpace(rest[:idx])
-			}
-			version := strings.Trim(rest, `"'`)
+			rest, _, _ := strings.Cut(strings.TrimPrefix(trimmed, "version:"), "#")
+			version := strings.Trim(strings.TrimSpace(rest), `"'`)
 			if version != "" {
 				return version, nil
 			}

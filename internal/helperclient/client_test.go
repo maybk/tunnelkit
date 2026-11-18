@@ -102,7 +102,7 @@ func TestClientRPCCallsAndEventBackpressure(t *testing.T) {
 	}
 
 	// Fill eventsCh with stats updates and verify a critical phase change is still delivered.
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		client.pushMessage(Message{
 			Event: &fortivpn.Event{
 				Phase: fortivpn.PhaseConnected,
@@ -118,7 +118,7 @@ func TestClientRPCCallsAndEventBackpressure(t *testing.T) {
 	})
 
 	var foundPrompt bool
-	for i := 0; i < 64; i++ {
+	for range 64 {
 		msg := <-client.Events()
 		if msg.Prompt != nil && msg.Prompt.ID == "otp-important" {
 			foundPrompt = true

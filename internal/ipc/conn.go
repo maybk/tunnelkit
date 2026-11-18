@@ -1,10 +1,9 @@
 package ipc
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -137,13 +136,8 @@ func (c *Conn) ReadEnvelope() (Envelope, error) {
 	}
 
 	var env Envelope
-	dec := json.NewDecoder(bytes.NewReader(buf))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&env); err != nil {
+	if err := json.Unmarshal(buf, &env, json.RejectUnknownMembers(true)); err != nil {
 		return Envelope{}, fmt.Errorf("ipc: decode envelope: %w", err)
-	}
-	if err := dec.Decode(new(any)); err != io.EOF {
-		return Envelope{}, errors.New("ipc: unexpected trailing envelope data")
 	}
 	return env, nil
 }

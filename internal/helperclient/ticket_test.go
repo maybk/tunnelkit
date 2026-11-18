@@ -1,7 +1,8 @@
 package helperclient
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -113,12 +114,12 @@ func TestTicketStoreMigratesEarlierEncryptedProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	var envelope struct {
-		Data json.RawMessage `json:"data"`
+		Data jsontext.Value `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	var stored map[string]json.RawMessage
+	var stored map[string]jsontext.Value
 	if err := json.Unmarshal(envelope.Data, &stored); err != nil {
 		t.Fatal(err)
 	}

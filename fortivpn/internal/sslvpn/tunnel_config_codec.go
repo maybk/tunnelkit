@@ -18,7 +18,7 @@ import (
 func ParseConfigXML(data []byte) (TunnelConfig, error) {
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	cfg := TunnelConfig{
-		RawXML: append([]byte(nil), data...),
+		RawXML: bytes.Clone(data),
 	}
 
 	dnsSeen := make(map[netip.Addr]struct{})
@@ -35,7 +35,7 @@ func ParseConfigXML(data []byte) (TunnelConfig, error) {
 
 	domainSeen := make(map[string]struct{})
 	addDomain := func(raw string) {
-		for _, token := range strings.FieldsFunc(raw, func(r rune) bool {
+		for token := range strings.FieldsFuncSeq(raw, func(r rune) bool {
 			return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
 		}) {
 			d := strings.ToLower(strings.Trim(strings.TrimSpace(token), "."))

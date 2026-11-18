@@ -53,7 +53,7 @@ func reflectIPv4(pkt []byte) []byte {
 	if len(out) < 20 || ihl < 20 || len(out) < ihl {
 		return out
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		out[12+i], out[16+i] = out[16+i], out[12+i]
 	}
 	out[10], out[11] = 0, 0

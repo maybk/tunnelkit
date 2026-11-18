@@ -102,11 +102,7 @@ func AsError(err error) (*Error, bool) {
 	if err == nil {
 		return nil, false
 	}
-	var target *Error
-	if errors.As(err, &target) {
-		return target, true
-	}
-	return nil, false
+	return errors.AsType[*Error](err)
 }
 
 // IsCode reports whether err wraps an *Error with the specified Code.

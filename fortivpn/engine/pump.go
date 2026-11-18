@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -50,11 +49,9 @@ func (s *session) ensureDevice(mru int) error {
 
 	s.log.Info(fmt.Sprintf("Interface %s is UP.", dev.Name()))
 
-	s.devWg.Add(1)
-	go func() {
-		defer s.devWg.Done()
+	s.devWg.Go(func() {
 		s.deviceReaderLoop(dev)
-	}()
+	})
 	return nil
 }
 
@@ -266,8 +263,7 @@ func (l *link) readerLoop() error {
 			if l.isClosing() || errors.Is(err, context.Canceled) {
 				return nil
 			}
-			var fe *fortivpn.Error
-			if errors.As(err, &fe) {
+			if fe, ok := errors.AsType[*fortivpn.Error](err); ok {
 				return fe
 			}
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
@@ -346,7 +342,7 @@ func (l *link) runConnectedLoops(ctx context.Context) error {
 				if ms < 1 && rtt > 0 {
 					ms = 1
 				}
-				atomic.StoreInt64(&l.sess.rttMillis, ms)
+				l.sess.rttMillis.Store(ms)
 			}
 		}
 	})

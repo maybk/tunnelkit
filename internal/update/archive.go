@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -204,14 +205,12 @@ func ReplaceFilesWithBackup(stageDir, targetDir string, names []string, mode os.
 
 	rollback := func() error {
 		var rollbackErr error
-		for i := len(replaced) - 1; i >= 0; i-- {
-			name := replaced[i]
+		for _, name := range slices.Backward(replaced) {
 			if err := os.Remove(filepath.Join(targetDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 				rollbackErr = errors.Join(rollbackErr, err)
 			}
 		}
-		for i := len(backedUp) - 1; i >= 0; i-- {
-			name := backedUp[i]
+		for _, name := range slices.Backward(backedUp) {
 			oldPath := filepath.Join(targetDir, name+".old")
 			dstPath := filepath.Join(targetDir, name)
 			rollbackErr = errors.Join(rollbackErr, os.Rename(oldPath, dstPath))

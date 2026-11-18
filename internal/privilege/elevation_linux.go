@@ -29,15 +29,15 @@ func RunElevatedLinux(ctx context.Context, bin string, args ...string) error {
 		}
 		text := strings.TrimSpace(string(out))
 		lower := strings.ToLower(text)
-		var exit *exec.ExitError
-		if (errors.As(runErr, &exit) && exit.ExitCode() == 126) ||
+		exit, isExitErr := errors.AsType[*exec.ExitError](runErr)
+		if (isExitErr && exit.ExitCode() == 126) ||
 			strings.Contains(lower, "dismissed") ||
 			strings.Contains(lower, "cancel") {
 			return ErrCancelled
 		}
 		// 若桌面环境未运行 PolicyKit 代理（退出码 127 或提示无 agent），可回退至免密 sudo；
 		// 真实执行失败直接返回而不触发二次弹窗。
-		noAgent := (errors.As(runErr, &exit) && exit.ExitCode() == 127) || strings.Contains(lower, "agent")
+		noAgent := (isExitErr && exit.ExitCode() == 127) || strings.Contains(lower, "agent")
 		if !noAgent {
 			return fmt.Errorf("%s (%w)", text, runErr)
 		}

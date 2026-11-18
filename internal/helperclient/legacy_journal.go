@@ -1,7 +1,7 @@
 package helperclient
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"io"
 	"os"
@@ -10,7 +10,7 @@ import (
 )
 
 // ReadLegacyJournal reads with desktop permissions; the helper receives data, never a user path.
-func ReadLegacyJournal(root string) (json.RawMessage, error) {
+func ReadLegacyJournal(root string) (jsontext.Value, error) {
 	f, err := openCertificateFile(storage.LegacyJournalPath(root))
 	if err != nil {
 		return nil, err
@@ -31,12 +31,13 @@ func ReadLegacyJournal(root string) (json.RawMessage, error) {
 		return nil, errors.New("旧版网络恢复记录过大")
 	}
 	if len(data) == 0 {
-		return json.RawMessage("[]"), nil
+		return jsontext.Value("[]"), nil
 	}
-	if !json.Valid(data) {
+	val := jsontext.Value(data)
+	if !val.IsValid() {
 		return nil, errors.New("旧版网络恢复记录格式无效")
 	}
-	return data, nil
+	return val, nil
 }
 
 // ClearLegacyJournal is called only after confirmed recovery and helper exit.

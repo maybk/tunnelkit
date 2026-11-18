@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 )
 
@@ -25,7 +26,7 @@ type JournalEntry struct {
 	Gateway string           `json:"gateway,omitempty"`
 	NextHop string           `json:"nextHop,omitempty"`
 	Iface   string           `json:"iface,omitempty"`
-	LUID    uint64           `json:"luid,omitempty"`
+	LUID    uint64           `json:"luid,omitzero"`
 	Key     string           `json:"key,omitempty"`
 }
 
@@ -75,10 +76,8 @@ func (j *Journal) Record(entry JournalEntry) error {
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	for _, existing := range j.list {
-		if existing == entry {
-			return nil
-		}
+	if slices.Contains(j.list, entry) {
+		return nil
 	}
 	previous := j.list
 	j.list = append(j.list, entry)

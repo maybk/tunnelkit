@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -285,8 +286,7 @@ func (g *Gateway) handleConfigXML(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	routes := append([]netip.Prefix(nil), g.cfg.SplitRoutes...)
-	routes = append(routes, g.cfg.DuplicateRoutes...)
+	routes := slices.Concat(g.cfg.SplitRoutes, g.cfg.DuplicateRoutes)
 
 	w.Header().Set("Content-Type", "application/xml")
 	_, _ = w.Write(g.renderConfigXML(routes))

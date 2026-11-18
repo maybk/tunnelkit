@@ -2,6 +2,7 @@ package update
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -46,8 +47,8 @@ func buildWindowsFileUpdateWithHelperSync(stageDir, targetDir string, names []st
 		lines = append(lines, cmdQuote(helperExe)+" install-service >nul 2>&1")
 	}
 	lines = append(lines, "echo ok > "+cmdQuote(okFile), "exit /b 0", ":rollback")
-	for i := len(names) - 1; i >= 0; i-- {
-		dst := winJoin(targetDir, names[i])
+	for i, name := range slices.Backward(names) {
+		dst := winJoin(targetDir, name)
 		lines = append(lines,
 			fmt.Sprintf(`if "%%installed_%d%%"=="1" del /f /q %s >nul 2>&1`, i, cmdQuote(dst)),
 			fmt.Sprintf(`if "%%backed_%d%%"=="1" move /y %s %s >nul`, i, cmdQuote(dst+".old"), cmdQuote(dst)),

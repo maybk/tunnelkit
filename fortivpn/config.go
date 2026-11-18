@@ -62,8 +62,8 @@ type ClientCert struct {
 // Reconnect configures automatic reconnection on transient link failures.
 type Reconnect struct {
 	Enabled     bool          `json:"enabled"`
-	Delay       time.Duration `json:"delay,omitempty"`
-	MaxAttempts int           `json:"maxAttempts,omitempty"`
+	Delay       time.Duration `json:"delay,omitzero"`
+	MaxAttempts int           `json:"maxAttempts,omitzero"`
 }
 
 // Config is the complete configuration for a Fortinet SSL-VPN session.
@@ -77,7 +77,7 @@ type Config struct {
 	TrustedCerts []string       `json:"trustedCerts,omitempty"`
 	ClientCert   *ClientCert    `json:"clientCert,omitempty"`
 	UserAgent    string         `json:"userAgent,omitempty"`
-	LegacyTLS    bool           `json:"legacyTls,omitempty"`
+	LegacyTLS    bool           `json:"legacyTls,omitzero"`
 	Routes       RouteMode      `json:"routes"`
 	ExtraRoutes  []netip.Prefix `json:"extraRoutes,omitempty"`
 	DNS          DNSMode        `json:"dns"`
@@ -304,15 +304,14 @@ func isValidDomain(d string) bool {
 	if len(d) == 0 || len(d) > 253 {
 		return false
 	}
-	labels := strings.Split(d, ".")
-	for _, label := range labels {
+	for label := range strings.SplitSeq(d, ".") {
 		if len(label) == 0 || len(label) > 63 {
 			return false
 		}
 		if label[0] == '-' || label[len(label)-1] == '-' {
 			return false
 		}
-		for i := 0; i < len(label); i++ {
+		for i := range len(label) {
 			c := label[i]
 			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 				return false

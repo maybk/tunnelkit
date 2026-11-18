@@ -19,7 +19,7 @@ const maxTicketFileBytes = 16 << 10 // 16 KiB
 
 // Ticket 保存跨 GUI 重启重新接入运行中 helper 所需的会话凭据（~/.tunnelkit/run/session.json）。
 type Ticket struct {
-	Protocol    int                `json:"protocol,omitempty"`
+	Protocol    int                `json:"protocol,omitzero"`
 	Endpoint    string             `json:"endpoint"`
 	Token       string             `json:"-"`
 	SealedToken credentials.Sealed `json:"sealedToken"`

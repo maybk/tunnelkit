@@ -2,10 +2,10 @@ package netcfg
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 )
 
 const journalSchemaVersion = 1
@@ -26,11 +26,9 @@ func decodeJournal(data []byte) ([]JournalEntry, error) {
 		return nil, errors.New("network recovery journal is too large")
 	}
 	var entries []JournalEntry
-	decoder := json.NewDecoder(bytes.NewReader(trimmed))
-	decoder.DisallowUnknownFields()
 	if trimmed[0] == '{' {
 		var doc journalDocument
-		if err := decoder.Decode(&doc); err != nil {
+		if err := json.Unmarshal(trimmed, &doc, json.RejectUnknownMembers(true)); err != nil {
 			return nil, err
 		}
 		if doc.SchemaVersion != journalSchemaVersion {
@@ -41,12 +39,9 @@ func decodeJournal(data []byte) ([]JournalEntry, error) {
 		}
 		entries = doc.Entries
 	} else {
-		if err := decoder.Decode(&entries); err != nil {
+		if err := json.Unmarshal(trimmed, &entries, json.RejectUnknownMembers(true)); err != nil {
 			return nil, err
 		}
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return nil, errors.New("unexpected data after network recovery journal")
 	}
 	if err := validateJournalEntries(entries); err != nil {
 		return nil, err
@@ -61,5 +56,5 @@ func encodeJournal(entries []JournalEntry) ([]byte, error) {
 	if entries == nil {
 		entries = []JournalEntry{}
 	}
-	return json.MarshalIndent(journalDocument{journalSchemaVersion, entries}, "", "  ")
+	return json.Marshal(journalDocument{journalSchemaVersion, entries}, jsontext.WithIndent("  "))
 }

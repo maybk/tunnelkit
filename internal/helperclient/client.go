@@ -4,7 +4,7 @@ package helperclient
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -56,7 +56,7 @@ func (c *Client) Start(ctx context.Context, cfg fortivpn.Config) error {
 }
 
 // RecoverNetwork restores pending host network changes without connecting to a gateway.
-func (c *Client) RecoverNetwork(ctx context.Context, journal json.RawMessage) error {
+func (c *Client) RecoverNetwork(ctx context.Context, journal jsontext.Value) error {
 	if c.protocol != ipc.ProtocolVersion {
 		return ErrProtocolMismatch
 	}

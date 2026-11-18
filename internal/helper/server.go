@@ -156,11 +156,9 @@ func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *s
 			}
 			return err
 		}
-		wg.Add(1)
-		go func(c net.Conn) {
-			defer wg.Done()
-			r.handleClient(ipc.NewConn(c))
-		}(rawConn)
+		wg.Go(func() {
+			r.handleClient(ipc.NewConn(rawConn))
+		})
 	}
 
 	if r.started.Load() {

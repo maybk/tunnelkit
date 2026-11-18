@@ -3,7 +3,7 @@ package ipc
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"net"
 	"path/filepath"
@@ -67,11 +67,11 @@ func TestTokenHashAndDecodeStrict(t *testing.T) {
 		t.Fatalf("VerifyTokenHash returned true for wrong token")
 	}
 
-	_, err = DecodeStrict[HelloData](json.RawMessage(`{"protocol":1,"token":"abc","unknown":true}`))
+	_, err = DecodeStrict[HelloData](jsontext.Value(`{"protocol":1,"token":"abc","unknown":true}`))
 	if err == nil {
 		t.Fatalf("expected DecodeStrict to reject unknown field")
 	}
-	_, err = DecodeStrict[HelloData](json.RawMessage(`{"protocol":1,"token":"abc"}{"extra":1}`))
+	_, err = DecodeStrict[HelloData](jsontext.Value(`{"protocol":1,"token":"abc"}{"extra":1}`))
 	if err == nil {
 		t.Fatalf("expected DecodeStrict to reject trailing JSON data")
 	}

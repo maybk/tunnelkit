@@ -2,7 +2,8 @@ package storage
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 )
@@ -12,22 +13,22 @@ func MarshalDocument(version int, value any) ([]byte, error) {
 	if version < 1 {
 		return nil, errors.New("无效的数据格式版本")
 	}
-	payload, err := json.Marshal(value)
+	payload, err := json.Marshal(value, json.FormatNilSliceAsNull(true), json.FormatNilMapAsNull(true))
 	if err != nil {
 		return nil, err
 	}
 	if bytes.Equal(payload, []byte("null")) {
 		return nil, errors.New("数据载荷不能为空")
 	}
-	return json.MarshalIndent(struct {
-		SchemaVersion int             `json:"schemaVersion"`
-		Data          json.RawMessage `json:"data"`
-	}{version, payload}, "", "  ")
+	return json.Marshal(struct {
+		SchemaVersion int            `json:"schemaVersion"`
+		Data          jsontext.Value `json:"data"`
+	}{version, payload}, jsontext.WithIndent("  "))
 }
 
 // DecodeDocument 分离版本与载荷。无版本数据交给所属模块识别，未知版本不尝试降级。
 func DecodeDocument(raw []byte, current int) (payload []byte, legacy bool, err error) {
-	var fields map[string]json.RawMessage
+	var fields map[string]jsontext.Value
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) > 0 && trimmed[0] == '{' {
 		if err := json.Unmarshal(trimmed, &fields); err != nil {

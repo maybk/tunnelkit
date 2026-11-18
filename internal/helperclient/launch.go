@@ -2,7 +2,7 @@ package helperclient
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"os"
@@ -36,7 +36,7 @@ type LaunchRequest struct {
 	ProfileID       string
 	ProfileName     string
 	RecoveryOnly    bool
-	RecoveryJournal json.RawMessage
+	RecoveryJournal jsontext.Value
 	// OnReady persists the recovery ticket synchronously before start is sent.
 	OnReady func(Ticket) error
 }

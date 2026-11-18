@@ -65,8 +65,8 @@ func TestChallengeFormMagicOrderAndFTMPush(t *testing.T) {
 		},
 	}
 	bodyWithCode := sslvpn.BuildChallengeForm("alice", "123456", "", c)
-	idx := strings.Index(bodyWithCode, "&magic=")
-	if idx < 0 || strings.Contains(bodyWithCode[idx+len("&magic="):], "&") {
+	_, after, ok := strings.Cut(bodyWithCode, "&magic=")
+	if !ok || strings.Contains(after, "&") {
 		t.Fatalf("magic must be last in coded challenge form: %q", bodyWithCode)
 	}
 

@@ -3,6 +3,7 @@ package profile
 
 import (
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,7 +26,7 @@ type Profile struct {
 	DNSDomains  []string `json:"dnsDomains,omitempty"`
 	Reconnect   bool     `json:"reconnect"`
 	UserAgent   string   `json:"userAgent,omitempty"`
-	LegacyTLS   bool     `json:"legacyTls,omitempty"`
+	LegacyTLS   bool     `json:"legacyTls,omitempty,omitzero"`
 	ClientCert  string   `json:"clientCert,omitempty"`
 	ClientKey   string   `json:"clientKey,omitempty"`
 	HasPassword bool     `json:"hasPassword"`
@@ -166,7 +167,7 @@ func (p Profile) ToConfig(password string) fortivpn.Config {
 		Routes:       routes,
 		ExtraRoutes:  extraRoutes,
 		DNS:          dns,
-		DNSDomains:   append([]string(nil), p.DNSDomains...),
+		DNSDomains:   slices.Clone(p.DNSDomains),
 		Reconnect: fortivpn.Reconnect{
 			Enabled: p.Reconnect,
 			Delay:   5 * time.Second,
@@ -199,7 +200,7 @@ func FromConfig(base Input, cfg fortivpn.Config) Input {
 		}
 	}
 	out.DNS = string(cfg.DNS)
-	out.DNSDomains = append([]string(nil), cfg.DNSDomains...)
+	out.DNSDomains = slices.Clone(cfg.DNSDomains)
 	out.Reconnect = cfg.Reconnect.Enabled
 	out.UserAgent = cfg.UserAgent
 	out.LegacyTLS = cfg.LegacyTLS

@@ -117,7 +117,7 @@ func (h *lineLogHandler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	groups := append(append([]string(nil), h.groups...), name)
+	groups := append(slices.Clone(h.groups), name)
 	return &lineLogHandler{mu: h.mu, w: h.w, attrs: h.attrs, groups: groups}
 }
 
@@ -125,8 +125,8 @@ func (h *lineLogHandler) groupAttrs(attrs []slog.Attr) []slog.Attr {
 	if len(attrs) == 0 {
 		return nil
 	}
-	for i := len(h.groups) - 1; i >= 0; i-- {
-		attrs = []slog.Attr{{Key: h.groups[i], Value: slog.GroupValue(attrs...)}}
+	for _, group := range slices.Backward(h.groups) {
+		attrs = []slog.Attr{{Key: group, Value: slog.GroupValue(attrs...)}}
 	}
 	return attrs
 }

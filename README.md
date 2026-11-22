@@ -19,10 +19,16 @@
 
 </div>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="screenshot/Screenshot_2.png">
+    <source media="(prefers-color-scheme: light)" srcset="screenshot/Screenshot_1.png">
+    <img src="screenshot/Screenshot_1.png" alt="TunnelKit 连接状态">
+  </picture>
+</p>
+
 <details>
-  <summary>点击查看桌面端界面截图</summary>
-  <img src="screenshot/Screenshot_1.png" alt="TunnelKit 连接状态（浅色主题）">
-  <img src="screenshot/Screenshot_2.png" alt="TunnelKit 连接状态（深色主题）">
+  <summary>查看更多界面截图</summary>
   <img src="screenshot/Screenshot_3.png" alt="TunnelKit 连接配置">
   <img src="screenshot/Screenshot_4.png" alt="TunnelKit 实时连接日志">
 </details>

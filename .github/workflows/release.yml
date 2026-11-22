@@ -142,21 +142,9 @@ jobs:
           (
             cd release-files
             sha256sum "${expected[@]}" > SHA256SUMS.txt
+            test "$(wc -l < SHA256SUMS.txt | tr -d '[:space:]')" -eq "${#expected[@]}"
+            sha256sum -c SHA256SUMS.txt
           )
-          release_date="$(awk -v p="## [$APP_VERSION] - " 'index($0, p) == 1 { print substr($0, length(p) + 1); exit }' CHANGELOG.md)"
-          test -n "$release_date"
-          bash scripts/render_package_manifests.sh "$APP_VERSION" release-files/SHA256SUMS.txt "$RUNNER_TEMP/manifests" "$release_date"
-          ruby -c "$RUNNER_TEMP/manifests/Casks/tunnelkit.rb" >/dev/null
-          jq -e . "$RUNNER_TEMP/manifests/bucket/tunnelkit.json" >/dev/null
-          winget_dir="$RUNNER_TEMP/manifests/winget/manifests/m/maybk/TunnelKit/$APP_VERSION"
-          for wf in \
-            "$winget_dir/maybk.TunnelKit.yaml" \
-            "$winget_dir/maybk.TunnelKit.installer.yaml" \
-            "$winget_dir/maybk.TunnelKit.locale.en-US.yaml" \
-            "$winget_dir/maybk.TunnelKit.locale.zh-CN.yaml"; do
-            test -s "$wf"
-            ruby -rpsych -rdate -e 'Psych.safe_load_file(ARGV[0], permitted_classes: [Date])' "$wf"
-          done
 
       - name: Prepare release notes
         shell: bash

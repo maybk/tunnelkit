@@ -336,8 +336,9 @@ jobs:
           (
             cd release-files
             sha256sum "${renamed[@]}" > SHA256SUMS.txt
+            test "$(wc -l < SHA256SUMS.txt | tr -d '[:space:]')" -eq "${#renamed[@]}"
+            sha256sum -c SHA256SUMS.txt
           )
-          test -s release-files/SHA256SUMS.txt
           local_asset_count="$(find release-files -maxdepth 1 -type f | wc -l | tr -d '[:space:]')"
           if [ "$local_asset_count" -ne 14 ]; then
             echo "Rolling release contains $local_asset_count local assets; expected 14" >&2

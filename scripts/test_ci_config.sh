@@ -23,11 +23,48 @@ if [ -n "$custom_tarball_sources" ]; then
   exit 1
 fi
 
-config_version="$(sed -n 's/^[[:space:]]*version:[[:space:]]*"\([^"]*\)".*/\1/p' "$repo_root/build/config.yml" | head -n 1)"
+read_info_quoted_field() {
+  local field="$1"
+  local raw_line re
+  raw_line="$(awk -v field="$field" '
+    { sub(/\015$/, "") }
+    /^[^[:space:]#]/ { in_info = ($1 == "info:") }
+    in_info && $0 ~ ("^[[:space:]]+" field ":[[:space:]]*") { print; exit }
+  ' "$repo_root/build/config.yml")"
+  re="^[[:space:]]+${field}:[[:space:]]+\"([^\"]+)\"([[:space:]]+#.*)?[[:space:]]*$"
+  if [[ ! "$raw_line" =~ $re ]]; then
+    echo "info.${field} in build/config.yml must be a double-quoted scalar: ${raw_line:-<missing>}" >&2
+    return 1
+  fi
+  printf '%s' "${BASH_REMATCH[1]}"
+}
+
+config_version="$(read_info_quoted_field version)"
 if [[ ! "$config_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "build/config.yml must define a valid semantic version (MAJOR.MINOR.PATCH); got: ${config_version:-<missing>}"
+  echo "build/config.yml must define a valid semantic version (MAJOR.MINOR.PATCH); got: ${config_version:-<missing>}" >&2
   exit 1
 fi
+config_product="$(read_info_quoted_field productName)"
+if [ "$config_product" != "TunnelKit" ]; then
+  echo "Invalid info.productName in build/config.yml: ${config_product:-<missing>}" >&2
+  exit 1
+fi
+config_bundle_id="$(read_info_quoted_field productIdentifier)"
+if [ "$config_bundle_id" != "com.tunnelkit.app" ]; then
+  echo "Invalid info.productIdentifier in build/config.yml: ${config_bundle_id:-<missing>}" >&2
+  exit 1
+fi
+config_desc="$(read_info_quoted_field description)"
+if [ -z "$config_desc" ] || [ "${#config_desc}" -gt 80 ]; then
+  echo "Invalid info.description length in build/config.yml (${#config_desc}): ${config_desc:-<missing>}" >&2
+  exit 1
+fi
+case "$config_desc" in
+  " "*|*" "|*.|*\"*|*\\*|*": "*|*" #"*)
+    echo "info.description in build/config.yml must be a plain scalar without leading/trailing space, trailing period, or unsafe chars: $config_desc" >&2
+    exit 1
+    ;;
+esac
 
 if ! grep -Fq '//go:embed all:frontend/dist all:assets/icons build/config.yml' "$repo_root/main.go" ||
   ! grep -Fq 'loadVersion(assets)' "$repo_root/internal/app/app.go"; then
@@ -278,10 +315,10 @@ done
 
 if ! grep -Fq 'if [ "$asset_count" -ne 14 ]; then' <<<"$publish_job" ||
   ! grep -Fq 'expected 14' <<<"$publish_job" ||
-  ! grep -Fq 'all(.state == "uploaded")' <<<"$publish_job" ||
-  ! grep -Fq 'bash scripts/render_package_manifests.sh "$APP_VERSION" release-files/SHA256SUMS.txt "$RUNNER_TEMP/manifests" "$release_date"' <<<"$publish_job" ||
-  ! grep -Fq 'Psych.safe_load_file' <<<"$publish_job"; then
-  echo "published releases must verify 14 uploaded draft assets and render/validate dated package manifests before publishing"
+  ! grep -Fq 'test "$(wc -l < SHA256SUMS.txt' <<<"$publish_job" ||
+  ! grep -Fq 'sha256sum -c SHA256SUMS.txt' <<<"$publish_job" ||
+  ! grep -Fq 'all(.state == "uploaded")' <<<"$publish_job"; then
+  echo "published releases must verify checksums and all 14 uploaded draft assets before publishing"
   exit 1
 fi
 
@@ -376,3 +413,15 @@ if [ ! -f "$dependabot_config" ] ||
   echo "Dependabot must group reviewed weekly updates for pinned GitHub Actions"
   exit 1
 fi
+
+for test_script in "$repo_root"/scripts/test_*.sh; do
+  test -f "$test_script"
+  rel_script="${test_script#"$repo_root/"}"
+  if ! grep -Fq "bash $rel_script" "$ci_workflow"; then
+    echo "ci.yml is missing contract test: $rel_script" >&2
+    exit 1
+  fi
+done
+
+test ! -e "$repo_root/scripts/render_package_manifests.sh"
+test ! -e "$repo_root/scripts/test_package_manifests.sh"

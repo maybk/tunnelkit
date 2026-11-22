@@ -91,7 +91,6 @@ jobs:
           bash scripts/test_prepare_release.sh
           bash scripts/test_ci_config.sh
           bash scripts/test_rolling_release_config.sh
-          bash scripts/test_package_manifests.sh
           git diff --check
 
   artifact-roundtrip:

@@ -1,6 +1,6 @@
 # 发布指南
 
-TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自动化编排。
+TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自动化编排；包管理器清单由 [`maybk/homebrew-tap`](https://github.com/maybk/homebrew-tap) 统一维护与同步。
 
 ## 相关文件
 
@@ -15,7 +15,6 @@ TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自
 - [`extract_release_notes.sh`](../../scripts/extract_release_notes.sh)：从 `CHANGELOG.md` 提取指定版本的更新内容
 - [`render_release_notes.sh`](../../scripts/render_release_notes.sh)：渲染正式版与 Rolling 预览版的 GitHub Release 说明与下载表
 - [`prepare_release.sh`](../../scripts/prepare_release.sh)：一键同步 `build/config.yml` 与 `CHANGELOG.md` 版本段落
-- [`render_package_manifests.sh`](../../scripts/render_package_manifests.sh)：根据版本号与 `SHA256SUMS.txt` 渲染并校验 Homebrew Cask、Scoop 与 WinGet 清单（跨应用发布中心位于 [`maybk/homebrew-tap`](https://github.com/maybk/homebrew-tap)）
 - [`build/config.yml`](../../build/config.yml)：应用版本号唯一权威来源（`info.version`）
 - [`CHANGELOG.md`](../../CHANGELOG.md)：正式版本与待发布版本更新记录
 
@@ -104,7 +103,7 @@ wails3 task linux:create:rpm
   - `tunnelkit-<version>-linux-arm64.rpm`
   - `SHA256SUMS.txt`
 - Release 说明由 `render_release_notes.sh` 生成，展示更新内容、系统版本与常用安装包（Windows Setup、macOS Apple Silicon/Intel DMG、Linux DEB/RPM）下载徽章；通用包、便携包与 `SHA256SUMS.txt` 位于底部 `Assets`。
-- workflow 先创建 Draft Release，上传并校验全部 14 个资产后才公开为 Latest；正式版成功公开后自动清理指向该提交或其祖先的 `rolling` 预发布与标签。
+- 正式版与 Rolling 均先生成并回验 `SHA256SUMS.txt`，再上传至 Draft Release 校验全部 14 个资产完整后才公开；正式版成功公开后自动清理指向该提交或其祖先的 `rolling` 预发布与标签。
 - 所有第三方 GitHub Actions 均锁定到完整 40 位 commit SHA，并由 Dependabot 按周分组更新。
 
 ## 发布新版本
@@ -126,7 +125,6 @@ wails3 task linux:create:rpm
    bash scripts/test_prepare_release.sh
    bash scripts/test_ci_config.sh
    bash scripts/test_rolling_release_config.sh
-   bash scripts/test_package_manifests.sh
    git diff --check
    ```
 3. 提交版本变更、创建附注标签并原子推送 `main` 与标签：
@@ -136,4 +134,7 @@ wails3 task linux:create:rpm
    git tag -a "v$version" -m "TunnelKit v$version"
    git push --atomic origin main "v$version"
    ```
-4. Release 工作流发布完成后，`maybk/homebrew-tap` 会自动定时同步（或执行 `gh workflow run sync.yml -R maybk/homebrew-tap` 立即触发同步）。
+4. 正式版公开后，[`maybk/homebrew-tap`](https://github.com/maybk/homebrew-tap) 会按计划自动同步 Homebrew Cask、Scoop Bucket 与 WinGet 清单；如需立即同步，可执行：
+   ```bash
+   gh workflow run sync.yml -R maybk/homebrew-tap
+   ```

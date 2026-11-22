@@ -47,7 +47,6 @@ go test -race ./...
 bash scripts/test_extract_pending_version.sh
 bash scripts/test_extract_release_notes.sh
 bash scripts/test_prepare_release.sh
-bash scripts/test_package_manifests.sh
 bash scripts/test_ci_config.sh
 bash scripts/test_rolling_release_config.sh
 git diff --check

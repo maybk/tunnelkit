@@ -64,6 +64,8 @@ for required in \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.deb' \
   'tunnelkit-$ROLLING_VERSION-rolling-$SHORT_SHA-linux-arm64.rpm' \
   'SHA256SUMS.txt' \
+  'test "$(wc -l < SHA256SUMS.txt' \
+  'sha256sum -c SHA256SUMS.txt' \
   '--draft' \
   '--prerelease' \
   'app_version="${rolling_version}-pre"' \

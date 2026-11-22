@@ -52,9 +52,11 @@ func TestReadRegularFileBounded(t *testing.T) {
 		if _, _, err := ReadRegularFileBounded(linkPath, 64); !errors.Is(err, os.ErrInvalid) {
 			t.Fatalf("symlink err = %v, want os.ErrInvalid", err)
 		}
-		if f, err := OpenRegularNoFollow(linkPath); err == nil {
-			_ = f.Close()
-			t.Fatal("OpenRegularNoFollow must reject symlink")
+		if f, err := OpenRegularNoFollow(linkPath); !errors.Is(err, os.ErrInvalid) {
+			if f != nil {
+				_ = f.Close()
+			}
+			t.Fatalf("OpenRegularNoFollow(symlink) err = %v, want os.ErrInvalid", err)
 		}
 		if _, err := TailFile(linkPath, 64); err == nil {
 			t.Fatal("TailFile must reject symlink")

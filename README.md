@@ -1,12 +1,13 @@
+<div align="center">
+
+<img src="build/appicon.png" alt="TunnelKit Logo" width="108">
+
 # TunnelKit
 
-<div align="center">
-  <img src="build/appicon.png" alt="TunnelKit Logo" width="120">
-</div>
-
-> 🛡️ **TunnelKit** 是基于 **Wails v3**、**Go** 与 **Vue 3 + TypeScript** 构建的轻量级跨平台 Fortinet（FortiGate）SSL-VPN 桌面与菜单栏客户端，支持 macOS、Windows 和 Linux。
-
-<div align="center">
+<p>
+  <strong>轻量跨平台的 Fortinet（FortiGate）SSL-VPN 桌面与菜单栏客户端</strong><br>
+  提供多种认证方式、路由与 DNS 分流及多连接一键切换，支持 macOS、Windows 与 Linux
+</p>
 
 ![Go](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&logoColor=white)
 ![Wails](https://img.shields.io/badge/Wails-v3-DF0000?logo=go&logoColor=white)
@@ -55,7 +56,7 @@ winget install maybk.TunnelKit
 
 ### 手动下载
 
-各平台安装包与 `SHA256SUMS.txt` 校验文件可从 [GitHub Releases](https://github.com/maybk/tunnelkit/releases) 下载，已安装客户端支持在应用内直接检测并一键更新：
+预编译安装包与 `SHA256SUMS.txt` 校验文件可从 [GitHub Releases](https://github.com/maybk/tunnelkit/releases) 下载（安装后支持在应用内检查并一键更新）：
 
 - **macOS**：`Universal` / `arm64` / `amd64`（`.dmg`）
 - **Windows**：`amd64` / `arm64`（`-setup.exe` 安装程序、`.zip` 便携包）
@@ -92,16 +93,16 @@ xattr -dr com.apple.quarantine "/Applications/TunnelKit.app"
 
 ## 🖥️ 支持平台
 
-- **macOS** - 最低支持 macOS 12.0（Monterey），提供 `Universal`、`arm64`（Apple Silicon）与 `amd64`（Intel）安装包
-- **Windows** - 支持 Windows 10 / 11，提供 `amd64`（x64）与 `arm64` 安装程序及便携包
-- **Linux** - 支持基于 `GTK4` + `WebKitGTK 6.0` 的主流发行版（`amd64` / `arm64`，提供 `.deb`、`.rpm` 与 `.tar.gz` 安装包）
+- **macOS** - macOS 12.0（Monterey）及以上，提供 `Universal`、`arm64`（Apple Silicon）与 `amd64`（Intel）安装包
+- **Windows** - Windows 10 / 11，提供 `amd64`（x64）与 `arm64` 安装程序及便携包
+- **Linux** - 基于 `GTK4` + `WebKitGTK 6.0` 的主流发行版（`amd64` / `arm64`，提供 `.deb`、`.rpm` 与 `.tar.gz` 安装包）
 
 ## 🚀 快速开始
 
-本地开发需要 Go 1.27+、Node.js 26+、pnpm 以及 [Wails v3 CLI](https://v3.wails.io/quick-start/installation/)：
+本地开发需要 Go 1.27+、Node.js 26.5+、pnpm 以及 [Wails v3 CLI](https://v3.wails.io/quick-start/installation/)：
 
 ```bash
-pnpm --dir frontend install
+pnpm --dir frontend install --frozen-lockfile
 wails3 dev
 ```
 

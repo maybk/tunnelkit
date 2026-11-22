@@ -101,10 +101,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper_bin="bin/tunnelkit-darwin-arm64.app/Contents/MacOS/tunnelkit-helper"
+          helper_bin="$PWD/bin/tunnelkit-darwin-arm64.app/Contents/MacOS/tunnelkit-helper"
           trap 'sudo "$helper_bin" uninstall >/dev/null 2>&1 || true' EXIT
           sudo "$helper_bin" install
-          test "$(stat -f '%u:%g:%Lp' /Library/PrivilegedHelperTools/com.tunnelkit.helper)" = "0:0:4755"
+          test "$(stat -f '%u:%g:%Mp%Lp' /Library/PrivilegedHelperTools/com.tunnelkit.helper)" = "0:0:4755"
           test -d "/Library/Application Support/TunnelKit"
           TUNNELKIT_SMOKE_HELPER_SOURCE="$helper_bin" go test -v -count=1 -run '^TestSmokeLaunchInstalledUnixHelper$' ./internal/helperclient
           sudo "$helper_bin" uninstall

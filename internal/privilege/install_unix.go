@@ -8,51 +8,136 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 )
 
 func componentPairs(source, target string) [][2]string { return [][2]string{{source, target}} }
 
-// ResolveTrustedSystemBinary 从候选路径中校验并返回由 root 拥有且不可被群组或其他用户写入的系统可执行文件。
-// 允许由 root 管理的系统符号链接（如 Debian alternatives 或 sudo-rs），但解析后的祖先目录与最终目标文件必须同样受 root 保护。
+const maxTrustedSymlinkHops = 40
+
+// ResolveTrustedSystemBinary 从候选绝对路径中校验并返回由 root 拥有且不可被群组或其他用户写入的系统可执行文件。
+// 逐级校验所有祖先目录与系统符号链接跳点（兼容 Linux usrmerge 如 /bin -> usr/bin、Debian alternatives 与 sudo-rs），
+// 并返回经校验的入口路径以保留多合一二进制 argv[0] 语义及系统安全策略路径匹配。
 func ResolveTrustedSystemBinary(candidates ...string) (string, bool) {
+	return resolveTrustedBinaryAt("/", 0, candidates...)
+}
+
+func resolveTrustedBinaryAt(rootDir string, trustedUID uint32, candidates ...string) (string, bool) {
+	rootDir = filepath.Clean(rootDir)
+	if err := checkProtectedUID(rootDir, true, trustedUID); err != nil {
+		return "", false
+	}
 	for _, p := range candidates {
-		if err := verifyParents(filepath.Dir(p)); err != nil {
+		if !filepath.IsAbs(p) || p == "/" || p != filepath.Clean(p) {
 			continue
 		}
-		linfo, err := os.Lstat(p)
-		if err != nil {
-			continue
-		}
-		lst, ok := linfo.Sys().(*syscall.Stat_t)
-		if !ok || lst.Uid != 0 {
-			continue
-		}
-		resolved, err := filepath.EvalSymlinks(p)
-		if err != nil {
-			continue
-		}
-		if err := verifyParents(filepath.Dir(resolved)); err != nil {
-			continue
-		}
-		info, err := os.Lstat(resolved)
-		if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 || info.Mode()&0o022 != 0 {
-			continue
-		}
-		if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Uid == 0 {
-			return resolved, true
+		if resolveSingleTrustedBinary(rootDir, trustedUID, p) {
+			if rootDir == "/" {
+				return p, true
+			}
+			return filepath.Join(rootDir, strings.TrimPrefix(p, "/")), true
 		}
 	}
 	return "", false
 }
 
+func splitPathSegments(rel string) []string {
+	raw := strings.Split(rel, "/")
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		if s == "" || s == "." {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func resolveSingleTrustedBinary(rootDir string, trustedUID uint32, cleanCandidate string) bool {
+	parts := splitPathSegments(strings.TrimPrefix(cleanCandidate, "/"))
+	if len(parts) == 0 {
+		return false
+	}
+	curRel := ""
+	hops := 0
+	for len(parts) > 0 {
+		seg := parts[0]
+		parts = parts[1:]
+		if seg == ".." {
+			if curRel != "" {
+				curRel = filepath.Dir(curRel)
+				if curRel == "." {
+					curRel = ""
+				}
+			}
+			if err := checkProtectedUID(filepath.Join(rootDir, curRel), true, trustedUID); err != nil {
+				return false
+			}
+			continue
+		}
+
+		nextRel := seg
+		if curRel != "" {
+			nextRel = curRel + "/" + seg
+		}
+		nextFull := filepath.Join(rootDir, nextRel)
+		info, err := os.Lstat(nextFull)
+		if err != nil {
+			return false
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || st.Uid != trustedUID {
+			return false
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			hops++
+			if hops > maxTrustedSymlinkHops {
+				return false
+			}
+			target, err := os.Readlink(nextFull)
+			if err != nil || target == "" {
+				return false
+			}
+			if len(parts) == 0 && strings.HasSuffix(target, "/") {
+				return false
+			}
+			linkParts := splitPathSegments(strings.TrimPrefix(target, "/"))
+			if strings.HasPrefix(target, "/") {
+				curRel = ""
+			}
+			if len(linkParts) == 0 && len(parts) == 0 {
+				return false
+			}
+			parts = append(linkParts, parts...)
+			continue
+		}
+
+		if len(parts) > 0 {
+			if !info.IsDir() || info.Mode()&0o022 != 0 {
+				return false
+			}
+			curRel = nextRel
+			continue
+		}
+
+		return info.Mode().IsRegular() && info.Mode()&0o111 != 0 && info.Mode()&0o022 == 0
+	}
+	return false
+}
+
 func checkProtected(path string, directory bool) error {
+	return checkProtectedUID(path, directory, 0)
+}
+
+func checkProtectedUID(path string, directory bool, uid uint32) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
 	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || st.Uid != 0 || info.Mode()&0o022 != 0 || info.Mode()&os.ModeSymlink != 0 || info.IsDir() != directory {
+	if !ok || st.Uid != uid || info.Mode()&0o022 != 0 || info.Mode()&os.ModeSymlink != 0 || info.IsDir() != directory {
 		return fmt.Errorf("unsafe helper path permissions: %s", path)
 	}
 	if !directory && !info.Mode().IsRegular() {

@@ -72,6 +72,10 @@ func replaceLinuxFilesElevated(ctx context.Context, stageDir, targetDir string) 
 	if !ok {
 		return errors.New("未找到受信任的系统 install 命令")
 	}
+	shBin, ok := privilege.ResolveTrustedSystemBinary("/bin/sh", "/usr/bin/sh")
+	if !ok {
+		return errors.New("未找到受信任的系统 sh 命令")
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -93,7 +97,7 @@ func replaceLinuxFilesElevated(ctx context.Context, stageDir, targetDir string) 
 		expectedSums,
 	)
 	// 授权后的文件事务必须完成或回滚，不因 GUI 请求取消而中断在两次替换之间。
-	if err := privilege.RunElevatedLinux(context.WithoutCancel(ctx), "/bin/sh", "-c", script); err != nil {
+	if err := privilege.RunElevatedLinux(context.WithoutCancel(ctx), shBin, "-c", script); err != nil {
 		if errors.Is(err, privilege.ErrCancelled) {
 			return ErrElevationCancelled
 		}

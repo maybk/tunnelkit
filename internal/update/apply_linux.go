@@ -68,19 +68,29 @@ func startDetachedProcess(exePath, workDir string, args []string) error {
 }
 
 func replaceLinuxFilesElevated(ctx context.Context, stageDir, targetDir string) error {
-	installBin, err := exec.LookPath("install")
-	if err != nil {
-		return fmt.Errorf("未找到 install 命令: %w", err)
+	installBin, ok := privilege.ResolveTrustedSystemBinary("/usr/bin/install", "/bin/install")
+	if !ok {
+		return errors.New("未找到受信任的系统 install 命令")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	names := []string{"tunnelkit", "tunnelkit-helper"}
+	expectedSums := make(map[string]string, len(names))
+	for _, name := range names {
+		sum, err := fileSHA256Hex(filepath.Join(stageDir, name))
+		if err != nil {
+			return fmt.Errorf("校验暂存更新文件失败: %w", err)
+		}
+		expectedSums[name] = sum
+	}
 	script := buildPOSIXFileUpdateWithHelperSync(
 		stageDir,
 		targetDir,
-		[]string{"tunnelkit", "tunnelkit-helper"},
+		names,
 		installBin,
 		filepath.Join(targetDir, "tunnelkit-helper"),
+		expectedSums,
 	)
 	// 授权后的文件事务必须完成或回滚，不因 GUI 请求取消而中断在两次替换之间。
 	if err := privilege.RunElevatedLinux(context.WithoutCancel(ctx), "/bin/sh", "-c", script); err != nil {

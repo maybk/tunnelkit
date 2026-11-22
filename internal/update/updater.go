@@ -187,6 +187,7 @@ func (c *Checker) downloadAndVerify(
 ) error {
 	urls := c.candidateDownloadURLs(info.AssetURL)
 	var lastErr error
+	var checksumErr error
 	for _, endpoint := range urls {
 		if err := parentCtx.Err(); err != nil {
 			return err
@@ -196,12 +197,22 @@ func (c *Checker) downloadAndVerify(
 			return nil
 		}
 		if errors.Is(err, ErrChecksumMismatch) {
-			return err
+			_ = os.Remove(destPath)
+			checksumErr = err
+			// 仅当官方源校验失败时立即中止；若加速源内容不匹配，自动回退至官方源重试。
+			if endpoint == info.AssetURL {
+				return err
+			}
+			lastErr = err
+			continue
 		}
 		lastErr = err
 	}
 	if lastErr != nil && errors.Is(lastErr, context.Canceled) {
 		return lastErr
+	}
+	if checksumErr != nil {
+		return checksumErr
 	}
 	return ErrDownloadUpdate
 }
@@ -214,6 +225,9 @@ func (c *Checker) downloadFromEndpoint(
 	destPath string,
 	report ProgressFunc,
 ) error {
+	if report == nil {
+		report = func(Progress) {}
+	}
 	ctx, cancel := context.WithTimeout(parentCtx, downloadTimeout)
 	defer cancel()
 
@@ -223,17 +237,7 @@ func (c *Checker) downloadFromEndpoint(
 	}
 	req.Header.Set("User-Agent", fmt.Sprintf("TunnelKit/%s", info.CurrentVersion))
 
-	// 下载大文件时复制 HTTP Client 并将总超时放宽至 downloadTimeout。
-	baseClient := c.httpClient
-	if baseClient == nil {
-		baseClient = http.DefaultClient
-	}
-	dlClient := *baseClient
-	if dlClient.Timeout > 0 && dlClient.Timeout < downloadTimeout {
-		dlClient.Timeout = downloadTimeout
-	}
-
-	resp, err := dlClient.Do(req)
+	resp, err := c.safeHTTPClient(downloadTimeout).Do(req)
 	if err != nil {
 		if parentCtx.Err() != nil {
 			return parentCtx.Err()

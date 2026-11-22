@@ -40,3 +40,19 @@ func TestUnixInspectInstalledDistinguishesDriftAndHardErrors(t *testing.T) {
 		t.Fatal("expected non-empty recoverable reason for missing helper directory")
 	}
 }
+
+func TestResolveTrustedSystemBinary(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	untrusted := filepath.Join(tmp, "fake-pkexec")
+	if err := os.WriteFile(untrusted, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := ResolveTrustedSystemBinary(untrusted); ok {
+		t.Fatalf("expected untrusted temp binary to be rejected, got %q", got)
+	}
+	if got, ok := ResolveTrustedSystemBinary("/nonexistent/bin", "/bin/sh"); !ok || got == "" {
+		t.Fatalf("expected /bin/sh to resolve as trusted system binary, got (%q, %v)", got, ok)
+	}
+}

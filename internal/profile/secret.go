@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"sync"
 
 	"tunnelkit/internal/credentials"
@@ -101,7 +100,7 @@ func (v *secretVault) remove(profileID string) error {
 }
 
 func (v *secretVault) readMap() (map[string]credentials.Sealed, error) {
-	data, err := os.ReadFile(v.secretsPath)
+	data, _, err := storage.ReadRegularFileBounded(v.secretsPath, maxProfileDocumentSize)
 	if errors.Is(err, fs.ErrNotExist) {
 		return map[string]credentials.Sealed{}, nil
 	}

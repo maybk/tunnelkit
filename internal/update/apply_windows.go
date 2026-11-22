@@ -69,6 +69,14 @@ func startDetachedProcess(exePath, workDir string, args []string) error {
 }
 
 func replaceWindowsFilesElevated(ctx context.Context, stageDir, targetDir string, files []string) error {
+	expectedSums := make(map[string]string, len(files))
+	for _, name := range files {
+		sum, err := fileSHA256Hex(filepath.Join(stageDir, name))
+		if err != nil {
+			return fmt.Errorf("校验暂存更新文件失败: %w", err)
+		}
+		expectedSums[name] = sum
+	}
 	scriptPath := filepath.Join(stageDir, "apply-update.cmd")
 	okSentinel := filepath.Join(stageDir, "done.ok")
 	errSentinel := filepath.Join(stageDir, "done.err")
@@ -80,6 +88,7 @@ func replaceWindowsFilesElevated(ctx context.Context, stageDir, targetDir string
 		okSentinel,
 		errSentinel,
 		filepath.Join(targetDir, "tunnelkit-helper.exe"),
+		expectedSums,
 	)
 	if err := os.WriteFile(scriptPath, []byte(content), 0o700); err != nil {
 		return fmt.Errorf("生成提权更新脚本失败: %w", err)
@@ -88,7 +97,8 @@ func replaceWindowsFilesElevated(ctx context.Context, stageDir, targetDir string
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := runElevatedInstaller(ctx, scriptPath, stageDir); err != nil {
+	// 使用 targetDir 作为提权子进程工作目录，避免从普通用户可写的 stageDir 解析相对路径或 DLL。
+	if err := runElevatedInstaller(ctx, scriptPath, targetDir); err != nil {
 		return err
 	}
 	if _, err := os.Stat(okSentinel); err == nil {

@@ -9,7 +9,7 @@ platform: "linux"
 version: "0.1.0"
 section: "default"
 priority: "extra"
-maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
+maintainer: "maybk <https://github.com/maybk/tunnelkit>"
 description: "Fortinet SSL-VPN client"
 vendor: "maybk"
 homepage: "https://github.com/maybk/tunnelkit"
@@ -18,9 +18,9 @@ release: "1"
 
 contents:
   - src: "./bin/tunnelkit"
-    dst: "/usr/local/bin/tunnelkit"
+    dst: "/usr/bin/tunnelkit"
   - src: "./bin/tunnelkit-helper"
-    dst: "/usr/local/bin/tunnelkit-helper"
+    dst: "/usr/bin/tunnelkit-helper"
   # hicolor 图标主题：scalable 覆盖任意尺寸，48 为规范最低兜底，256 供不支持 SVG 的环境；目录尺寸必须与文件实际像素一致。
   - src: "./build/linux/icons/hicolor/48x48/apps/tunnelkit.png"
     dst: "/usr/share/icons/hicolor/48x48/apps/tunnelkit.png"
@@ -57,9 +57,6 @@ overrides:
 scripts:
   postinstall: "./build/linux/nfpm/scripts/postinstall.sh"
   preremove: "./build/linux/nfpm/scripts/preremove.sh"
-  # You can also add preremove, postremove if needed
-  # preremove: "./build/linux/nfpm/scripts/preremove.sh"
-  # postremove: "./build/linux/nfpm/scripts/postremove.sh"
 
 # If you build your app with -tags gtk3 (legacy WebKit2GTK 4.1 stack — supported through v3.0.x, removed in v3.1),
 # replace the depends/overrides above with these:

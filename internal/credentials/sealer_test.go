@@ -2,6 +2,9 @@ package credentials
 
 import (
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
@@ -105,5 +108,37 @@ func TestSealerInvalidatesCacheOnKeyRotation(t *testing.T) {
 	got, err := s.Decrypt(second)
 	if err != nil || got != "after-rotation" {
 		t.Fatalf("Decrypt after rotation = %q, err = %v", got, err)
+	}
+}
+
+func TestSealerRejectsSymlinkAndOversizedKeyFile(t *testing.T) {
+	t.Run("oversized key file", func(t *testing.T) {
+		root := t.TempDir()
+		if err := storage.WriteFile(storage.SecretKeyPath(root), []byte(strings.Repeat("A", maxMasterKeyFileBytes+64)), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if _, err := New(root).Encrypt("hello"); err == nil {
+			t.Fatal("expected oversized secret.key to be rejected")
+		}
+	})
+
+	if runtime.GOOS != "windows" {
+		t.Run("symlink key file", func(t *testing.T) {
+			root := t.TempDir()
+			s := New(root)
+			if _, err := s.Encrypt("seed"); err != nil {
+				t.Fatalf("seed Encrypt: %v", err)
+			}
+			moved := filepath.Join(root, "real-secret.key")
+			if err := os.Rename(storage.SecretKeyPath(root), moved); err != nil {
+				t.Fatalf("Rename: %v", err)
+			}
+			if err := os.Symlink(moved, storage.SecretKeyPath(root)); err != nil {
+				t.Fatalf("Symlink: %v", err)
+			}
+			if _, err := s.Encrypt("after-symlink"); err == nil {
+				t.Fatal("expected symlink secret.key to be rejected")
+			}
+		})
 	}
 }

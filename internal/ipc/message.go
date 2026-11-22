@@ -95,6 +95,7 @@ type ResultData struct {
 }
 
 var ipcJSONOptions = json.JoinOptions(
+	jsontext.AllowInvalidUTF8(true),
 	json.RejectUnknownMembers(true),
 	json.WithMarshalers(json.MarshalToFunc(func(enc *jsontext.Encoder, d time.Duration) error {
 		return enc.WriteToken(jsontext.Int(int64(d)))

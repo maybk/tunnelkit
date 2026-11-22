@@ -7,14 +7,16 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/storage"
 )
 
-const profileSchemaVersion = 1
-const secretSchemaVersion = 1
+const (
+	profileSchemaVersion   = 1
+	secretSchemaVersion    = 1
+	maxProfileDocumentSize = 4 << 20 // 4 MiB
+)
 
 // decodeProfiles 兼容已发布的无版本列表，迁移不触碰密码与密钥。
 func decodeProfiles(data []byte, out *[]Profile) error {
@@ -26,7 +28,7 @@ func decodeProfiles(data []byte, out *[]Profile) error {
 }
 
 func (s *Store) readAll() ([]Profile, error) {
-	data, err := os.ReadFile(s.path)
+	data, _, err := storage.ReadRegularFileBounded(s.path, maxProfileDocumentSize)
 	if errors.Is(err, fs.ErrNotExist) {
 		return []Profile{}, nil
 	}

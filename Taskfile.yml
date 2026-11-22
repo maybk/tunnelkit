@@ -9,6 +9,37 @@ vars:
   # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation. The
   # tasks below dispatch to the matching platform Taskfile via this variable.
   GOOS: '{{.GOOS | default OS}}'
+  HELPER_VERSION:
+    sh: |
+      if [ -n "${APP_VERSION:-}" ]; then
+        printf '%s' "$APP_VERSION"
+        exit 0
+      fi
+      cr="$(printf '\r')"
+      tab="$(printf '\t')"
+      in_info=0
+      while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%"$cr"}"
+        case "$line" in
+          info:|info:" "*|info:"$tab"*|info:"#"*) in_info=1 ;;
+          " "*|"$tab"*)
+            if [ "$in_info" -eq 1 ]; then
+              trimmed="${line#"${line%%[!" $tab"]*}"}"
+              case "$trimmed" in
+                version:*'"'*'"'*)
+                  v="${trimmed#*\"}"
+                  printf '%s' "${v%%\"*}"
+                  exit 0
+                  ;;
+              esac
+            fi
+            ;;
+          ""|"#"*) ;;
+          *) in_info=0 ;;
+        esac
+      done < build/config.yml
+      echo "failed to extract info.version from build/config.yml" >&2
+      exit 1
 
 includes:
   common: ./build/Taskfile.yml

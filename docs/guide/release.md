@@ -22,7 +22,7 @@ TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自
 
 应用版本号统一在 `build/config.yml` 的 `info.version` 中维护：
 
-- 桌面进程启动时直接从内嵌的 `build/config.yml` 读取版本号暴露给前端与「关于」弹窗。
+- 桌面进程启动时读取内嵌的 `build/config.yml` 版本号；特权辅助程序 `tunnelkit-helper` 在全平台构建时注入同一版本号，支持 `--version` 查询。
 - 跨平台发布打包时自动运行 `wails3 task common:update:build-assets`，将 `build/config.yml` 中的版本号同步至 macOS `Info.plist`、Windows `info.json` / `wails_tools.nsh` / `manifest`、Linux `nfpm.yaml` 等平台清单。
 
 ## 本地打包构建
@@ -84,7 +84,10 @@ wails3 task linux:create:rpm
 普通 CI 同时作为 Rolling 和正式发布的自动质量门禁：
 
 - `ci.yml` 在 `main` push 和 Pull Request 上运行，也可由 Release 与 Rolling 复用；仅具备 `contents: read` 只读权限。
-- `release-assets.yml` 按架构拆分为 7 个并行 Job：macOS 3 个包在 `macos-latest` 并行构建（其中 `macos-arm64` 运行原生 `darwin/arm64` 静态分析与竞态测试套件）、Windows `amd64` 与 `arm64` 分别在原生 `windows-latest` 与 `windows-11-arm` 构建并运行测试套件与安装器冒烟测试、Linux `amd64` 与 `arm64` 分别在原生 `ubuntu-24.04` 与 `ubuntu-24.04-arm` 构建并运行静态分析、竞态测试与 `xvfb` 无头 GUI 冒烟测试。
+- `release-assets.yml` 按平台与架构拆分为 7 个并行 Job，统一校验 `tunnelkit-helper --version` 与目标版本一致：
+  - macOS（`macos-latest`）：并行构建 `arm64` / `amd64` / `universal` DMG，并在 `arm64` 上运行静态分析、竞态测试与已安装特权辅助程序冒烟测试。
+  - Windows（`windows-latest` / `windows-11-arm`）：构建 `amd64` / `arm64` 便携包与 NSIS 安装器，运行测试套件（`amd64` 启用 `-race`）与安装器及服务冒烟测试。
+  - Linux（`ubuntu-24.04` / `ubuntu-24.04-arm`）：构建 `amd64` / `arm64` 压缩包、`.deb` 与 `.rpm`，校验依赖与文件列表，并运行竞态测试、`.deb` 安装冒烟测试及 `xvfb` 无头 GUI 冒烟测试。
 - `rolling.yml` 在每日 `02:17`（UTC+8，即 UTC `18:17`）定时运行，也支持在 `main` 分支通过 `workflow_dispatch` 手动触发（可勾选 `force` 在无新提交时强制重新打包）；工作流直接锚定当前 `origin/main` 最新提交 SHA，复用该提交已通过的 push CI 记录（若尚无成功记录则先运行复用的 `ci.yml` 门禁）。公开版本取自 `CHANGELOG.md` 顶部唯一的 `## [x.y.z] - 未发布`，将应用内嵌版本号构建为 `<version>-pre`，发布到附注标签 `v<version>-pre`（标题为 `TunnelKit <version> Rolling`），资产使用 `tunnelkit-<version>-rolling-<12位SHA>-<platform>` 命名并附带 `SHA256SUMS.txt`。当目标提交为正式版标签、待发布段落为空，或线上已存在该提交完整的公开 `v<version>-pre` 预发布（未勾选 `force`）时自动跳过；若线上仅有孤儿标签或草稿/残缺预发布则自动重新构建修复。
 - `release.yml` 仅由 `vMAJOR.MINOR.PATCH` 标签触发（排除 `*-*` 预发布标签），要求标签版本与 `build/config.yml` 及带日期的 `CHANGELOG.md` 版本段落一致，且标签提交已包含在 `main` 分支中。
 - 自动发布产物固定为 13 个平台安装包加 1 个 `SHA256SUMS.txt`（共 14 个文件）：
@@ -103,7 +106,7 @@ wails3 task linux:create:rpm
   - `tunnelkit-<version>-linux-arm64.rpm`
   - `SHA256SUMS.txt`
 - Release 说明由 `render_release_notes.sh` 生成，展示更新内容、系统版本与常用安装包（Windows Setup、macOS Apple Silicon/Intel DMG、Linux DEB/RPM）下载徽章；通用包、便携包与 `SHA256SUMS.txt` 位于底部 `Assets`。
-- 正式版与 Rolling 均先生成并回验 `SHA256SUMS.txt`，再上传至 Draft Release 校验全部 14 个资产完整后才公开；正式版成功公开后自动清理指向该提交或其祖先的 `rolling` 预发布与标签。
+- 正式版与 Rolling 均先生成并自校验 `SHA256SUMS.txt`，再上传至草稿 Release 验收全部 14 个资产后公开（Rolling 先在临时草稿验收完整再替换线上预发布）；正式版公开后自动清理指向该提交或其祖先的 Rolling 预发布与标签。
 - 所有第三方 GitHub Actions 均锁定到完整 40 位 commit SHA，并由 Dependabot 按周分组更新。
 
 ## 发布新版本

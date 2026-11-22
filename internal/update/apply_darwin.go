@@ -245,7 +245,15 @@ func replaceMacAppBundleElevated(ctx context.Context, srcAppPath, dstAppPath, ba
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	shellCmd := buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath)
+	expectedSums := make(map[string]string, len(macVerifiedBundleBinaries))
+	for _, rel := range macVerifiedBundleBinaries {
+		sum, err := fileSHA256Hex(filepath.Join(srcAppPath, filepath.FromSlash(rel)))
+		if err != nil {
+			return fmt.Errorf("校验暂存更新文件失败: %w", err)
+		}
+		expectedSums[rel] = sum
+	}
+	shellCmd := buildMacElevatedUpdateShellCmd(srcAppPath, dstAppPath, backupPath, expectedSums)
 	// 提权后的脚本必须完成替换或回滚，不能在文件事务中途中断。
 	if err := privilege.RunElevatedDarwinShell(context.WithoutCancel(ctx), shellCmd); err != nil {
 		if errors.Is(err, privilege.ErrCancelled) {

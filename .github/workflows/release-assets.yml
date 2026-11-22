@@ -77,6 +77,12 @@ jobs:
             fi
           done
 
+          helper_ver="$("bin/tunnelkit-darwin-arm64.app/Contents/MacOS/tunnelkit-helper" --version | tr -d '\r\n')"
+          if [ "$helper_ver" != "$APP_VERSION" ]; then
+            echo "Unexpected macOS arm64 helper version: $helper_ver (want: $APP_VERSION)" >&2
+            exit 1
+          fi
+
           bash scripts/package_macos_dmg.sh "bin/tunnelkit-darwin-arm64.app" "dist/tunnelkit-$APP_VERSION-macos-arm64.dmg"
           test -s "dist/tunnelkit-$APP_VERSION-macos-arm64.dmg"
 
@@ -90,6 +96,19 @@ jobs:
           fi
           go vet ./...
           go test -race ./...
+
+      - name: Smoke-test installed macOS arm64 helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper_bin="bin/tunnelkit-darwin-arm64.app/Contents/MacOS/tunnelkit-helper"
+          trap 'sudo "$helper_bin" uninstall >/dev/null 2>&1 || true' EXIT
+          sudo "$helper_bin" install
+          test "$(stat -f '%u:%g:%Lp' /Library/PrivilegedHelperTools/com.tunnelkit.helper)" = "0:0:4755"
+          test -d "/Library/Application Support/TunnelKit"
+          TUNNELKIT_SMOKE_HELPER_SOURCE="$helper_bin" go test -v -count=1 -run '^TestSmokeLaunchInstalledUnixHelper$' ./internal/helperclient
+          sudo "$helper_bin" uninstall
+          trap - EXIT
 
       - name: Upload macOS arm64 release asset
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -226,6 +245,12 @@ jobs:
             done
           done
 
+          helper_ver="$(bin/tunnelkit.app/Contents/MacOS/tunnelkit-helper --version | tr -d '\r\n')"
+          if [ "$helper_ver" != "$APP_VERSION" ]; then
+            echo "Unexpected macOS universal helper version: $helper_ver (want: $APP_VERSION)" >&2
+            exit 1
+          fi
+
           bash scripts/package_macos_dmg.sh "bin/tunnelkit.app" "dist/tunnelkit-$APP_VERSION-macos-universal.dmg"
           test -s "dist/tunnelkit-$APP_VERSION-macos-universal.dmg"
 
@@ -292,6 +317,10 @@ jobs:
               throw "Unexpected target metadata for ${bin}:`n$meta"
             }
           }
+          $helperVer = (& "bin/tunnelkit-helper-windows-amd64.exe" --version | Out-String).Trim()
+          if ($helperVer -ne $env:APP_VERSION) {
+            throw "Expected Windows amd64 tunnelkit-helper --version=$($env:APP_VERSION), got: $helperVer"
+          }
 
       - name: Run native Windows amd64 analysis and test suite
         shell: pwsh
@@ -301,7 +330,7 @@ jobs:
             throw "Expected native amd64 Go toolchain on windows-latest, got: $(go env GOARCH)"
           }
           go vet ./...
-          go test ./...
+          go test -race ./...
 
       - name: Create Windows amd64 portable ZIP
         shell: pwsh
@@ -411,6 +440,10 @@ jobs:
               throw "Unexpected target metadata for ${bin}:`n$meta"
             }
           }
+          $helperVer = (& "bin/tunnelkit-helper-windows-arm64.exe" --version | Out-String).Trim()
+          if ($helperVer -ne $env:APP_VERSION) {
+            throw "Expected Windows arm64 tunnelkit-helper --version=$($env:APP_VERSION), got: $helperVer"
+          }
 
       - name: Run native Windows arm64 analysis and test suite
         shell: pwsh
@@ -497,6 +530,7 @@ jobs:
             libwebkitgtk-6.0-dev \
             libx11-dev \
             iproute2 \
+            rpm \
             xvfb \
             xauth \
             dbus-x11
@@ -542,6 +576,11 @@ jobs:
             grep -Fq "GOOS=linux" <<<"$meta"
             grep -Fq "GOARCH=amd64" <<<"$meta"
           done
+          helper_ver="$(./bin/tunnelkit-helper --version | tr -d '\r\n')"
+          if [ "$helper_ver" != "$APP_VERSION" ]; then
+            echo "Unexpected Linux amd64 helper version: $helper_ver (want: $APP_VERSION)" >&2
+            exit 1
+          fi
           test -s bin/tunnelkit.deb
           test -s bin/tunnelkit.rpm
 
@@ -570,13 +609,33 @@ jobs:
           deb_contents="$(dpkg-deb -c "dist/tunnelkit-$APP_VERSION-linux-amd64.deb")"
           printf '%s\n' "$deb_contents"
           for required_file in \
-            "/usr/local/bin/tunnelkit" \
-            "/usr/local/bin/tunnelkit-helper" \
+            "/usr/bin/tunnelkit" \
+            "/usr/bin/tunnelkit-helper" \
             "/usr/share/applications/tunnelkit.desktop" \
             "/usr/share/icons/hicolor/256x256/apps/tunnelkit.png" \
             "/usr/share/icons/hicolor/scalable/apps/tunnelkit.svg"; do
             if ! grep -Fq "$required_file" <<<"$deb_contents"; then
               echo "deb package is missing file: $required_file" >&2
+              exit 1
+            fi
+          done
+
+          rpm_requires="$(rpm -qp --requires "dist/tunnelkit-$APP_VERSION-linux-amd64.rpm")"
+          for required_dep in gtk4 webkitgtk6.0 iproute; do
+            if ! grep -Fq "$required_dep" <<<"$rpm_requires"; then
+              echo "rpm package is missing dependency: $required_dep" >&2
+              exit 1
+            fi
+          done
+          rpm_files="$(rpm -qlp "dist/tunnelkit-$APP_VERSION-linux-amd64.rpm")"
+          for required_file in \
+            "/usr/bin/tunnelkit" \
+            "/usr/bin/tunnelkit-helper" \
+            "/usr/share/applications/tunnelkit.desktop" \
+            "/usr/share/icons/hicolor/256x256/apps/tunnelkit.png" \
+            "/usr/share/icons/hicolor/scalable/apps/tunnelkit.svg"; do
+            if ! grep -Fq "$required_file" <<<"$rpm_files"; then
+              echo "rpm package is missing file: $required_file" >&2
               exit 1
             fi
           done
@@ -591,6 +650,18 @@ jobs:
           fi
           go vet ./...
           go test -race ./...
+
+      - name: Smoke-test Linux amd64 deb installation and helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'sudo dpkg -r tunnelkit >/dev/null 2>&1 || true' EXIT
+          sudo dpkg -i "dist/tunnelkit-$APP_VERSION-linux-amd64.deb"
+          test "$(stat -c '%u:%g:%a' /usr/libexec/tunnelkit/tunnelkit-helper)" = "0:0:4755"
+          test -d /var/lib/tunnelkit
+          TUNNELKIT_SMOKE_HELPER_SOURCE="/usr/bin/tunnelkit-helper" go test -v -count=1 -run '^TestSmokeLaunchInstalledUnixHelper$' ./internal/helperclient
+          sudo dpkg -r tunnelkit
+          trap - EXIT
 
       - name: Smoke-test Linux amd64 binaries under xvfb
         shell: bash
@@ -658,6 +729,7 @@ jobs:
             libwebkitgtk-6.0-dev \
             libx11-dev \
             iproute2 \
+            rpm \
             xvfb \
             xauth \
             dbus-x11
@@ -703,6 +775,11 @@ jobs:
             grep -Fq "GOOS=linux" <<<"$meta"
             grep -Fq "GOARCH=arm64" <<<"$meta"
           done
+          helper_ver="$(./bin/tunnelkit-helper --version | tr -d '\r\n')"
+          if [ "$helper_ver" != "$APP_VERSION" ]; then
+            echo "Unexpected Linux arm64 helper version: $helper_ver (want: $APP_VERSION)" >&2
+            exit 1
+          fi
           test -s bin/tunnelkit.deb
           test -s bin/tunnelkit.rpm
 
@@ -731,13 +808,33 @@ jobs:
           deb_contents="$(dpkg-deb -c "dist/tunnelkit-$APP_VERSION-linux-arm64.deb")"
           printf '%s\n' "$deb_contents"
           for required_file in \
-            "/usr/local/bin/tunnelkit" \
-            "/usr/local/bin/tunnelkit-helper" \
+            "/usr/bin/tunnelkit" \
+            "/usr/bin/tunnelkit-helper" \
             "/usr/share/applications/tunnelkit.desktop" \
             "/usr/share/icons/hicolor/256x256/apps/tunnelkit.png" \
             "/usr/share/icons/hicolor/scalable/apps/tunnelkit.svg"; do
             if ! grep -Fq "$required_file" <<<"$deb_contents"; then
               echo "deb package is missing file: $required_file" >&2
+              exit 1
+            fi
+          done
+
+          rpm_requires="$(rpm -qp --requires "dist/tunnelkit-$APP_VERSION-linux-arm64.rpm")"
+          for required_dep in gtk4 webkitgtk6.0 iproute; do
+            if ! grep -Fq "$required_dep" <<<"$rpm_requires"; then
+              echo "rpm package is missing dependency: $required_dep" >&2
+              exit 1
+            fi
+          done
+          rpm_files="$(rpm -qlp "dist/tunnelkit-$APP_VERSION-linux-arm64.rpm")"
+          for required_file in \
+            "/usr/bin/tunnelkit" \
+            "/usr/bin/tunnelkit-helper" \
+            "/usr/share/applications/tunnelkit.desktop" \
+            "/usr/share/icons/hicolor/256x256/apps/tunnelkit.png" \
+            "/usr/share/icons/hicolor/scalable/apps/tunnelkit.svg"; do
+            if ! grep -Fq "$required_file" <<<"$rpm_files"; then
+              echo "rpm package is missing file: $required_file" >&2
               exit 1
             fi
           done
@@ -752,6 +849,18 @@ jobs:
           fi
           go vet ./...
           go test -race ./...
+
+      - name: Smoke-test Linux arm64 deb installation and helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'sudo dpkg -r tunnelkit >/dev/null 2>&1 || true' EXIT
+          sudo dpkg -i "dist/tunnelkit-$APP_VERSION-linux-arm64.deb"
+          test "$(stat -c '%u:%g:%a' /usr/libexec/tunnelkit/tunnelkit-helper)" = "0:0:4755"
+          test -d /var/lib/tunnelkit
+          TUNNELKIT_SMOKE_HELPER_SOURCE="/usr/bin/tunnelkit-helper" go test -v -count=1 -run '^TestSmokeLaunchInstalledUnixHelper$' ./internal/helperclient
+          sudo dpkg -r tunnelkit
+          trap - EXIT
 
       - name: Smoke-test Linux arm64 binaries under xvfb
         shell: bash

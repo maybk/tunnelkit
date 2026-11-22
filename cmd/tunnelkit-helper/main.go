@@ -15,7 +15,16 @@ import (
 // Version is injected at build time via -ldflags "-X main.Version=...".
 var Version = "0.1.0"
 
+func isVersionArg(args []string) bool {
+	return len(args) == 1 && (args[0] == "version" || args[0] == "--version" || args[0] == "-version")
+}
+
 func main() {
+	if isVersionArg(os.Args[1:]) {
+		fmt.Println(Version)
+		return
+	}
+
 	if err := helper.EnsureRootIdentity(); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		os.Exit(1)
@@ -85,6 +94,7 @@ func main() {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "Usage:")
+	fmt.Fprintln(os.Stderr, "  tunnelkit-helper version | --version")
 	fmt.Fprintln(os.Stderr, "  tunnelkit-helper serve --endpoint <path> --owner <uid|sid> --token-sha256 <hex>")
 	fmt.Fprintln(os.Stderr, "  tunnelkit-helper install (POSIX) | install-service (Windows)")
 	fmt.Fprintln(os.Stderr, "  tunnelkit-helper uninstall (POSIX) | uninstall-service (Windows)")

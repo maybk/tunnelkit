@@ -8,6 +8,7 @@ import (
 	"net"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -131,6 +132,29 @@ func TestConnRoundTrip(t *testing.T) {
 	}
 	if hello.Token != "secret" {
 		t.Errorf("hello.Token = %q, want secret", hello.Token)
+	}
+}
+
+func TestConnCoercesInvalidUTF8Safely(t *testing.T) {
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- NewConn(c1).Send(TypeLog, 1, LogData{Line: "bad\xffutf8"})
+	}()
+
+	env, err := NewConn(c2).ReadEnvelope()
+	if err != nil {
+		t.Fatalf("ReadEnvelope: %v", err)
+	}
+	if sendErr := <-errCh; sendErr != nil {
+		t.Fatalf("Send with invalid UTF-8: %v", sendErr)
+	}
+	got, err := DecodeStrict[LogData](env.Data)
+	if err != nil || !strings.Contains(got.Line, "bad") || !strings.Contains(got.Line, "\ufffd") {
+		t.Fatalf("DecodeStrict invalid UTF-8 = (%+v, %v), want U+FFFD replacement", got, err)
 	}
 }
 

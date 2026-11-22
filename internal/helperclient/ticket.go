@@ -4,7 +4,6 @@ package helperclient
 
 import (
 	"errors"
-	"io"
 	"io/fs"
 	"os"
 	"strings"
@@ -29,18 +28,12 @@ type Ticket struct {
 	StartedAt   string             `json:"startedAt"`
 }
 
-type ticketFile interface {
-	io.Reader
-	io.Closer
-	Stat() (os.FileInfo, error)
-}
-
 // TicketStore 负责加密持久化与清理 helper IPC 会话凭据。
 type TicketStore struct {
 	mu        sync.Mutex
 	path      string
 	sealer    *credentials.Sealer
-	openFile  func(string) (ticketFile, error)
+	openFile  func(string) (storage.RegularFile, error)
 	writeFile func(string, []byte, os.FileMode) error
 }
 
@@ -52,11 +45,11 @@ func NewTicketStore(rootDir string) *TicketStore {
 	}
 }
 
-func (s *TicketStore) open(path string) (ticketFile, error) {
+func (s *TicketStore) open(path string) (storage.RegularFile, error) {
 	if s.openFile != nil {
 		return s.openFile(path)
 	}
-	return openCertificateFile(path)
+	return storage.OpenRegularNoFollow(path)
 }
 
 func (s *TicketStore) write(path string, data []byte, perm os.FileMode) error {
@@ -131,7 +124,7 @@ func (s *TicketStore) readTicketBytes() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !linfo.Mode().IsRegular() || linfo.Size() > maxTicketFileBytes {
+	if linfo.Mode()&os.ModeSymlink != 0 || !linfo.Mode().IsRegular() || linfo.Size() > maxTicketFileBytes {
 		return nil, errors.New("invalid session ticket file")
 	}
 	f, err := s.open(s.path)
@@ -139,18 +132,11 @@ func (s *TicketStore) readTicketBytes() ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
+	data, info, err := storage.ReadOpenRegularFileBounded(f, maxTicketFileBytes)
 	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || info.Size() > maxTicketFileBytes {
 		return nil, errors.New("invalid session ticket file")
 	}
-	data, err := io.ReadAll(io.LimitReader(f, maxTicketFileBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxTicketFileBytes {
+	if !os.SameFile(linfo, info) {
 		return nil, errors.New("invalid session ticket file")
 	}
 	if err := f.Close(); err != nil {

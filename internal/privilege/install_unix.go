@@ -13,6 +13,39 @@ import (
 
 func componentPairs(source, target string) [][2]string { return [][2]string{{source, target}} }
 
+// ResolveTrustedSystemBinary 从候选路径中校验并返回由 root 拥有且不可被群组或其他用户写入的系统可执行文件。
+// 允许由 root 管理的系统符号链接（如 Debian alternatives 或 sudo-rs），但解析后的祖先目录与最终目标文件必须同样受 root 保护。
+func ResolveTrustedSystemBinary(candidates ...string) (string, bool) {
+	for _, p := range candidates {
+		if err := verifyParents(filepath.Dir(p)); err != nil {
+			continue
+		}
+		linfo, err := os.Lstat(p)
+		if err != nil {
+			continue
+		}
+		lst, ok := linfo.Sys().(*syscall.Stat_t)
+		if !ok || lst.Uid != 0 {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			continue
+		}
+		if err := verifyParents(filepath.Dir(resolved)); err != nil {
+			continue
+		}
+		info, err := os.Lstat(resolved)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 || info.Mode()&0o022 != 0 {
+			continue
+		}
+		if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Uid == 0 {
+			return resolved, true
+		}
+	}
+	return "", false
+}
+
 func checkProtected(path string, directory bool) error {
 	info, err := os.Lstat(path)
 	if err != nil {

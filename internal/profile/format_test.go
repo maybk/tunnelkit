@@ -5,6 +5,8 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"tunnelkit/internal/storage"
@@ -98,5 +100,37 @@ func TestEmptyProfileAndSecretFilesDefaultToEmptyCollections(t *testing.T) {
 	saved, err := store.Save(Input{Name: "empty-init", Host: "vpn.example.com", Username: "u", Password: "p"})
 	if err != nil || !saved.HasPassword {
 		t.Fatalf("Save() after whitespace files = (%+v, %v)", saved, err)
+	}
+}
+
+func TestStoreRejectsSymlinkProfileAndSecretFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires elevated privileges on Windows")
+	}
+	for _, tc := range []struct {
+		name string
+		path func(string) string
+	}{
+		{name: "profiles", path: storage.ProfilesPath},
+		{name: "secrets", path: storage.SecretsPath},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			store := NewStore(root)
+			if _, err := store.Save(Input{Name: "symlink-check", Host: "vpn.example.com", Username: "u", Password: "p"}); err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+			target := tc.path(root)
+			moved := filepath.Join(root, tc.name+".real.json")
+			if err := os.Rename(target, moved); err != nil {
+				t.Fatalf("Rename: %v", err)
+			}
+			if err := os.Symlink(moved, target); err != nil {
+				t.Fatalf("Symlink: %v", err)
+			}
+			if _, err := store.List(); err == nil {
+				t.Fatalf("expected List to reject symlinked %s file", tc.name)
+			}
+		})
 	}
 }

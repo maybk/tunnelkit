@@ -71,6 +71,10 @@ for required in \
   'app_version="${rolling_version}-pre"' \
   'build_version="${rolling_version}-pre"' \
   'rolling_tag="v${ROLLING_VERSION}-pre"' \
+  'draft_tag="${rolling_tag}-stage-${SHORT_SHA}"' \
+  'trap cleanup_draft EXIT' \
+  'gh release create "$draft_tag"' \
+  'gh release edit "$draft_tag" --tag "$rolling_tag" --draft=false --prerelease' \
   'git tag -a --force "$rolling_tag" -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"' \
   '--title "TunnelKit $ROLLING_VERSION Rolling"' \
   'if [ "$asset_count" -ne 14 ]; then'; do

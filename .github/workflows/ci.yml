@@ -80,6 +80,19 @@ jobs:
             exit 1
           fi
           go vet ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet \
+            ./fortivpn/... \
+            ./internal/privilege/... \
+            ./internal/ipc/... \
+            ./internal/update/... \
+            ./internal/credentials/... \
+            ./internal/storage/... \
+            ./internal/redact/... \
+            ./internal/profile/... \
+            ./internal/helper/... \
+            ./internal/helperclient/... \
+            ./internal/vpn/... \
+            ./cmd/tunnelkit-helper
 
       - name: Run Go race tests
         run: go test -race ./...

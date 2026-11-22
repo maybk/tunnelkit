@@ -324,8 +324,9 @@ fi
 
 nfpm_config="$repo_root/build/linux/nfpm/nfpm.yaml"
 for required_nfpm in \
-  '/usr/local/bin/tunnelkit' \
-  '/usr/local/bin/tunnelkit-helper' \
+  '/usr/bin/tunnelkit' \
+  '/usr/bin/tunnelkit-helper' \
+  'maintainer: "maybk <https://github.com/maybk/tunnelkit>"' \
   'libgtk-4-1' \
   'libwebkitgtk-6.0-4' \
   'iproute2' \
@@ -337,17 +338,34 @@ for required_nfpm in \
     exit 1
   fi
 done
+if grep -Fq '/usr/local/bin/' "$nfpm_config" || grep -Fq '/usr/local/bin/' "$repo_root/build/linux/nfpm/scripts/postinstall.sh"; then
+  echo "Linux deb/rpm packaging must install to FHS /usr/bin rather than /usr/local/bin" >&2
+  exit 1
+fi
 
 for nfpm_script in \
   "$repo_root/build/linux/nfpm/scripts/postinstall.sh" \
   "$repo_root/build/linux/nfpm/scripts/preremove.sh"; do
   sh -n "$nfpm_script"
 done
+test ! -e "$repo_root/build/linux/nfpm/scripts/preinstall.sh"
+test ! -e "$repo_root/build/linux/nfpm/scripts/postremove.sh"
+bash -n "$repo_root/build/linux/appimage/build.sh"
+if grep -Fq 'mv "${APP_NAME}*.AppImage"' "$repo_root/build/linux/appimage/build.sh"; then
+  echo "build/linux/appimage/build.sh must not quote the glob wildcard when renaming AppImage" >&2
+  exit 1
+fi
 
-if ! grep -Fq 'StartupWMClass=com.tunnelkit.app' "$repo_root/build/linux/desktop" ||
+if ! grep -Fq 'Exec=tunnelkit %u' "$repo_root/build/linux/desktop" ||
+  ! grep -Fq 'StartupWMClass=com.tunnelkit.app' "$repo_root/build/linux/desktop" ||
   ! grep -Fq "STARTUP_WM_CLASS: 'com.tunnelkit.app'" "$repo_root/build/linux/Taskfile.yml" ||
   ! grep -Fq 'printf '\''StartupWMClass=%s\n'\'' "{{.STARTUP_WM_CLASS}}" >> "{{.OUTPUTFILE}}"' "$repo_root/build/linux/Taskfile.yml"; then
-  echo "Linux .desktop configuration must set StartupWMClass via STARTUP_WM_CLASS (com.tunnelkit.app) to match GTK4 ApplicationID" >&2
+  echo "Linux .desktop configuration must set Exec=tunnelkit and StartupWMClass via STARTUP_WM_CLASS (com.tunnelkit.app)" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet' "$ci_workflow"; then
+  echo "ordinary CI must cross-vet Windows pure-Go packages" >&2
   exit 1
 fi
 
@@ -358,9 +376,14 @@ for required_runner in \
   'runs-on: ubuntu-24.04' \
   'runs-on: ubuntu-24.04-arm' \
   'xvfb-run' \
-  'go test ./...'; do
+  'go test -race ./...' \
+  'go test ./...' \
+  '--version' \
+  'rpm -qp --requires' \
+  'rpm -qlp' \
+  'TestSmokeLaunchInstalledUnixHelper'; do
   if ! grep -Fq "$required_runner" "$release_assets_workflow"; then
-    echo "release-assets.yml is missing required parallel runner or test step: $required_runner"
+    echo "release-assets.yml is missing required parallel runner or verification step: $required_runner"
     exit 1
   fi
 done

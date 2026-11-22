@@ -42,7 +42,8 @@ func (v *Sealer) cipher() (cipher.AEAD, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.cachedGCM != nil && v.keyInfo != nil {
-		if info, err := os.Stat(v.keyPath); err == nil &&
+		if info, err := os.Lstat(v.keyPath); err == nil &&
+			info.Mode().IsRegular() &&
 			os.SameFile(info, v.keyInfo) &&
 			info.ModTime().Equal(v.keyInfo.ModTime()) {
 			return v.cachedGCM, nil
@@ -179,12 +180,10 @@ func (v *Sealer) waitForConcurrentKeyWriteLocked() ([]byte, error) {
 	return key, readErr
 }
 
+const maxMasterKeyFileBytes = 4 << 10 // 4 KiB
+
 func (v *Sealer) readKey() ([]byte, os.FileInfo, error) {
-	info, err := os.Stat(v.keyPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	data, err := os.ReadFile(v.keyPath)
+	data, info, err := storage.ReadRegularFileBounded(v.keyPath, maxMasterKeyFileBytes)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -14,15 +14,16 @@ import (
 func TestBuildPOSIXFileUpdatePortableGeneration(t *testing.T) {
 	posixScript := buildPOSIXFileUpdateWithHelperSync(
 		"/tmp/stage",
-		"/usr/local/bin",
+		"/usr/bin",
 		[]string{"tunnelkit", "tunnelkit-helper"},
 		"/usr/bin/install",
-		"/usr/local/bin/tunnelkit-helper",
+		"/usr/bin/tunnelkit-helper",
+		nil,
 	)
 	for _, want := range []string{
-		"'/usr/bin/install' -m 0755 '/tmp/stage/tunnelkit' '/usr/local/bin/tunnelkit.new'",
-		"'/usr/bin/install' -m 0755 '/tmp/stage/tunnelkit-helper' '/usr/local/bin/tunnelkit-helper.new'",
-		"if [ -x '/usr/local/bin/tunnelkit-helper' ]; then '/usr/local/bin/tunnelkit-helper' 'install' >/dev/null 2>&1 || true; fi",
+		"'/usr/bin/install' -m 0755 '/tmp/stage/tunnelkit' '/usr/bin/tunnelkit.new'",
+		"'/usr/bin/install' -m 0755 '/tmp/stage/tunnelkit-helper' '/usr/bin/tunnelkit-helper.new'",
+		"if [ -x '/usr/bin/tunnelkit-helper' ]; then '/usr/bin/tunnelkit-helper' 'install' >/dev/null 2>&1 || true; fi",
 	} {
 		if !strings.Contains(posixScript, want) {
 			t.Fatalf("expected POSIX update script to contain %q, got:\n%s", want, posixScript)
@@ -57,7 +58,7 @@ func TestBuildPOSIXFileUpdateSuccessAndRollback(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(targetDir, "tunnelkit"), []byte("old-gui"), 0o755)
 	_ = os.WriteFile(filepath.Join(targetDir, "tunnelkit-helper"), []byte("old-helper"), 0o755)
 
-	// 1. 缺少第二个暂存文件时，应回滚第一个已备份的文件。
+	// 1. 缺少第二个暂存文件时，应清理第一个 *.new 且原文件完好无损。
 	_ = os.WriteFile(filepath.Join(stageDir, "tunnelkit"), []byte("new-gui"), 0o755)
 	script := buildPOSIXFileUpdate(stageDir, targetDir, []string{"tunnelkit", "tunnelkit-helper"}, installBin)
 	if err := exec.Command("/bin/sh", "-c", script).Run(); err == nil {
@@ -67,14 +68,62 @@ func TestBuildPOSIXFileUpdateSuccessAndRollback(t *testing.T) {
 	if err != nil || string(gotGUI) != "old-gui" {
 		t.Fatalf("expected rollback to restore old-gui, got %q (err=%v)", gotGUI, err)
 	}
+	if _, err := os.Stat(filepath.Join(targetDir, "tunnelkit.new")); !os.IsNotExist(err) {
+		t.Fatalf("expected staged tunnelkit.new to be cleaned up on failure, err=%v", err)
+	}
 
-	// 2. 两个暂存文件齐全时，应全部成功更新。
+	// 2. 暂存文件齐全但校验和不匹配时，应阻止替换并清理全部 *.new 残留。
 	_ = os.WriteFile(filepath.Join(stageDir, "tunnelkit-helper"), []byte("new-helper"), 0o755)
-	if out, err := exec.Command("/bin/sh", "-c", script).CombinedOutput(); err != nil {
-		t.Fatalf("expected script to succeed, got %v: %s", err, out)
+	guiSum, err := fileSHA256Hex(filepath.Join(stageDir, "tunnelkit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	helperSum, err := fileSHA256Hex(filepath.Join(stageDir, "tunnelkit-helper"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	badVerified := buildPOSIXFileUpdateWithHelperSync(
+		stageDir,
+		targetDir,
+		[]string{"tunnelkit", "tunnelkit-helper"},
+		installBin,
+		"",
+		map[string]string{
+			"tunnelkit":        guiSum,
+			"tunnelkit-helper": strings.Repeat("0", 64),
+		},
+	)
+	if err := exec.Command("/bin/sh", "-c", badVerified).Run(); err == nil {
+		t.Fatal("expected POSIX update script to fail on SHA-256 mismatch")
 	}
 	gotGUI, _ = os.ReadFile(filepath.Join(targetDir, "tunnelkit"))
 	gotHelper, _ := os.ReadFile(filepath.Join(targetDir, "tunnelkit-helper"))
+	if string(gotGUI) != "old-gui" || string(gotHelper) != "old-helper" {
+		t.Fatalf("SHA-256 mismatch must leave originals intact: gui=%q helper=%q", gotGUI, gotHelper)
+	}
+	for _, leftover := range []string{"tunnelkit.new", "tunnelkit-helper.new"} {
+		if _, err := os.Stat(filepath.Join(targetDir, leftover)); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be cleaned up on checksum failure, err=%v", leftover, err)
+		}
+	}
+
+	// 3. 校验和全部匹配时，应全部成功更新。
+	goodVerified := buildPOSIXFileUpdateWithHelperSync(
+		stageDir,
+		targetDir,
+		[]string{"tunnelkit", "tunnelkit-helper"},
+		installBin,
+		"",
+		map[string]string{
+			"tunnelkit":        guiSum,
+			"tunnelkit-helper": helperSum,
+		},
+	)
+	if out, err := exec.Command("/bin/sh", "-c", goodVerified).CombinedOutput(); err != nil {
+		t.Fatalf("expected verified script to succeed, got %v: %s", err, out)
+	}
+	gotGUI, _ = os.ReadFile(filepath.Join(targetDir, "tunnelkit"))
+	gotHelper, _ = os.ReadFile(filepath.Join(targetDir, "tunnelkit-helper"))
 	if string(gotGUI) != "new-gui" || string(gotHelper) != "new-helper" {
 		t.Fatalf("unexpected updated contents: gui=%q helper=%q", gotGUI, gotHelper)
 	}
@@ -86,10 +135,14 @@ func TestBuildPOSIXFileUpdateSuccessAndRollback(t *testing.T) {
 		[]string{"tunnelkit", "tunnelkit-helper"},
 		installBin,
 		helperPath,
+		map[string]string{"tunnelkit": guiSum, "tunnelkit-helper": helperSum},
 	)
 	wantSync := "if [ -x " + shellQuote(helperPath) + " ]; then " + shellQuote(helperPath) + " 'install'"
 	if !strings.Contains(elevated, wantSync) {
 		t.Fatalf("expected elevated POSIX update script to sync helper, got:\n%s", elevated)
+	}
+	if out, err := exec.Command("/bin/sh", "-n", "-c", elevated).CombinedOutput(); err != nil {
+		t.Fatalf("verified POSIX update script syntax error: %s (%v)", out, err)
 	}
 }
 
@@ -98,6 +151,10 @@ func TestBuildMacElevatedUpdateShellCmdSuccessAndRollback(t *testing.T) {
 		"/Volumes/TunnelKit/TunnelKit's.app",
 		"/Applications/TunnelKit.app",
 		"/Applications/TunnelKit.app.bak",
+		map[string]string{
+			"Contents/MacOS/tunnelkit":        strings.Repeat("a", 64),
+			"Contents/MacOS/tunnelkit-helper": strings.Repeat("b", 64),
+		},
 	)
 	for _, want := range []string{
 		"set -eu",
@@ -106,10 +163,18 @@ func TestBuildMacElevatedUpdateShellCmdSuccessAndRollback(t *testing.T) {
 		`'/Applications/TunnelKit.app.bak'`,
 		`'/Applications/TunnelKit.app/Contents/MacOS/tunnelkit-helper' 'install'`,
 		"/usr/bin/ditto",
+		"/usr/bin/shasum -a 256 '/Applications/TunnelKit.app.stage/Contents/MacOS/tunnelkit'",
+		"/usr/bin/shasum -a 256 '/Applications/TunnelKit.app.stage/Contents/MacOS/tunnelkit-helper'",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("expected macOS update script to contain %q, got:\n%s", want, script)
 		}
+	}
+	chownIdx := strings.Index(script, "/usr/sbin/chown -R 0:0")
+	shasumIdx := strings.Index(script, "/usr/bin/shasum -a 256")
+	mvDstIdx := strings.Index(script, "/bin/mv '/Applications/TunnelKit.app' '/Applications/TunnelKit.app.bak'")
+	if chownIdx <= 0 || shasumIdx <= chownIdx || mvDstIdx <= shasumIdx {
+		t.Fatalf("expected chown -> shasum -> move order, got chown=%d shasum=%d mv=%d", chownIdx, shasumIdx, mvDstIdx)
 	}
 	if _, err := os.Stat("/bin/sh"); err == nil {
 		if out, err := exec.Command("/bin/sh", "-n", "-c", script).CombinedOutput(); err != nil {
@@ -130,7 +195,7 @@ func TestBuildMacElevatedUpdateShellCmdSuccessAndRollback(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dstApp, "version.txt"), []byte("old-bundle"), 0o644)
 
 	// 1. 源 .app 不存在时，ditto 暂存失败应保持原 .app 不变且无 .stage/.bak 残留。
-	cmdText := buildMacElevatedUpdateShellCmd(srcApp, dstApp, bakApp)
+	cmdText := buildMacElevatedUpdateShellCmd(srcApp, dstApp, bakApp, nil)
 	if err := exec.Command("/bin/sh", "-c", cmdText).Run(); err == nil {
 		t.Fatal("expected script to fail when srcApp does not exist")
 	}
@@ -142,11 +207,42 @@ func TestBuildMacElevatedUpdateShellCmdSuccessAndRollback(t *testing.T) {
 		t.Fatalf("expected .stage directory to be cleaned up on failure, err=%v", err)
 	}
 
-	// 2. 源 .app 存在时，应完成替换并清理 .stage 与 .bak。
-	_ = os.MkdirAll(srcApp, 0o755)
+	// 2. 源 .app 存在但二进制 SHA-256 不匹配时，应中止替换、清理 .stage 且保持原 .app 完整。
+	_ = os.MkdirAll(filepath.Join(srcApp, "Contents", "MacOS"), 0o755)
 	_ = os.WriteFile(filepath.Join(srcApp, "version.txt"), []byte("new-bundle"), 0o644)
-	if out, err := exec.Command("/bin/sh", "-c", cmdText).CombinedOutput(); err != nil {
-		t.Fatalf("expected macOS update script to succeed, got %v: %s", err, out)
+	_ = os.WriteFile(filepath.Join(srcApp, "Contents", "MacOS", "tunnelkit"), []byte("new-mac-gui"), 0o755)
+	_ = os.WriteFile(filepath.Join(srcApp, "Contents", "MacOS", "tunnelkit-helper"), []byte("new-mac-helper"), 0o644)
+
+	badCmd := buildMacElevatedUpdateShellCmd(srcApp, dstApp, bakApp, map[string]string{
+		"Contents/MacOS/tunnelkit":        strings.Repeat("0", 64),
+		"Contents/MacOS/tunnelkit-helper": strings.Repeat("1", 64),
+	})
+	if err := exec.Command("/bin/sh", "-c", badCmd).Run(); err == nil {
+		t.Fatal("expected macOS update script to fail on SHA-256 mismatch")
+	}
+	gotOld, err = os.ReadFile(filepath.Join(dstApp, "version.txt"))
+	if err != nil || string(gotOld) != "old-bundle" {
+		t.Fatalf("SHA-256 mismatch must preserve old-bundle, got %q (err=%v)", gotOld, err)
+	}
+	if _, err := os.Stat(dstApp + ".stage"); !os.IsNotExist(err) {
+		t.Fatalf("expected .stage directory to be cleaned up on checksum failure, err=%v", err)
+	}
+
+	// 3. 二进制 SHA-256 全部匹配时，应完成替换并清理 .stage 与 .bak。
+	guiSum, err := fileSHA256Hex(filepath.Join(srcApp, "Contents", "MacOS", "tunnelkit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	helperSum, err := fileSHA256Hex(filepath.Join(srcApp, "Contents", "MacOS", "tunnelkit-helper"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	goodCmd := buildMacElevatedUpdateShellCmd(srcApp, dstApp, bakApp, map[string]string{
+		"Contents/MacOS/tunnelkit":        guiSum,
+		"Contents/MacOS/tunnelkit-helper": helperSum,
+	})
+	if out, err := exec.Command("/bin/sh", "-c", goodCmd).CombinedOutput(); err != nil {
+		t.Fatalf("expected verified macOS update script to succeed, got %v: %s", err, out)
 	}
 	gotNew, err := os.ReadFile(filepath.Join(dstApp, "version.txt"))
 	if err != nil || string(gotNew) != "new-bundle" {

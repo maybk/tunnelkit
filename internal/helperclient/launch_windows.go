@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,13 +27,13 @@ func defaultEndpoint() (string, error) {
 	return `\\.\pipe\TunnelKit-` + hex.EncodeToString(id[:]), nil
 }
 
-func launchElevated(ctx context.Context, source, endpoint, owner, tokenHash string) (<-chan error, error) {
+func launchElevated(ctx context.Context, source, endpoint, owner, tokenHash string) (*processWatcher, func(), error) {
 	if _, err := installedHelperPath(ctx, source); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s, err := privilege.OpenWindowsService(windows.SERVICE_QUERY_STATUS | windows.SERVICE_START)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ticker := time.NewTicker(40 * time.Millisecond)
 	defer ticker.Stop()
@@ -40,43 +41,48 @@ func launchElevated(ctx context.Context, source, endpoint, owner, tokenHash stri
 		status, err := s.Query()
 		if err != nil {
 			_ = s.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		if status.State == svc.Stopped {
 			break
 		}
 		if status.State != svc.StopPending {
 			_ = s.Close()
-			return nil, errors.New("辅助组件已有活动会话，请先断开该会话")
+			return nil, nil, errors.New("辅助组件已有活动会话，请先断开该会话")
 		}
 		select {
 		case <-ctx.Done():
 			_ = s.Close()
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		case <-ticker.C:
 		}
 	}
 	if err := s.Start(buildServeArgs("--owner", endpoint, owner, tokenHash)...); err != nil {
 		_ = s.Close()
-		return nil, err
+		return nil, nil, err
 	}
-	return watchServiceExit(s), nil
+	exited, stopWatch := watchServiceExit(s)
+	return exited, stopWatch, nil
 }
 
-func watchServiceExit(s *mgr.Service) <-chan error {
-	exited := make(chan error, 1)
+func watchServiceExit(s *mgr.Service) (*processWatcher, func()) {
+	exited := newProcessWatcher()
+	stopCh := make(chan struct{})
+	stopWatch := sync.OnceFunc(func() {
+		close(stopCh)
+	})
 	go func() {
-		defer close(exited)
+		defer exited.abort()
 		defer s.Close()
 
-		ticker := time.NewTicker(40 * time.Millisecond)
+		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
 
 		var servicePID int
 		for {
 			status, err := s.Query()
 			if err != nil {
-				exited <- err
+				exited.complete(err)
 				return
 			}
 			if status.ProcessId != 0 {
@@ -84,13 +90,17 @@ func watchServiceExit(s *mgr.Service) <-chan error {
 			}
 			if status.State == svc.Stopped {
 				waitServiceProcessRelease(servicePID, 5*time.Second)
-				exited <- serviceExitError(status)
+				exited.complete(serviceExitError(status))
 				return
 			}
-			<-ticker.C
+			select {
+			case <-stopCh:
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
-	return exited
+	return exited, stopWatch
 }
 
 func waitServiceProcessRelease(pid int, maxWait time.Duration) {

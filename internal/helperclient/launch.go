@@ -66,8 +66,8 @@ func LocateHelper() (string, bool) {
 	}
 	if runtime.GOOS != "windows" {
 		candidates = append(candidates,
-			filepath.Join("/usr/local/bin", exeName),
 			filepath.Join("/usr/bin", exeName),
+			filepath.Join("/usr/local/bin", exeName),
 			filepath.Join("/opt/tunnelkit", exeName),
 		)
 	}
@@ -129,25 +129,32 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 		return nil, Ticket{}, err
 	}
 
-	exited, err := launchElevated(ctx, helperPath, endpoint, ownerID, tokenHash)
+	exited, stopWatch, err := launchElevated(ctx, helperPath, endpoint, ownerID, tokenHash)
 	if err != nil {
 		return nil, Ticket{}, err
 	}
 
 	conn, err := dialWithProcess(ctx, endpoint, 10*time.Second, exited)
 	if err != nil {
+		if stopWatch != nil {
+			stopWatch()
+		}
 		cleanupLaunch(endpoint, token)
 		return nil, Ticket{}, fmt.Errorf("辅助组件未能就绪，请确认系统支持安装的特权组件: %w", err)
 	}
 
 	client, _, err := handshakeAndServe(ctx, conn, token)
 	if err != nil {
+		if stopWatch != nil {
+			stopWatch()
+		}
 		_ = conn.Close()
 		cleanupLaunch(endpoint, token)
 		return nil, Ticket{}, err
 	}
 
 	client.processExit = exited
+	client.stopWatch = stopWatch
 	ticket := Ticket{
 		Protocol:    ipc.ProtocolVersion,
 		Endpoint:    endpoint,
@@ -221,9 +228,13 @@ func dialWithRetry(ctx context.Context, endpoint string, maxWait time.Duration) 
 	return dialWithProcess(ctx, endpoint, maxWait, nil)
 }
 
-func dialWithProcess(ctx context.Context, endpoint string, maxWait time.Duration, exited <-chan error) (*ipc.Conn, error) {
+func dialWithProcess(ctx context.Context, endpoint string, maxWait time.Duration, exited *processWatcher) (*ipc.Conn, error) {
 	deadline := time.Now().Add(maxWait)
 	var lastErr error
+	var exitedCh <-chan struct{}
+	if exited != nil {
+		exitedCh = exited.done
+	}
 	for {
 		attemptCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		conn, err := ipc.Dial(attemptCtx, endpoint)
@@ -231,13 +242,13 @@ func dialWithProcess(ctx context.Context, endpoint string, maxWait time.Duration
 		if err == nil {
 			return conn, nil
 		}
-		select {
-		case processErr := <-exited:
-			if processErr == nil {
-				processErr = errors.New("辅助组件在就绪前退出")
+		if exited != nil {
+			if processErr, ok := exited.finished(); ok {
+				if processErr == nil {
+					processErr = errors.New("辅助组件在就绪前退出")
+				}
+				return nil, processErr
 			}
-			return nil, processErr
-		default:
 		}
 		lastErr = err
 		if ctx.Err() != nil {
@@ -249,6 +260,14 @@ func dialWithProcess(ctx context.Context, endpoint string, maxWait time.Duration
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
+		case <-exitedCh:
+			if processErr, ok := exited.finished(); ok {
+				if processErr == nil {
+					processErr = errors.New("辅助组件在就绪前退出")
+				}
+				return nil, processErr
+			}
+			exitedCh = nil
 		case <-time.After(50 * time.Millisecond):
 		}
 	}

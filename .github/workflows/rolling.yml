@@ -371,35 +371,32 @@ jobs:
           release_notes_file="$RUNNER_TEMP/rolling-notes.md"
           test -s "$release_notes_file"
           rolling_tag="v${ROLLING_VERSION}-pre"
+          draft_tag="${rolling_tag}-stage-${SHORT_SHA}"
+          draft_published=false
+          cleanup_draft() {
+            if [ "$draft_published" != true ]; then
+              gh release delete "$draft_tag" --yes >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_draft EXIT
 
-          while IFS= read -r old_rel_tag; do
-            [ -n "$old_rel_tag" ] || continue
-            gh release delete "$old_rel_tag" --yes
-          done < <(gh release list --limit 100 --json tagName --jq '.[] | select(.tagName == "rolling" or (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-pre$"))) | .tagName')
+          # Clean up any orphaned staging drafts from previously interrupted runs, then stage and verify all 14 assets before removing the live Rolling release.
+          while IFS= read -r stale_draft; do
+            [ -n "$stale_draft" ] || continue
+            gh release delete "$stale_draft" --yes >/dev/null 2>&1 || true
+          done < <(gh release list --limit 100 --json tagName,isDraft --jq '.[] | select(.isDraft == true and (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-pre-stage-[0-9a-f]+$"))) | .tagName' || true)
+          gh release delete "$draft_tag" --yes >/dev/null 2>&1 || true
 
-          while read -r remote_sha remote_ref; do
-            [ -n "$remote_ref" ] || continue
-            git push \
-              --force-with-lease="$remote_ref:$remote_sha" \
-              origin \
-              ":$remote_ref"
-          done < <(git ls-remote --refs --tags origin 'refs/tags/rolling' 'refs/tags/v*-pre' || true)
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a --force "$rolling_tag" -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"
-          git push origin "refs/tags/$rolling_tag"
-
-          gh release create "$rolling_tag" \
-            --verify-tag \
+          gh release create "$draft_tag" \
+            --target "$SOURCE_SHA" \
             --draft \
             --prerelease \
             --notes-file "$release_notes_file" \
             --title "TunnelKit $ROLLING_VERSION Rolling"
 
-          gh release upload "$rolling_tag" release-files/*
+          gh release upload "$draft_tag" release-files/*
 
-          draft_view="$(gh release view "$rolling_tag" --json assets,isDraft,isPrerelease)"
+          draft_view="$(gh release view "$draft_tag" --json assets,isDraft,isPrerelease)"
           asset_count="$(jq -r '.assets | length' <<<"$draft_view")"
           if [ "$asset_count" -ne 14 ]; then
             echo "Draft Rolling release contains $asset_count assets; expected 14" >&2
@@ -439,7 +436,26 @@ jobs:
             exit 1
           fi
 
-          gh release edit "$rolling_tag" --draft=false --prerelease
+          while IFS= read -r old_rel_tag; do
+            [ -n "$old_rel_tag" ] || continue
+            gh release delete "$old_rel_tag" --yes
+          done < <(gh release list --limit 100 --json tagName --jq '.[] | select(.tagName == "rolling" or (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-pre$"))) | .tagName')
+
+          while read -r remote_sha remote_ref; do
+            [ -n "$remote_ref" ] || continue
+            git push \
+              --force-with-lease="$remote_ref:$remote_sha" \
+              origin \
+              ":$remote_ref"
+          done < <(git ls-remote --refs --tags origin 'refs/tags/rolling' 'refs/tags/v*-pre' || true)
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a --force "$rolling_tag" -m "TunnelKit $ROLLING_VERSION Rolling ($SHORT_SHA)" "$SOURCE_SHA"
+          git push origin "refs/tags/$rolling_tag"
+
+          gh release edit "$draft_tag" --tag "$rolling_tag" --draft=false --prerelease
+          draft_published=true
 
           draft_state="$(gh release view "$rolling_tag" --json isDraft --jq .isDraft)"
           prerelease_state="$(gh release view "$rolling_tag" --json isPrerelease --jq .isPrerelease)"

@@ -233,3 +233,33 @@ func TestCheckerResolvesPlatformAssetsAndSHA256SumsFallback(t *testing.T) {
 		t.Fatalf("unexpected linuxInfo (SHA256SUMS fallback): %+v", linuxInfo)
 	}
 }
+
+func TestSafeRedirectPolicyBlocksHTTPSDowngradeAndExcessHops(t *testing.T) {
+	httpTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name":"v0.9.9","html_url":"https://github.com/maybk/tunnelkit/releases/tag/v0.9.9"}`))
+	}))
+	defer httpTarget.Close()
+
+	httpsRedirect := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, httpTarget.URL, http.StatusFound)
+	}))
+	defer httpsRedirect.Close()
+
+	checker := NewChecker(
+		"0.1.0",
+		WithHTTPClient(httpsRedirect.Client()),
+		WithReleaseURLs(httpsRedirect.URL),
+	)
+	if _, err := checker.Check(context.Background()); err == nil {
+		t.Fatal("expected https -> http redirect downgrade to be rejected")
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, "https://example.com/6", nil)
+	via := make([]*http.Request, 5)
+	for i := range via {
+		via[i], _ = http.NewRequest(http.MethodGet, fmt.Sprintf("https://example.com/%d", i), nil)
+	}
+	if err := safeRedirectPolicy(req, via); err == nil {
+		t.Fatal("expected >5 redirects to be rejected")
+	}
+}

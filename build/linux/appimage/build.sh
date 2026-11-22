@@ -9,16 +9,17 @@ set -euxo pipefail
 APP_DIR="${APP_NAME}.AppDir"
 
 # Create AppDir structure
+HELPER_NAME="${APP_NAME}-helper"
 mkdir -p "${APP_DIR}/usr/bin"
 cp -r "${APP_BINARY}" "${APP_DIR}/usr/bin/"
-HELPER_CANDIDATE="$(dirname "${APP_BINARY}")/tunnelkit-helper"
-if [[ -f "${HELPER_CANDIDATE}" ]]; then
-    cp "${HELPER_CANDIDATE}" "${APP_DIR}/usr/bin/tunnelkit-helper"
-    chmod +x "${APP_DIR}/usr/bin/tunnelkit-helper"
-elif [[ -f "../tunnelkit-helper" ]]; then
-    cp "../tunnelkit-helper" "${APP_DIR}/usr/bin/tunnelkit-helper"
-    chmod +x "${APP_DIR}/usr/bin/tunnelkit-helper"
-fi
+for helper_candidate in "$(dirname "${APP_BINARY}")/${HELPER_NAME}" "../${HELPER_NAME}"; do
+    if [[ -f "${helper_candidate}" ]]; then
+        cp "${helper_candidate}" "${APP_DIR}/usr/bin/${HELPER_NAME}"
+        chmod +x "${APP_DIR}/usr/bin/${HELPER_NAME}"
+        break
+    fi
+done
+test -x "${APP_DIR}/usr/bin/${HELPER_NAME}"
 cp "${ICON_PATH}" "${APP_DIR}/"
 cp "${DESKTOP_FILE}" "${APP_DIR}/"
 
@@ -39,5 +40,5 @@ else
 fi
 
 # Rename the generated AppImage
-mv "${APP_NAME}*.AppImage" "${APP_NAME}.AppImage"
+mv "${APP_NAME}"*.AppImage "${APP_NAME}.AppImage"
 

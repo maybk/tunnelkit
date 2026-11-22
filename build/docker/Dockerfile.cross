@@ -218,8 +218,16 @@ fi
 ${COMPILER} -tags "$TAGS" -trimpath -buildvcs=false -ldflags="$LDFLAGS" -o bin/${APP}-${GOOS}-${GOARCH}${EXT} .
 echo "Built: bin/${APP}-${GOOS}-${GOARCH}${EXT}"
 if [ -d "cmd/tunnelkit-helper" ]; then
-    ${COMPILER} -trimpath -buildvcs=false -ldflags="$LDFLAGS" -o bin/tunnelkit-helper-${GOOS}-${GOARCH}${EXT} ./cmd/tunnelkit-helper
-    echo "Built: bin/tunnelkit-helper-${GOOS}-${GOARCH}${EXT}"
+    HELPER_VERSION="${APP_VERSION:-}"
+    if [ -z "$HELPER_VERSION" ] && [ -f build/config.yml ]; then
+        HELPER_VERSION="$(awk '/^info:/{in_info=1;next} /^[^[:space:]#]/{in_info=0} in_info && /^[[:space:]]+version:[[:space:]]*"/{sub(/^[^"]*"/,"");sub(/".*/,"");print;exit}' build/config.yml)"
+    fi
+    HELPER_LDFLAGS="$LDFLAGS"
+    if [ -n "$HELPER_VERSION" ]; then
+        HELPER_LDFLAGS="$LDFLAGS -X main.Version=$HELPER_VERSION"
+    fi
+    CGO_ENABLED=0 ${COMPILER} -trimpath -buildvcs=false -ldflags="$HELPER_LDFLAGS" -o bin/${APP}-helper-${GOOS}-${GOARCH}${EXT} ./cmd/tunnelkit-helper
+    echo "Built: bin/${APP}-helper-${GOOS}-${GOARCH}${EXT}"
 fi
 SCRIPT
 RUN chmod +x /usr/local/bin/build.sh

@@ -27,7 +27,7 @@ func TailFile(path string, maxBytes int64) (LogTail, error) {
 	if maxBytes <= 0 {
 		maxBytes = DefaultTailBytes
 	}
-	f, err := os.Open(path)
+	f, err := OpenRegularNoFollow(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return LogTail{}, nil
 	}
@@ -40,6 +40,9 @@ func TailFile(path string, maxBytes int64) (LogTail, error) {
 	if err != nil {
 		return LogTail{}, err
 	}
+	if !info.Mode().IsRegular() {
+		return LogTail{}, &os.PathError{Op: "read", Path: path, Err: os.ErrInvalid}
+	}
 	var start int64
 	if info.Size() > maxBytes {
 		start = info.Size() - maxBytes
@@ -47,7 +50,7 @@ func TailFile(path string, maxBytes int64) (LogTail, error) {
 	if _, err := f.Seek(start, io.SeekStart); err != nil {
 		return LogTail{}, err
 	}
-	data, err := io.ReadAll(f)
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes))
 	if err != nil {
 		return LogTail{}, err
 	}

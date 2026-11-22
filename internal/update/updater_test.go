@@ -267,3 +267,70 @@ func TestCheckerApplyAndRestartHooksAndConcurrency(t *testing.T) {
 		t.Fatal("expected updateFinishedHook not to be called when preUpdateHook fails")
 	}
 }
+
+func TestCheckerApplyFallsBackToDirectWhenProxyChecksumMismatches(t *testing.T) {
+	validPayload := []byte("authentic-release-archive")
+	sumBytes := sha256.Sum256(validPayload)
+	expectedSHA := hex.EncodeToString(sumBytes[:])
+
+	var proxyCalls, directCalls atomic.Int32
+	proxySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyCalls.Add(1)
+		// 模拟加速镜像返回被污染或截断的内容，应触发回退至官方直连源。
+		_, _ = w.Write([]byte("corrupted-mirror-payload"))
+	}))
+	defer proxySrv.Close()
+
+	var releaseSrv *httptest.Server
+	releaseSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".zip") {
+			directCalls.Add(1)
+			_, _ = w.Write(validPayload)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{
+			"tag_name": "v0.2.2",
+			"html_url": "https://github.com/maybk/tunnelkit/releases/tag/v0.2.2",
+			"assets": [
+				{
+					"name": "tunnelkit-0.2.2-windows-amd64.zip",
+					"browser_download_url": "%s/maybk/tunnelkit/releases/download/v0.2.2/tunnelkit-0.2.2-windows-amd64.zip",
+					"size": %d,
+					"digest": "sha256:%s"
+				}
+			]
+		}`, releaseSrv.URL, len(validPayload), expectedSHA)
+	}))
+	defer releaseSrv.Close()
+
+	var appliedBytes []byte
+	checker := NewChecker(
+		"0.2.1",
+		WithHTTPClient(releaseSrv.Client()),
+		WithReleaseURLs(releaseSrv.URL),
+		WithProxyPrefix(proxySrv.URL+"/"),
+		WithPlatform("windows", "amd64"),
+		WithAssetURLValidator(func(rawURL, _, _ string) bool {
+			return strings.HasPrefix(rawURL, releaseSrv.URL+"/")
+		}),
+		WithApplier(func(_ context.Context, archivePath string, _ ProgressFunc) (func() error, error) {
+			data, err := os.ReadFile(archivePath)
+			if err != nil {
+				return nil, err
+			}
+			appliedBytes = data
+			return func() error { return nil }, nil
+		}),
+	)
+
+	if _, err := checker.Apply(context.Background(), nil); err != nil {
+		t.Fatalf("Apply should succeed by falling back to direct source after proxy checksum mismatch, got: %v", err)
+	}
+	if proxyCalls.Load() != 1 || directCalls.Load() != 1 {
+		t.Fatalf("expected proxy=1 direct=1, got proxy=%d direct=%d", proxyCalls.Load(), directCalls.Load())
+	}
+	if !bytes.Equal(appliedBytes, validPayload) {
+		t.Fatalf("applied payload = %q, want %q", appliedBytes, validPayload)
+	}
+}

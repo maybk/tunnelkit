@@ -21,10 +21,10 @@ func defaultEndpoint() (string, error) {
 	return privilege.Endpoint(owner)
 }
 
-func launchElevated(ctx context.Context, source, endpoint, owner, tokenHash string) (<-chan error, error) {
+func launchElevated(ctx context.Context, source, endpoint, owner, tokenHash string) (*processWatcher, func(), error) {
 	target, err := installedHelperPath(ctx, source)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cmd := exec.Command(target, buildServeArgs("--owner", endpoint, owner, tokenHash)...)
 	var stderr bytes.Buffer
@@ -33,18 +33,17 @@ func launchElevated(ctx context.Context, source, endpoint, owner, tokenHash stri
 	cmd.Dir = "/"
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// The outer launcher authenticates the socket, and uses IPC to cancel. Never
 	// kill a root child or start a second helper when readiness takes longer.
-	exited := make(chan error, 1)
+	exited := newProcessWatcher()
 	go func() {
 		err := cmd.Wait()
 		if err != nil {
 			err = fmt.Errorf("%s: %w", stderr.String(), err)
 		}
-		exited <- err
-		close(exited)
+		exited.complete(err)
 	}()
-	return exited, nil
+	return exited, func() {}, nil
 }

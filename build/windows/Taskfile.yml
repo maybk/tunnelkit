@@ -39,7 +39,7 @@ tasks:
         vars:
           ARCH: amd64
           OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-windows-amd64.exe"
-          HELPER_OUTPUT: "{{.BIN_DIR}}/tunnelkit-helper-windows-amd64.exe"
+          HELPER_OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-helper-windows-amd64.exe"
 
   build:arm64:
     summary: Builds standalone Windows ARM64 executables
@@ -48,7 +48,7 @@ tasks:
         vars:
           ARCH: arm64
           OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-windows-arm64.exe"
-          HELPER_OUTPUT: "{{.BIN_DIR}}/tunnelkit-helper-windows-arm64.exe"
+          HELPER_OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-helper-windows-arm64.exe"
 
   build:native:
     summary: Builds the application using native Go cross-compilation
@@ -79,10 +79,10 @@ tasks:
       - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.HELPER_BUILD_FLAGS}} -o "{{.HELPER_OUTPUT}}" ./cmd/tunnelkit-helper'
     vars:
       BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"{{end}}'
-      HELPER_BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{else}}-trimpath -buildvcs=false -ldflags="-w -s -H windowsgui"{{end}}'
+      HELPER_BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l" -ldflags="-X main.Version={{.HELPER_VERSION}}"{{else}}-trimpath -buildvcs=false -ldflags="-w -s -H windowsgui -X main.Version={{.HELPER_VERSION}}"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}.exe'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
-      DEFAULT_HELPER_OUTPUT: '{{.BIN_DIR}}/tunnelkit-helper.exe'
+      DEFAULT_HELPER_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}-helper.exe'
       HELPER_OUTPUT: '{{ .HELPER_OUTPUT | default .DEFAULT_HELPER_OUTPUT }}'
     env:
       GOOS: windows
@@ -109,22 +109,22 @@ tasks:
       - task: generate:syso
         vars:
           ARCH: '{{.ARCH}}'
-      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.DOCKER_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} {{if eq .OBFUSCATED "true"}}-e OBFUSCATED=true{{end}} {{if .GARBLE_ARGS}}-e GARBLE_ARGS="{{.GARBLE_ARGS}}"{{end}} {{.CROSS_IMAGE}} windows {{.DOCKER_ARCH}}
+      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.DOCKER_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" -e APP_VERSION="{{.HELPER_VERSION}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} {{if eq .OBFUSCATED "true"}}-e OBFUSCATED=true{{end}} {{if .GARBLE_ARGS}}-e GARBLE_ARGS="{{.GARBLE_ARGS}}"{{end}} {{.CROSS_IMAGE}} windows {{.DOCKER_ARCH}}
       - cmd: docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
         platforms: [linux, darwin]
       - |
         if [ "bin/{{.APP_NAME}}-windows-{{.DOCKER_ARCH}}.exe" != "{{.OUTPUT}}" ]; then
           mv "bin/{{.APP_NAME}}-windows-{{.DOCKER_ARCH}}.exe" "{{.OUTPUT}}"
         fi
-        if [ "bin/tunnelkit-helper-windows-{{.DOCKER_ARCH}}.exe" != "{{.HELPER_OUTPUT}}" ]; then
-          mv "bin/tunnelkit-helper-windows-{{.DOCKER_ARCH}}.exe" "{{.HELPER_OUTPUT}}"
+        if [ "bin/{{.APP_NAME}}-helper-windows-{{.DOCKER_ARCH}}.exe" != "{{.HELPER_OUTPUT}}" ]; then
+          mv "bin/{{.APP_NAME}}-helper-windows-{{.DOCKER_ARCH}}.exe" "{{.HELPER_OUTPUT}}"
         fi
       - rm -f *.syso
     vars:
       DOCKER_ARCH: '{{.ARCH | default "amd64"}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}.exe'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
-      DEFAULT_HELPER_OUTPUT: '{{.BIN_DIR}}/tunnelkit-helper.exe'
+      DEFAULT_HELPER_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}-helper.exe'
       HELPER_OUTPUT: '{{ .HELPER_OUTPUT | default .DEFAULT_HELPER_OUTPUT }}'
       # Generate Docker volume mounts: Go module cache + go.mod replace directives
       # Uses wails3 tool docker-mounts for cross-platform compatibility (Windows/Linux/macOS)
@@ -178,7 +178,7 @@ tasks:
         vars:
           ARCH: '{{.ARCH}}'
           OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-windows-{{.ARCH}}.exe"
-          HELPER_OUTPUT: "{{.BIN_DIR}}/tunnelkit-helper-windows-{{.ARCH}}.exe"
+          HELPER_OUTPUT: "{{.BIN_DIR}}/{{.APP_NAME}}-helper-windows-{{.ARCH}}.exe"
       - task: generate:nsis:installer
         vars:
           ARCH: '{{.ARCH}}'
@@ -198,9 +198,9 @@ tasks:
       - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
       - |
         {{if eq OS "windows"}}
-        makensis -INPUTCHARSET UTF8 {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}-windows-{{.ARCH}}.exe" -DARG_WAILS_HELPER_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\tunnelkit-helper-windows-{{.ARCH}}.exe" project.nsi
+        makensis -INPUTCHARSET UTF8 {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}-windows-{{.ARCH}}.exe" -DARG_WAILS_HELPER_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}-helper-windows-{{.ARCH}}.exe" project.nsi
         {{else}}
-        makensis -INPUTCHARSET UTF8 {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}-windows-{{.ARCH}}.exe" -DARG_WAILS_HELPER_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/tunnelkit-helper-windows-{{.ARCH}}.exe" project.nsi
+        makensis -INPUTCHARSET UTF8 {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}-windows-{{.ARCH}}.exe" -DARG_WAILS_HELPER_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}-helper-windows-{{.ARCH}}.exe" project.nsi
         {{end}}
     vars:
       ARCH: '{{.ARCH | default ARCH}}'
@@ -260,8 +260,10 @@ tasks:
     deps:
       - task: create:nsis:installer
         vars:
+          ARCH: '{{.ARCH | default ARCH}}'
           INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "machine"}}'
     vars:
+      ARCH: '{{.ARCH | default ARCH}}'
       INSTALL_SCOPE: '{{.INSTALL_SCOPE | default "machine"}}'
     cmds:
-      - wails3 tool sign --input "build/windows/nsis/{{.APP_NAME}}-installer.exe" {{if .SIGN_CERTIFICATE}}--certificate "{{.SIGN_CERTIFICATE}}"{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint "{{.SIGN_THUMBPRINT}}"{{end}} {{if .TIMESTAMP_SERVER}}--timestamp "{{.TIMESTAMP_SERVER}}"{{end}}
+      - wails3 tool sign --input "bin/{{.APP_NAME}}-{{.ARCH}}-installer.exe" {{if .SIGN_CERTIFICATE}}--certificate "{{.SIGN_CERTIFICATE}}"{{end}} {{if .SIGN_THUMBPRINT}}--thumbprint "{{.SIGN_THUMBPRINT}}"{{end}} {{if .TIMESTAMP_SERVER}}--timestamp "{{.TIMESTAMP_SERVER}}"{{end}}

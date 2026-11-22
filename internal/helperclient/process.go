@@ -15,11 +15,8 @@ func (c *Client) WaitForExit(ctx context.Context) error {
 		return errors.New("helper process identity is unavailable")
 	}
 	if c.processExit != nil {
-		select {
-		case err := <-c.processExit:
+		if err, decided := c.processExit.wait(ctx); decided {
 			return err
-		case <-ctx.Done():
-			return ctx.Err()
 		}
 	}
 	ticker := time.NewTicker(25 * time.Millisecond)

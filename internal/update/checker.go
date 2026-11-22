@@ -173,6 +173,16 @@ type Checker struct {
 	cachedInfo *Info
 }
 
+func safeRedirectPolicy(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("stopped after 5 redirects")
+	}
+	if len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && !strings.EqualFold(req.URL.Scheme, "https") {
+		return errors.New("refused insecure https to http redirect")
+	}
+	return nil
+}
+
 // NewChecker 创建版本更新检查器，默认优先请求加速源，失败时自动回退至 GitHub 官方源。
 func NewChecker(version string, opts ...Option) *Checker {
 	c := &Checker{
@@ -180,7 +190,7 @@ func NewChecker(version string, opts ...Option) *Checker {
 		goos:        runtime.GOOS,
 		goarch:      runtime.GOARCH,
 		proxyPrefix: defaultProxyPrefix,
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		httpClient:  &http.Client{Timeout: 10 * time.Second, CheckRedirect: safeRedirectPolicy},
 		releaseURLs: []string{
 			defaultReleaseProxyAPIURL,
 			defaultReleaseDirectAPIURL,
@@ -195,6 +205,21 @@ func NewChecker(version string, opts ...Option) *Checker {
 		}
 	}
 	return c
+}
+
+func (c *Checker) safeHTTPClient(minTimeout time.Duration) *http.Client {
+	base := c.httpClient
+	if base == nil {
+		base = http.DefaultClient
+	}
+	cloned := *base
+	if cloned.CheckRedirect == nil {
+		cloned.CheckRedirect = safeRedirectPolicy
+	}
+	if minTimeout > 0 && cloned.Timeout > 0 && cloned.Timeout < minTimeout {
+		cloned.Timeout = minTimeout
+	}
+	return &cloned
 }
 
 // Check 检查最新正式版本并与当前版本比较。
@@ -256,11 +281,7 @@ func (c *Checker) fetchReleaseFrom(parentCtx context.Context, endpoint, currentV
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", fmt.Sprintf("TunnelKit/%s", currentVersion))
 
-	client := c.httpClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
+	resp, err := c.safeHTTPClient(0).Do(req)
 	if err != nil {
 		if parentCtx.Err() != nil {
 			return Info{}, parentCtx.Err()
@@ -362,11 +383,7 @@ func (c *Checker) fetchChecksumFromSumsAsset(parentCtx context.Context, sumsURL,
 			cancel()
 			continue
 		}
-		client := c.httpClient
-		if client == nil {
-			client = http.DefaultClient
-		}
-		resp, err := client.Do(req)
+		resp, err := c.safeHTTPClient(0).Do(req)
 		if err != nil {
 			cancel()
 			continue

@@ -170,7 +170,7 @@ func TestExtractArchiveAndAtomicReplaceHelpers(t *testing.T) {
 	if !CanInstallInPlace("windows", `C:\Program Files\TunnelKit\tunnelkit.exe`, "") {
 		t.Fatal("expected windows exe to support in-place self-update")
 	}
-	if !CanInstallInPlace("linux", "/usr/local/bin/tunnelkit", "") {
+	if !CanInstallInPlace("linux", "/usr/bin/tunnelkit", "") || !CanInstallInPlace("linux", "/usr/local/bin/tunnelkit", "") {
 		t.Fatal("expected linux binary to support in-place self-update")
 	}
 	if CanInstallInPlace("linux", "/tmp/.mount_tunnelkit/usr/bin/tunnelkit", "/home/user/TunnelKit.AppImage") {

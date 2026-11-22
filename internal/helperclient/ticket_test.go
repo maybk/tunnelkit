@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -226,6 +227,21 @@ func TestTicketStoreRejectsMalformedVersionedOrOutOfBoundsPayloads(t *testing.T)
 		if _, err := os.Stat(storage.SecretKeyPath(root)); err == nil {
 			t.Fatal("rejected ticket file must not create secret.key")
 		}
+		if runtime.GOOS != "windows" {
+			target := filepath.Join(root, "real-ticket.json")
+			if err := os.WriteFile(target, []byte(`{"endpoint":"/tmp/s","token":"tok"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.RemoveAll(store.path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, store.path); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.Load(); err == nil {
+				t.Fatal("expected symlink ticket path to be rejected")
+			}
+		}
 	})
 }
 
@@ -248,8 +264,8 @@ func TestTicketStoreClosesReadHandleBeforeMigrationRename(t *testing.T) {
 		t.Helper()
 		store := NewTicketStore(t.TempDir())
 		openHandles := 0
-		store.openFile = func(p string) (ticketFile, error) {
-			rawFile, err := openCertificateFile(p)
+		store.openFile = func(p string) (storage.RegularFile, error) {
+			rawFile, err := storage.OpenRegularNoFollow(p)
 			if err != nil {
 				return nil, err
 			}

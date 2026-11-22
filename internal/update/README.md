@@ -4,12 +4,12 @@
 
 ## 目录结构
 
-- `checker.go`：多源 Release 元数据拉取、降级回退、当前平台资产匹配、原地更新能力判定与官方发布地址白名单校验。
+- `checker.go`：多源 Release 元数据拉取、失败回退、禁止 HTTPS 降级重定向、平台资产匹配、原地更新能力判定与官方地址白名单校验。
 - `version.go`：语义化版本号解析、归一化与新旧版本比较。
-- `updater.go`：更新包下载、SHA-256 摘要校验、安装前置与结束维护钩子协调及状态流转。
-- `archive.go`：更新归档安全解压、路径穿越防护、目标可执行组件提取与备份回滚原语。
-- `script_sh.go`：生成 `sh` 组件替换回滚与 macOS 重启脚本。
-- `script_cmd.go`：生成 `cmd.exe` 多组件替换与回滚脚本。
+- `updater.go`：更新包下载、加速源校验失败回退官方源、SHA-256 校验、前置与收尾维护钩子协调及状态流转。
+- `archive.go`：更新归档安全解压、路径穿越防护、目标组件提取、文件 SHA-256 计算与备份回滚原语。
+- `script_sh.go`：生成含受保护目录 SHA-256 二次校验的 `sh` 替换回滚脚本与 macOS 重启脚本。
+- `script_cmd.go`：生成含受保护目录 SHA-256 二次校验的 `cmd.exe` 替换与回滚脚本。
 - `apply_darwin.go`：macOS `.dmg` 挂载校验、`.app` 原地原子替换、失败回滚、`osascript` 提权安装与重启交接。
 - `apply_linux.go`：Linux 客户端与 `tunnelkit-helper` 备份替换、失败回滚、辅助组件同步更新与 `pkexec` 提权安装。
 - `apply_windows.go`：Windows 客户端与辅助进程分阶段重命名替换、失败回滚及 `TunnelKitHelper` 服务同步刷新。

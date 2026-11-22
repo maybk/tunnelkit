@@ -8,12 +8,13 @@
 - `events.go`：事件缓冲与保序分发；关键消息无法保留时断开控制通道。
 - `handshake.go`：版本协商、握手超时与取消收尾。
 - `legacy_journal.go`：以桌面权限有界读取旧版网络恢复数据，确认恢复后删除旧记录。
-- `ticket.go`：加密会话票据的读写与清理。
+- `ticket.go`：加密会话票据的防符号链接有界读取、原子保存与清理。
 - `ticket_migrate.go`：旧票据识别与格式转换。
-- `launch.go`：辅助程序二进制定位、受保护安装确保、启动参数拼装与就绪握手等待。
-- `launch_unix.go`：macOS 与 Linux 直接拉起已受保护安装的 `setuid-root` 辅助进程并监听退出状态。
-- `launch_windows.go`：Windows 通过服务控制管理器（SCM）按需启动 `TunnelKitHelper` 服务并监听退出状态。
+- `launch.go`：特权辅助程序定位、受保护安装确保、启动参数拼装与就绪握手等待。
+- `launch_unix.go`：macOS 与 Linux 拉起受保护安装的 `setuid-root` 辅助进程并监听退出状态。
+- `launch_windows.go`：Windows 通过服务控制管理器（SCM）按需启动 `TunnelKitHelper` 服务，支持可取消退出监控。
 - `launch_other.go`：非支持平台下的辅助进程启动空实现。
+- `watcher.go`：辅助进程与系统服务退出监控原语，区分真实退出与主动停止监控。
 - `process.go`：通过退出通知或进程查询，等待辅助进程退出。
 - `certificate.go`：在桌面进程内以当前用户权限读取并校验客户端证书与私钥，转换为内存 `Secret` 后通过 IPC 下发。
 - `certificate_unix.go`：Unix 平台以非阻塞方式打开用户文件，交由调用方检查普通文件类型与大小。

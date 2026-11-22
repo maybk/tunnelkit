@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Install the protected component; authorization failures must stop packaging.
-/usr/local/bin/tunnelkit-helper install || exit $?
+/usr/bin/tunnelkit-helper install || exit $?
 
 # Update desktop database for .desktop file changes
 # This makes the application appear in application menus and registers its capabilities.

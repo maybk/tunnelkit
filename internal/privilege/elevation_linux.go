@@ -18,7 +18,7 @@ func RunElevatedLinux(ctx context.Context, bin string, args ...string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if pkexec, err := exec.LookPath("pkexec"); err == nil {
+	if pkexec, ok := ResolveTrustedSystemBinary("/usr/bin/pkexec", "/bin/pkexec"); ok {
 		pkArgs := append([]string{bin}, args...)
 		out, runErr := exec.CommandContext(ctx, pkexec, pkArgs...).CombinedOutput()
 		if runErr == nil {
@@ -42,7 +42,7 @@ func RunElevatedLinux(ctx context.Context, bin string, args ...string) error {
 			return fmt.Errorf("%s (%w)", text, runErr)
 		}
 	}
-	if sudo, err := exec.LookPath("sudo"); err == nil {
+	if sudo, ok := ResolveTrustedSystemBinary("/usr/bin/sudo", "/bin/sudo"); ok {
 		sudoArgs := append([]string{"-n", bin}, args...)
 		out, runErr := exec.CommandContext(ctx, sudo, sudoArgs...).CombinedOutput()
 		if runErr == nil {

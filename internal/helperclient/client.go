@@ -27,7 +27,8 @@ type Client struct {
 	pid         int
 	version     string
 	protocol    int
-	processExit <-chan error
+	processExit *processWatcher
+	stopWatch   func()
 	eventsCh    chan Message
 	eventsMu    sync.Mutex
 
@@ -80,6 +81,9 @@ func (c *Client) Stop(ctx context.Context) error {
 // Close closes the IPC connection to the helper without stopping the VPN session.
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() {
+		if c.stopWatch != nil {
+			c.stopWatch()
+		}
 		c.mu.Lock()
 		c.closed = true
 		for id, ch := range c.pending {

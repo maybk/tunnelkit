@@ -8,9 +8,9 @@
 - `version.go`：语义化版本号解析、归一化与新旧版本比较。
 - `updater.go`：更新包下载、SHA-256 摘要校验、安装前置与结束维护钩子协调及状态流转。
 - `archive.go`：更新归档安全解压、路径穿越防护、目标可执行组件提取与备份回滚原语。
-- `script_sh.go`：生成 `sh` 多组件替换与回滚脚本。
+- `script_sh.go`：生成 `sh` 组件替换回滚与 macOS 重启脚本。
 - `script_cmd.go`：生成 `cmd.exe` 多组件替换与回滚脚本。
-- `apply_darwin.go`：macOS `.dmg` 挂载校验、`.app` 应用包备份替换、失败回滚、辅助组件同步更新与 `osascript` 提权回退。
+- `apply_darwin.go`：macOS `.dmg` 挂载校验、`.app` 原地原子替换、失败回滚、`osascript` 提权安装与重启交接。
 - `apply_linux.go`：Linux 客户端与 `tunnelkit-helper` 备份替换、失败回滚、辅助组件同步更新与 `pkexec` 提权安装。
 - `apply_windows.go`：Windows 客户端与辅助进程分阶段重命名替换、失败回滚及 `TunnelKitHelper` 服务同步刷新。
 - `apply_other.go`：不支持平台的更新报错实现。

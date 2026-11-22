@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 
 	"tunnelkit/internal/privilege"
 )
@@ -48,9 +49,22 @@ func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc
 	}
 
 	restart := func() error {
-		return exec.Command(selfExe, restartArguments()...).Start()
+		return startDetachedProcess(selfExe, targetDir, restartArguments())
 	}
 	return restart, nil
+}
+
+func startDetachedProcess(exePath, workDir string, args []string) error {
+	cmd := exec.Command(exePath, args...)
+	cmd.Dir = workDir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("启动新版本应用失败: %w", err)
+	}
+	go func() {
+		_ = cmd.Wait()
+	}()
+	return nil
 }
 
 func replaceLinuxFilesElevated(ctx context.Context, stageDir, targetDir string) error {

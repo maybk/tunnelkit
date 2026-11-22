@@ -362,6 +362,7 @@ func TestPlatformBuildMetadataUsesApplicationName(t *testing.T) {
 	configText := string(configBytes)
 	for _, want := range []string{
 		fmt.Sprintf("productName: %q", ApplicationName),
+		fmt.Sprintf("productIdentifier: %q", ApplicationID),
 		fmt.Sprintf("description: %q", ApplicationName),
 		fmt.Sprintf("comments: %q", ApplicationName),
 	} {
@@ -418,12 +419,15 @@ func TestPlatformBuildMetadataUsesApplicationName(t *testing.T) {
 		t.Fatalf("read build/linux/Taskfile.yml: %v", err)
 	}
 	linuxTaskfileText := string(linuxTaskfileBytes)
-	wantDesktopNameFlag := fmt.Sprintf("-name %q", ApplicationName)
-	if !strings.Contains(linuxTaskfileText, wantDesktopNameFlag) {
-		t.Fatalf("build/linux/Taskfile.yml must pass %s to wails3 generate .desktop", wantDesktopNameFlag)
-	}
-	if !strings.Contains(linuxTaskfileText, `-comment "Fortinet SSL-VPN client"`) {
-		t.Fatal(`build/linux/Taskfile.yml must pass -comment "Fortinet SSL-VPN client" to wails3 generate .desktop`)
+	for _, want := range []string{
+		fmt.Sprintf("DISPLAY_NAME: '%s'", ApplicationName),
+		"COMMENT: 'Fortinet SSL-VPN client'",
+		fmt.Sprintf("STARTUP_WM_CLASS: '%s'", ApplicationID),
+		`printf 'StartupWMClass=%s\n' "{{.STARTUP_WM_CLASS}}" >> "{{.OUTPUTFILE}}"`,
+	} {
+		if !strings.Contains(linuxTaskfileText, want) {
+			t.Fatalf("build/linux/Taskfile.yml must contain %s", want)
+		}
 	}
 
 	linuxDesktopBytes, err := os.ReadFile("../../build/linux/desktop")
@@ -436,6 +440,14 @@ func TestPlatformBuildMetadataUsesApplicationName(t *testing.T) {
 	}
 	if !strings.Contains(linuxDesktopText, "Comment=Fortinet SSL-VPN client") {
 		t.Fatal("build/linux/desktop must define Comment=Fortinet SSL-VPN client")
+	}
+	if !strings.Contains(linuxDesktopText, "StartupWMClass="+ApplicationID) {
+		t.Fatalf("build/linux/desktop must define StartupWMClass=%s", ApplicationID)
+	}
+
+	linuxOpts := linuxAppOptions()
+	if linuxOpts.ApplicationID != ApplicationID || linuxOpts.ProgramName != "" {
+		t.Fatalf("unexpected LinuxOptions: %+v (want ApplicationID=%q, empty ProgramName)", linuxOpts, ApplicationID)
 	}
 
 	nfpmBytes, err := os.ReadFile("../../build/linux/nfpm/nfpm.yaml")

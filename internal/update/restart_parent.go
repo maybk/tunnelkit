@@ -10,7 +10,10 @@ import (
 	"tunnelkit/internal/privilege"
 )
 
-const restartParentFlag = "--wait-for-parent"
+const (
+	restartParentFlag     = "--wait-for-parent"
+	parentExitSettleDelay = 50 * time.Millisecond
+)
 
 func restartArguments() []string { return []string{restartParentFlag, strconv.Itoa(os.Getpid())} }
 
@@ -29,12 +32,12 @@ func WaitForRestartParent(ctx context.Context, args []string) error {
 		}
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		return waitForParent(ctx, pid, privilege.IsProcessAlive)
+		return waitForParent(ctx, pid, privilege.IsProcessAlive, parentExitSettleDelay)
 	}
 	return nil
 }
 
-func waitForParent(ctx context.Context, pid int, alive func(int) (bool, error)) error {
+func waitForParent(ctx context.Context, pid int, alive func(int) (bool, error), settleDelay time.Duration) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -43,7 +46,15 @@ func waitForParent(ctx context.Context, pid int, alive func(int) (bool, error)) 
 			return fmt.Errorf("wait for previous process exit: %w", err)
 		}
 		if !running {
-			return nil
+			if settleDelay <= 0 {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("wait for previous process exit: %w", ctx.Err())
+			case <-time.After(settleDelay):
+				return nil
+			}
 		}
 		select {
 		case <-ctx.Done():

@@ -344,6 +344,13 @@ for nfpm_script in \
   sh -n "$nfpm_script"
 done
 
+if ! grep -Fq 'StartupWMClass=com.tunnelkit.app' "$repo_root/build/linux/desktop" ||
+  ! grep -Fq "STARTUP_WM_CLASS: 'com.tunnelkit.app'" "$repo_root/build/linux/Taskfile.yml" ||
+  ! grep -Fq 'printf '\''StartupWMClass=%s\n'\'' "{{.STARTUP_WM_CLASS}}" >> "{{.OUTPUTFILE}}"' "$repo_root/build/linux/Taskfile.yml"; then
+  echo "Linux .desktop configuration must set StartupWMClass via STARTUP_WM_CLASS (com.tunnelkit.app) to match GTK4 ApplicationID" >&2
+  exit 1
+fi
+
 for required_runner in \
   'runs-on: macos-latest' \
   'runs-on: windows-latest' \

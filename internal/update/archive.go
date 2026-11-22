@@ -40,9 +40,7 @@ func CleanupOldArtifacts() {
 	}
 	CleanDirectoryBackups(filepath.Dir(selfExe))
 	if bundlePath, ok := ResolveMacAppBundlePath(selfExe); ok {
-		if _, statErr := os.Stat(bundlePath); statErr == nil {
-			_ = os.RemoveAll(bundlePath + ".bak")
-		}
+		CleanMacBundleArtifacts(bundlePath)
 	}
 }
 
@@ -85,6 +83,26 @@ func CleanDirectoryBackups(dir string) {
 		"tunnelkit-helper.old",
 	} {
 		_ = os.Remove(filepath.Join(dir, name))
+	}
+}
+
+// CleanMacBundleArtifacts 清理指定 macOS .app 同目录下遗留的自更新备份与暂存目录。
+func CleanMacBundleArtifacts(bundlePath string) {
+	if _, err := os.Lstat(bundlePath); err != nil {
+		return
+	}
+	_ = os.RemoveAll(bundlePath + ".bak")
+	_ = os.RemoveAll(bundlePath + ".stage")
+	parentDir := filepath.Dir(bundlePath)
+	stagePrefix := "." + filepath.Base(bundlePath) + ".stage-"
+	entries, err := os.ReadDir(parentDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), stagePrefix) {
+			_ = os.RemoveAll(filepath.Join(parentDir, entry.Name()))
+		}
 	}
 }
 

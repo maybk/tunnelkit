@@ -24,6 +24,7 @@ import (
 
 const (
 	ApplicationName     = "TunnelKit"
+	ApplicationID       = "com.tunnelkit.app"
 	EventVPNState       = "vpn:state"
 	EventUpdateProgress = "update:progress"
 )
@@ -125,7 +126,7 @@ func Run(assets embed.FS) error {
 			}
 		},
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "com.tunnelkit.app",
+			UniqueID: ApplicationID,
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
 				showMainWindow(mainWindow, icons.appIcon)
 			},
@@ -133,10 +134,7 @@ func Run(assets embed.FS) error {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
-		Linux: application.LinuxOptions{
-			ApplicationID: "com.tunnelkit.app",
-			ProgramName:   "tunnelkit",
-		},
+		Linux: linuxAppOptions(),
 	})
 
 	mainWindow = createMainWindow(wailsApp)
@@ -171,6 +169,12 @@ func Run(assets embed.FS) error {
 	})
 
 	return wailsApp.Run()
+}
+
+func linuxAppOptions() application.LinuxOptions {
+	return application.LinuxOptions{
+		ApplicationID: ApplicationID,
+	}
 }
 
 func shutdownVPN(vpnService *vpn.Service) error {

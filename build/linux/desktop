@@ -8,4 +8,4 @@ Terminal=false
 Type=Application
 Icon=tunnelkit
 Categories=Network;
-StartupWMClass=tunnelkit
+StartupWMClass=com.tunnelkit.app

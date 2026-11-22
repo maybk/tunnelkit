@@ -9,7 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
+
+	"golang.org/x/sys/unix"
 
 	"tunnelkit/internal/privilege"
 )
@@ -58,10 +63,36 @@ func applyPlatformUpdate(ctx context.Context, archivePath string, _ ProgressFunc
 		return nil, err
 	}
 
+	oldPID := os.Getpid()
 	restart := func() error {
-		return exec.Command("/usr/bin/open", append([]string{"-n", bundlePath, "--args"}, restartArguments()...)...).Run()
+		return startMacRelaunch(oldPID, bundlePath)
 	}
 	return restart, nil
+}
+
+func startMacRelaunch(oldPID int, bundlePath string) error {
+	if oldPID <= 1 {
+		return fmt.Errorf("当前进程 PID 无效: %d", oldPID)
+	}
+	if strings.TrimSpace(bundlePath) == "" {
+		return errors.New("应用包路径不能为空")
+	}
+	cmd := exec.Command(
+		"/bin/sh",
+		"-c",
+		buildMacRelaunchShellCmd(),
+		"tunnelkit-relaunch",
+		strconv.Itoa(oldPID),
+		bundlePath,
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("启动新版本应用失败: %w", err)
+	}
+	go func() {
+		_ = cmd.Wait()
+	}()
+	return nil
 }
 
 func findAppBundleInMount(mountDir string) (string, error) {
@@ -90,28 +121,124 @@ func isExecutableFile(p string) bool {
 
 func replaceMacAppBundle(ctx context.Context, srcAppPath, dstAppPath string) error {
 	backupPath := dstAppPath + ".bak"
-	_ = os.RemoveAll(backupPath)
+	if needsMacElevation(dstAppPath) {
+		return replaceMacAppBundleElevated(ctx, srcAppPath, dstAppPath, backupPath)
+	}
 
-	if err := os.Rename(dstAppPath, backupPath); err != nil {
-		if errors.Is(err, os.ErrPermission) {
+	parentDir := filepath.Dir(dstAppPath)
+	bundleName := filepath.Base(dstAppPath)
+	stageDir, err := os.MkdirTemp(parentDir, "."+bundleName+".stage-*")
+	if err != nil {
+		if isMacPermissionError(err) {
 			return replaceMacAppBundleElevated(ctx, srcAppPath, dstAppPath, backupPath)
 		}
-		return fmt.Errorf("备份原应用包失败: %w", err)
+		return fmt.Errorf("创建更新暂存目录失败: %w", err)
 	}
+	defer func() {
+		_ = os.RemoveAll(stageDir)
+	}()
 
-	if out, err := exec.CommandContext(ctx, "/usr/bin/ditto", srcAppPath, dstAppPath).CombinedOutput(); err != nil {
-		removeErr := os.RemoveAll(dstAppPath)
-		restoreErr := os.Rename(backupPath, dstAppPath)
-		installErr := fmt.Errorf("写入新应用包失败: %s (%w)", strings.TrimSpace(string(out)), err)
-		if restoreErr != nil {
-			return errors.Join(ErrRollbackFailed, installErr, removeErr, restoreErr)
+	stageAppPath := filepath.Join(stageDir, bundleName)
+	if out, err := exec.CommandContext(ctx, "/usr/bin/ditto", srcAppPath, stageAppPath).CombinedOutput(); err != nil {
+		return fmt.Errorf("准备新应用包失败: %s (%w)", strings.TrimSpace(string(out)), err)
+	}
+	_ = exec.CommandContext(ctx, "/usr/bin/xattr", "-dr", "com.apple.quarantine", stageAppPath).Run()
+
+	if err := swapMacAppBundles(stageAppPath, dstAppPath, backupPath); err != nil {
+		if isMacPermissionError(err) && !errors.Is(err, ErrRollbackFailed) {
+			return replaceMacAppBundleElevated(ctx, srcAppPath, dstAppPath, backupPath)
 		}
-		return errors.Join(installErr, removeErr)
+		return err
 	}
 
-	_ = exec.CommandContext(ctx, "/usr/bin/xattr", "-dr", "com.apple.quarantine", dstAppPath).Run()
-	_ = os.RemoveAll(backupPath)
+	touchBundle(dstAppPath)
 	return nil
+}
+
+func needsMacElevation(dstAppPath string) bool {
+	if os.Geteuid() == 0 {
+		return false
+	}
+	parentDir := filepath.Dir(dstAppPath)
+	if unix.Access(parentDir, unix.W_OK|unix.X_OK) != nil {
+		return true
+	}
+	info, err := os.Lstat(dstAppPath)
+	if err != nil {
+		return !errors.Is(err, os.ErrNotExist)
+	}
+	if unix.Access(dstAppPath, unix.W_OK) != nil {
+		return true
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != os.Geteuid() {
+		return true
+	}
+	return false
+}
+
+func swapMacAppBundles(stageAppPath, dstAppPath, backupPath string) error {
+	_ = os.RemoveAll(backupPath)
+
+	swapErr := unix.RenamexNp(stageAppPath, dstAppPath, unix.RENAME_SWAP)
+	if swapErr == nil {
+		return nil
+	}
+	if isMacPermissionError(swapErr) {
+		return fmt.Errorf("替换应用包权限不足: %w", os.ErrPermission)
+	}
+	if !shouldFallbackFromAtomicSwap(swapErr) {
+		return fmt.Errorf("替换应用包失败: %w", swapErr)
+	}
+
+	return swapMacAppBundlesFallback(stageAppPath, dstAppPath, backupPath)
+}
+
+func swapMacAppBundlesFallback(stageAppPath, dstAppPath, backupPath string) error {
+	_ = os.RemoveAll(backupPath)
+
+	hadExisting := false
+	if _, err := os.Lstat(dstAppPath); err == nil {
+		if err := os.Rename(dstAppPath, backupPath); err != nil {
+			return fmt.Errorf("备份原应用包失败: %w", err)
+		}
+		hadExisting = true
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("检查原应用包失败: %w", err)
+	}
+
+	if err := os.Rename(stageAppPath, dstAppPath); err != nil {
+		installErr := fmt.Errorf("替换应用包失败: %w", err)
+		if hadExisting {
+			if restoreErr := os.Rename(backupPath, dstAppPath); restoreErr != nil {
+				return errors.Join(ErrRollbackFailed, installErr, restoreErr)
+			}
+		}
+		return installErr
+	}
+
+	if hadExisting {
+		_ = os.RemoveAll(backupPath)
+	}
+	return nil
+}
+
+func isMacPermissionError(err error) bool {
+	return errors.Is(err, os.ErrPermission) ||
+		errors.Is(err, unix.EACCES) ||
+		errors.Is(err, unix.EPERM)
+}
+
+func shouldFallbackFromAtomicSwap(err error) bool {
+	return errors.Is(err, unix.ENOTSUP) ||
+		errors.Is(err, unix.EOPNOTSUPP) ||
+		errors.Is(err, unix.EINVAL) ||
+		errors.Is(err, unix.ENOENT) ||
+		errors.Is(err, unix.EXDEV)
+}
+
+func touchBundle(bundlePath string) {
+	now := time.Now()
+	_ = os.Chtimes(bundlePath, now, now)
 }
 
 func replaceMacAppBundleElevated(ctx context.Context, srcAppPath, dstAppPath, backupPath string) error {

@@ -52,14 +52,20 @@ bash scripts/test_rolling_release_config.sh
 git diff --check
 ```
 
-测试套件包含 `fortivpn/fortitest` 内存假网关端到端测试、PPP 状态机测试、本地 IPC 与 `tunnelkit-helper` 生命周期测试、Vue 组件测试以及 CI/Release 工作流配置契约测试，均在临时目录与非特权环境中隔离运行。
+测试套件包含 `fortivpn/fortitest` 内存假网关端到端测试、PPP 状态机测试、三端网络配置测试、本地 IPC 与 `tunnelkit-helper` 生命周期测试、Vue 组件测试以及 CI/Release 工作流配置契约测试，均在临时目录与非特权环境中隔离运行。
+
+## 平台文件命名
+
+文件名表达包内职责，同一职责共享基名；原生实现按平台使用 `_darwin.go`、`_linux.go`、`_windows.go` 后缀，纯 Go 共用模块直接用简短职责名。
+
+平台差异按语义选用后缀：`_unix.go` 为 Unix 共用实现（纯 POSIX 用 `unix` 标签，仅支持 macOS / Linux 时用 `darwin || linux`），`_other.go` 为默认或降级实现，`_unsupported.go` 为不支持平台入口。需跨平台单测的单端计划或解析模块使用 `<role>_<os>_plan.go` 或 `<role>_<os>_parse.go`，避免触发 Go 原生 `*_GOOS.go` 过滤。
 
 ## 绑定生成与桌面构建
 
 当 `internal/api` 的导出方法或数据结构发生变化时，重新生成前端 TypeScript 绑定：
 
 ```bash
-wails3 generate bindings -ts
+wails3 generate bindings -clean=true -ts
 ```
 
 构建当前宿主机架构的生产二进制或应用包：
@@ -100,9 +106,10 @@ wails3 package
 
 ## 交付检查
 
-1. **后端与内核改动**：通过 `go test -race ./...` 与 `go vet ./...`。
-2. **前端改动**：通过 `pnpm --dir frontend run format:check`、`lint:check`、`test -- --run` 与 `build`。
-3. **绑定、窗口或构建改动**：运行 `wails3 build` 确认主程序、`tunnelkit-helper` 与内嵌前端资源完整编译通过。
-4. **CI 与发布配置改动**：运行 `scripts/test_*.sh` 全部契约测试。
-5. **配置、目录、命令或用户可见变化**：同步更新 `README.md`、`docs/guide/*`、对应目录 `README.md` 或 `CHANGELOG.md` 顶部的 `未发布` 段落。
-6. **工作区检查**：运行 `git diff --check`，确认无多余空白、临时文件或调试残留。
+1. **架构与文件边界红线**：确认 `fortivpn/**` 未导入 `tunnelkit/internal/**` 或 Wails，桌面 GUI 未导入 `fortivpn/engine`，`internal/redact` 零内部依赖，`internal/privilege` 零内部与 Wails 依赖，`internal/storage` 未导入上层业务包或 Wails，`internal/api` 未直接执行文件 I/O（`<= 160` 行）；手写 Go 文件满足单文件行数上限（源码 `<= 500` 行、测试 `<= 800` 行）与职责命名门禁。
+2. **后端与内核改动**：通过 `go test -race ./...` 与 `go vet ./...`。
+3. **前端改动**：通过 `pnpm --dir frontend run format:check`、`lint:check`、`test -- --run` 与 `build`。
+4. **绑定、窗口或构建改动**：运行 `wails3 build` 确认主程序、`tunnelkit-helper` 与内嵌前端资源完整编译通过。
+5. **CI 与发布配置改动**：运行 `scripts/test_*.sh` 全部契约测试。
+6. **配置、目录、命令或用户可见变化**：同步更新 `README.md`、`docs/guide/*`、对应目录 `README.md` 或 `CHANGELOG.md` 顶部的 `未发布` 段落。
+7. **工作区检查**：运行 `git diff --check`，确认无多余空白、临时文件或调试残留。

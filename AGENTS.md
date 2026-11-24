@@ -55,12 +55,13 @@ bash scripts/test_rolling_release_config.sh
 6. `fortivpn` 包必须保持零外部业务耦合，禁止在 `fortivpn/**` 中导入 `tunnelkit/internal/**` 或 Wails；桌面 GUI 进程禁止导入 `tunnelkit/fortivpn/engine`。
 7. 应用版本号以 `build/config.yml` 的 `info.version` 为唯一权威来源（运行期由 `main.go` 内嵌读取，打包期通过 `wails3 task common:update:build-assets` 同步至平台清单）。
 8. 修复缺陷需先补充复现测试，完成后运行 `go test -race ./...` 与 `go vet ./...`；涉及 Wails 绑定、窗口或构建配置变更时须运行 `wails3 build`。
+9. 仅对 `main.go`、`cmd/`、`internal/`、`fortivpn/` 下的 `.go` 设行数上限：源码 `<= 500` 行（`internal/api/*.go <= 160` 行），`*_test.go <= 800` 行（豁免 `// Code generated ... DO NOT EDIT.` 生成文件与 `testdata/`；其余目录与后缀不限）。超限时同包按职责拆分，测试按场景拆分并将大夹具迁入 `testdata/`；不额外拆包或加无意义 `interface`，禁止删注释、压行或使用无语义命名（如 `extra_test.go`、`*_2.go`）。
 
 ## 文档维护
 
 - `README.md` 只保留项目入口、下载安装、功能特性、支持平台、快速开始、技术架构与文档链接。
 - 稳定架构、配置、开发和发版说明放在 `docs/guide/`，排错过程和阶段性方案不写入长期指南。
-- 目录 `README.md` 遵循单层局部索引原则：仅列出当前目录的直接文件与直接子目录，不跨层展开子目录内部文件；核心二级子目录说明职责、目录结构和开发规范；专属验证流程按需补充，前端通用验证命令集中维护在入口 README 与开发、测试指南。
+- 目录 `README.md` 遵循单层局部索引原则：仅列出直接文件与子目录（不跨层展开），简述职责、边界与开发规范，不枚举具体函数、方法或常量名（核心契约、协议机制与通用约定除外）；专属验证按需补充，前端通用命令集中维护在入口 README 与开发、测试指南。
 - 修改配置规则、目录职责、安全边界、命令或构建产物时，同步更新 `docs/guide/*` 与对应目录 `README.md`。
 - 每次完成用户可见的新增、变更或修复时，同步更新 `CHANGELOG.md` 顶部的待发布版本（`## [X.Y.Z] - 未发布`）；只记录相对上一正式版的最终净变化，不记录中间调试过程。
 - 未明确要求正式发布时，只维护待发布版本，不修改正式版本号、正式日期和已发布版本，也不创建标签或 Release。

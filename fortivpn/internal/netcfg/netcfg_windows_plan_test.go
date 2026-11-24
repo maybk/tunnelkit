@@ -1,5 +1,3 @@
-//go:build windows
-
 package netcfg
 
 import (
@@ -11,22 +9,22 @@ import (
 	"slices"
 	"testing"
 
-	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
-
 	"tunnelkit/fortivpn"
 )
 
 type fakeWindowsOps struct {
 	calls           []string
 	hostRouteExists bool
+	addTunnelErr    error
 	deleteErr       error
 	dnsCleanupErr   error
+	nrptCleanupErr  error
 	appliedRoutes   []netip.Prefix
 	lookupSnap      Snapshot
 	lookupErr       error
 }
 
-func (f *fakeWindowsOps) lookupGatewayRoute(gateway netip.Addr, _ winipcfg.LUID) (Snapshot, error) {
+func (f *fakeWindowsOps) lookupGatewayRoute(gateway netip.Addr, _ uint64) (Snapshot, error) {
 	f.calls = append(f.calls, "lookupGatewayRoute:"+gateway.String())
 	if f.lookupErr != nil {
 		return Snapshot{}, f.lookupErr
@@ -34,33 +32,36 @@ func (f *fakeWindowsOps) lookupGatewayRoute(gateway netip.Addr, _ winipcfg.LUID)
 	return f.lookupSnap, nil
 }
 
-func (f *fakeWindowsOps) disableIPv6(_ winipcfg.LUID) {
+func (f *fakeWindowsOps) disableIPv6(_ uint64) {
 	f.calls = append(f.calls, "disableIPv6")
 }
 
-func (f *fakeWindowsOps) flushTunnelRoutes(_ winipcfg.LUID) error {
+func (f *fakeWindowsOps) flushTunnelRoutes(_ uint64) error {
 	f.calls = append(f.calls, "flushTunnelRoutes")
 	f.appliedRoutes = nil
 	return nil
 }
 
-func (f *fakeWindowsOps) configureIPv4Interface(_ winipcfg.LUID, _ int) error {
+func (f *fakeWindowsOps) configureIPv4Interface(_ uint64, _ int) error {
 	f.calls = append(f.calls, "configureIPv4Interface")
 	return nil
 }
 
-func (f *fakeWindowsOps) setIPv4Address(_ winipcfg.LUID, local netip.Addr) error {
+func (f *fakeWindowsOps) setIPv4Address(_ uint64, local netip.Addr) error {
 	f.calls = append(f.calls, "setIPv4Address:"+local.String())
 	return nil
 }
 
-func (f *fakeWindowsOps) addTunnelRoutes(_ winipcfg.LUID, routes []netip.Prefix) error {
+func (f *fakeWindowsOps) addTunnelRoutes(_ uint64, routes []netip.Prefix) error {
 	f.calls = append(f.calls, "addTunnelRoutes")
+	if f.addTunnelErr != nil {
+		return f.addTunnelErr
+	}
 	f.appliedRoutes = append([]netip.Prefix(nil), routes...)
 	return nil
 }
 
-func (f *fakeWindowsOps) addHostRoute(_ winipcfg.LUID, prefix netip.Prefix, _ netip.Addr) (bool, error) {
+func (f *fakeWindowsOps) addHostRoute(_ uint64, prefix netip.Prefix, _ netip.Addr) (bool, error) {
 	f.calls = append(f.calls, "addHostRoute:"+prefix.String())
 	if f.hostRouteExists {
 		return false, nil
@@ -68,20 +69,29 @@ func (f *fakeWindowsOps) addHostRoute(_ winipcfg.LUID, prefix netip.Prefix, _ ne
 	return true, nil
 }
 
-func (f *fakeWindowsOps) deleteHostRoute(_ winipcfg.LUID, prefix netip.Prefix, _ netip.Addr) error {
+func (f *fakeWindowsOps) deleteHostRoute(_ uint64, prefix netip.Prefix, _ netip.Addr) error {
 	f.calls = append(f.calls, "deleteHostRoute:"+prefix.String())
 	return f.deleteErr
 }
 
-func (f *fakeWindowsOps) applyDNS(_ context.Context, _ winipcfg.LUID, _ DNSPlan, journal *Journal) error {
+func (f *fakeWindowsOps) applyDNS(_ context.Context, _ uint64, _ DNSPlan, journal *Journal) error {
 	f.calls = append(f.calls, "applyDNS")
 	_ = journal.Record(JournalEntry{Kind: KindWindowsNRPT, Key: nrptRulePrefix})
 	return nil
 }
 
-func (f *fakeWindowsOps) removeDNS(_ context.Context, _ winipcfg.LUID) error {
+func (f *fakeWindowsOps) removeDNS(_ context.Context, _ uint64) error {
 	f.calls = append(f.calls, "removeDNS")
 	return f.dnsCleanupErr
+}
+
+func (f *fakeWindowsOps) clearNRPT(_ context.Context) error {
+	f.calls = append(f.calls, "clearNRPT")
+	return f.nrptCleanupErr
+}
+
+func (f *fakeWindowsOps) flushAdapter(_ uint64) {
+	f.calls = append(f.calls, "flushAdapter")
 }
 
 func TestWindowsDNSOffRetainsFailedCleanupForRetry(t *testing.T) {
@@ -135,10 +145,6 @@ func TestWindowsHostRouteCleanupFailureRetainsJournal(t *testing.T) {
 	if err := a.Update(context.Background(), next); err != nil || len(journal.Entries()) != 0 {
 		t.Fatalf("host route cleanup retry failed: %v", err)
 	}
-}
-
-func (f *fakeWindowsOps) flushAdapter(_ winipcfg.LUID) {
-	f.calls = append(f.calls, "flushAdapter")
 }
 
 func TestWindowsRouteFlushPrecedesIPv4AddressAssignment(t *testing.T) {
@@ -242,6 +248,34 @@ func TestWindowsCloseRetainsPendingRecoveryOnFailure(t *testing.T) {
 	}
 }
 
+func TestWindowsNRPTRollbackFailureRetainsJournal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "journal.json")
+	journal := NewJournal(path)
+	if err := journal.Record(JournalEntry{Kind: KindWindowsNRPT, Key: nrptRulePrefix}); err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("registry busy")
+	ops := &fakeWindowsOps{nrptCleanupErr: failure}
+	if err := rollbackWindowsJournalWithOps(context.Background(), journal, ops); !errors.Is(err, failure) {
+		t.Fatalf("expected NRPT rollback error, got %v", err)
+	}
+	if !slices.Contains(ops.calls, "clearNRPT") {
+		t.Fatalf("expected rollback to invoke ops.clearNRPT, got calls=%v", ops.calls)
+	}
+	pending, err := LoadJournal(path)
+	if err != nil || len(pending.Entries()) != 1 {
+		t.Fatalf("NRPT rollback failure must retain pending journal entry: err=%v entries=%v", err, pending.Entries())
+	}
+
+	ops.nrptCleanupErr = nil
+	if err := rollbackWindowsJournalWithOps(context.Background(), pending, ops); err != nil {
+		t.Fatalf("NRPT rollback retry failed: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected journal deleted after successful NRPT rollback, stat err=%v", err)
+	}
+}
+
 func TestWindowsGatewayChangeUpdatesHostRouteAndSnapshot(t *testing.T) {
 	journal := NewJournal(filepath.Join(t.TempDir(), "journal.json"))
 	oldGW := netip.MustParseAddr("198.51.100.10")
@@ -287,5 +321,38 @@ func TestWindowsGatewayChangeUpdatesHostRouteAndSnapshot(t *testing.T) {
 	entries := journal.Entries()
 	if len(entries) != 1 || entries[0].Gateway != newGW.String() || entries[0].LUID != 22 {
 		t.Fatalf("unexpected journal entries after gateway change: %+v", entries)
+	}
+}
+
+func TestWindowsApplyRollsBackOnFailure(t *testing.T) {
+	jPath := filepath.Join(t.TempDir(), "journal.json")
+	ops := &fakeWindowsOps{
+		lookupSnap: Snapshot{
+			GatewayNextHop: netip.MustParseAddr("192.168.1.1"),
+			GatewayLUID:    11,
+		},
+		addTunnelErr: errors.New("route table busy"),
+	}
+	d := Desired{
+		Iface:   "TunnelKit",
+		Local:   netip.MustParseAddr("10.212.0.12"),
+		MTU:     1400,
+		Gateway: netip.MustParseAddr("198.51.100.10"),
+		Routes: []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/1"),
+			netip.MustParsePrefix("128.0.0.0/1"),
+		},
+	}
+
+	if _, err := applyWindowsWithOps(context.Background(), d, jPath, 18, ops); err == nil {
+		t.Fatal("expected applyWindowsWithOps to fail when adding tunnel routes fails")
+	}
+	if !slices.Contains(ops.calls, "addHostRoute:198.51.100.10/32") ||
+		!slices.Contains(ops.calls, "flushAdapter") ||
+		!slices.Contains(ops.calls, "deleteHostRoute:198.51.100.10/32") {
+		t.Fatalf("expected failed apply to roll back host route and flush adapter, got calls=%v", ops.calls)
+	}
+	if _, err := os.Stat(jPath); !os.IsNotExist(err) {
+		t.Fatalf("expected journal cleaned after rollback, stat err=%v", err)
 	}
 }

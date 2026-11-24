@@ -6,7 +6,7 @@
 
 - `setup.ts`：集成测试环境初始化入口（加载 Wails 模型转换器、模拟宿主调用并装配独立 Pinia 与 Vue Router 实例）。
 - `fixtures/`：测试共用的节点配置与 VPN 状态构造夹具。
-- `architecture/`：前端目录分层、单向依赖、技术适配层边界与不安全代码模式静态守卫测试。
+- `architecture/`：目录分层、单向依赖、技术适配层边界、单文件行数与职责命名守卫及不安全模式的静态门禁测试。
 - `unit/`：面向 `utils/`、`domain/`、`validate/` 与 `presentation/` 的单元测试。
 - `api/`：DTO 与宿主事件映射及外链安全边界测试。
 - `stores/`：面向 `src/stores/*` 状态流转与宿主 API 交互的测试。

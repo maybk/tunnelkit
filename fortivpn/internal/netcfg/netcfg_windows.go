@@ -18,38 +18,11 @@ import (
 // Apply configures the Windows Wintun adapter, gateway host route, tunnel routes,
 // and DNS/NRPT settings, recording persistent mutations to journalPath first.
 func Apply(ctx context.Context, d Desired, journalPath string) (Applied, error) {
-	journal, err := LoadJournal(journalPath)
-	if err != nil {
-		return nil, fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: load journal failed", err)
-	}
-
 	luid, err := lookupWindowsLUID(d.Iface)
 	if err != nil {
 		return nil, fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: resolve adapter LUID failed", err)
 	}
-
-	d = NormalizeDesired(d)
-	var snap Snapshot
-	if NeedsGatewayHostRoute(d.Routes, d.Gateway) {
-		snap, err = lookupWindowsGatewayRoute(d.Gateway, luid)
-		if err != nil {
-			return nil, fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: lookup gateway route failed", err)
-		}
-	}
-
-	ap := &windowsApplied{
-		luid:    luid,
-		journal: journal,
-		desired: d,
-		snap:    snap,
-	}
-
-	steps := Plan(d, snap)
-	if err := ap.executeSteps(ctx, steps); err != nil {
-		_ = ap.Close(context.Background())
-		return nil, fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: apply windows network configuration failed", err)
-	}
-	return ap, nil
+	return applyWindowsWithOps(ctx, d, journalPath, uint64(luid), realWindowsAdapterOps{})
 }
 
 // Recover rolls back any residual host routes or NRPT registry keys recorded in
@@ -59,41 +32,28 @@ func Recover(ctx context.Context, journalPath string) error {
 	if err != nil {
 		return err
 	}
-	return rollbackWindowsJournal(ctx, journal)
-}
-
-type windowsAdapterOps interface {
-	lookupGatewayRoute(gateway netip.Addr, skipLUID winipcfg.LUID) (Snapshot, error)
-	disableIPv6(luid winipcfg.LUID)
-	flushTunnelRoutes(luid winipcfg.LUID) error
-	configureIPv4Interface(luid winipcfg.LUID, mtu int) error
-	setIPv4Address(luid winipcfg.LUID, local netip.Addr) error
-	addTunnelRoutes(luid winipcfg.LUID, routes []netip.Prefix) error
-	addHostRoute(gwLUID winipcfg.LUID, prefix netip.Prefix, nextHop netip.Addr) (bool, error)
-	deleteHostRoute(gwLUID winipcfg.LUID, prefix netip.Prefix, nextHop netip.Addr) error
-	applyDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, journal *Journal) error
-	removeDNS(ctx context.Context, luid winipcfg.LUID) error
-	flushAdapter(luid winipcfg.LUID)
+	return rollbackWindowsJournalWithOps(ctx, journal, realWindowsAdapterOps{})
 }
 
 type realWindowsAdapterOps struct{}
 
-func (realWindowsAdapterOps) lookupGatewayRoute(gateway netip.Addr, skipLUID winipcfg.LUID) (Snapshot, error) {
-	return lookupWindowsGatewayRoute(gateway, skipLUID)
+func (realWindowsAdapterOps) lookupGatewayRoute(gateway netip.Addr, skipLUID uint64) (Snapshot, error) {
+	return lookupWindowsGatewayRoute(gateway, winipcfg.LUID(skipLUID))
 }
 
-func (realWindowsAdapterOps) disableIPv6(luid winipcfg.LUID) {
-	_ = luid.FlushRoutes(windows.AF_INET6)
-	_ = luid.FlushIPAddresses(windows.AF_INET6)
-	_ = luid.FlushDNS(windows.AF_INET6)
+func (realWindowsAdapterOps) disableIPv6(luid uint64) {
+	w := winipcfg.LUID(luid)
+	_ = w.FlushRoutes(windows.AF_INET6)
+	_ = w.FlushIPAddresses(windows.AF_INET6)
+	_ = w.FlushDNS(windows.AF_INET6)
 }
 
-func (realWindowsAdapterOps) flushTunnelRoutes(luid winipcfg.LUID) error {
-	return luid.FlushRoutes(windows.AF_INET)
+func (realWindowsAdapterOps) flushTunnelRoutes(luid uint64) error {
+	return winipcfg.LUID(luid).FlushRoutes(windows.AF_INET)
 }
 
-func (realWindowsAdapterOps) configureIPv4Interface(luid winipcfg.LUID, mtu int) error {
-	ipIf, err := luid.IPInterface(windows.AF_INET)
+func (realWindowsAdapterOps) configureIPv4Interface(luid uint64, mtu int) error {
+	ipIf, err := winipcfg.LUID(luid).IPInterface(windows.AF_INET)
 	if err != nil {
 		return fmt.Errorf("get IPInterface: %w", err)
 	}
@@ -108,12 +68,13 @@ func (realWindowsAdapterOps) configureIPv4Interface(luid winipcfg.LUID, mtu int)
 	return nil
 }
 
-func (realWindowsAdapterOps) setIPv4Address(luid winipcfg.LUID, local netip.Addr) error {
+func (realWindowsAdapterOps) setIPv4Address(luid uint64, local netip.Addr) error {
+	w := winipcfg.LUID(luid)
 	prefixes := []netip.Prefix{netip.PrefixFrom(local, 32)}
-	err := luid.SetIPAddressesForFamily(windows.AF_INET, prefixes)
+	err := w.SetIPAddressesForFamily(windows.AF_INET, prefixes)
 	if errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) {
 		cleanupAddressesOnDisconnectedInterfaces(windows.AF_INET, prefixes)
-		err = luid.SetIPAddressesForFamily(windows.AF_INET, prefixes)
+		err = w.SetIPAddressesForFamily(windows.AF_INET, prefixes)
 	}
 	if err != nil {
 		return fmt.Errorf("set interface IP %s: %w", local, err)
@@ -121,12 +82,13 @@ func (realWindowsAdapterOps) setIPv4Address(luid winipcfg.LUID, local netip.Addr
 	return nil
 }
 
-func (realWindowsAdapterOps) addTunnelRoutes(luid winipcfg.LUID, routes []netip.Prefix) error {
+func (realWindowsAdapterOps) addTunnelRoutes(luid uint64, routes []netip.Prefix) error {
+	w := winipcfg.LUID(luid)
 	for _, pfx := range routes {
 		if !pfx.Addr().Is4() {
 			continue
 		}
-		err := luid.AddRoute(pfx, netip.IPv4Unspecified(), 1)
+		err := w.AddRoute(pfx, netip.IPv4Unspecified(), 1)
 		if err != nil && !errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 			return fmt.Errorf("add tunnel route %s: %w", pfx, err)
 		}
@@ -134,11 +96,11 @@ func (realWindowsAdapterOps) addTunnelRoutes(luid winipcfg.LUID, routes []netip.
 	return nil
 }
 
-func (realWindowsAdapterOps) addHostRoute(gwLUID winipcfg.LUID, prefix netip.Prefix, nextHop netip.Addr) (bool, error) {
+func (realWindowsAdapterOps) addHostRoute(gwLUID uint64, prefix netip.Prefix, nextHop netip.Addr) (bool, error) {
 	if !nextHop.IsValid() {
 		nextHop = netip.IPv4Unspecified()
 	}
-	if err := gwLUID.AddRoute(prefix, nextHop, 1); err != nil {
+	if err := winipcfg.LUID(gwLUID).AddRoute(prefix, nextHop, 1); err != nil {
 		if errors.Is(err, windows.ERROR_OBJECT_ALREADY_EXISTS) || errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 			return false, nil
 		}
@@ -147,32 +109,39 @@ func (realWindowsAdapterOps) addHostRoute(gwLUID winipcfg.LUID, prefix netip.Pre
 	return true, nil
 }
 
-func (realWindowsAdapterOps) deleteHostRoute(gwLUID winipcfg.LUID, prefix netip.Prefix, nextHop netip.Addr) error {
+func (realWindowsAdapterOps) deleteHostRoute(gwLUID uint64, prefix netip.Prefix, nextHop netip.Addr) error {
 	if !nextHop.IsValid() {
 		nextHop = netip.IPv4Unspecified()
 	}
-	if err := gwLUID.DeleteRoute(prefix, nextHop); err != nil && !errors.Is(err, windows.ERROR_NOT_FOUND) {
+	if err := winipcfg.LUID(gwLUID).DeleteRoute(prefix, nextHop); err != nil && !errors.Is(err, windows.ERROR_NOT_FOUND) {
 		return err
 	}
 	return nil
 }
 
-func (realWindowsAdapterOps) applyDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, journal *Journal) error {
-	return applyWindowsDNS(ctx, luid, plan, journal)
+func (realWindowsAdapterOps) applyDNS(ctx context.Context, luid uint64, plan DNSPlan, journal *Journal) error {
+	return applyWindowsDNS(ctx, winipcfg.LUID(luid), plan, journal)
 }
 
-func (realWindowsAdapterOps) removeDNS(ctx context.Context, luid winipcfg.LUID) error {
-	return removeWindowsDNS(ctx, luid)
+func (realWindowsAdapterOps) removeDNS(ctx context.Context, luid uint64) error {
+	return removeWindowsDNS(ctx, winipcfg.LUID(luid))
 }
 
-func (realWindowsAdapterOps) flushAdapter(luid winipcfg.LUID) {
+func (realWindowsAdapterOps) clearNRPT(ctx context.Context) error {
+	err := clearWindowsNRPT()
+	flushWindowsDNSCache(ctx)
+	return err
+}
+
+func (realWindowsAdapterOps) flushAdapter(luid uint64) {
 	if luid != 0 {
-		_ = luid.FlushRoutes(windows.AF_INET)
-		_ = luid.FlushDNS(windows.AF_INET)
-		_ = luid.FlushIPAddresses(windows.AF_INET)
-		_ = luid.FlushRoutes(windows.AF_INET6)
-		_ = luid.FlushDNS(windows.AF_INET6)
-		_ = luid.FlushIPAddresses(windows.AF_INET6)
+		w := winipcfg.LUID(luid)
+		_ = w.FlushRoutes(windows.AF_INET)
+		_ = w.FlushDNS(windows.AF_INET)
+		_ = w.FlushIPAddresses(windows.AF_INET)
+		_ = w.FlushRoutes(windows.AF_INET6)
+		_ = w.FlushDNS(windows.AF_INET6)
+		_ = w.FlushIPAddresses(windows.AF_INET6)
 	}
 }
 

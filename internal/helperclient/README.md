@@ -13,7 +13,7 @@
 - `launch.go`：特权辅助程序定位、受保护安装确保、启动参数拼装与就绪握手等待。
 - `launch_unix.go`：macOS 与 Linux 拉起受保护安装的 `setuid-root` 辅助进程并监听退出状态。
 - `launch_windows.go`：Windows 通过服务控制管理器（SCM）按需启动 `TunnelKitHelper` 服务，支持可取消退出监控。
-- `launch_other.go`：非支持平台下的辅助进程启动空实现。
+- `launch_unsupported.go`：其他平台辅助进程启动不支持入口。
 - `watcher.go`：辅助进程与系统服务退出监控原语，区分真实退出与主动停止监控。
 - `process.go`：通过退出通知或进程查询，等待辅助进程退出。
 - `certificate.go`：在桌面进程内以当前用户权限读取并校验客户端证书与私钥，转换为内存 `Secret` 后通过 IPC 下发。

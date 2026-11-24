@@ -13,14 +13,14 @@
 - `apply_darwin.go`：macOS `.dmg` 挂载校验、`.app` 原地原子替换、失败回滚、`osascript` 提权安装与重启交接。
 - `apply_linux.go`：Linux 客户端与 `tunnelkit-helper` 备份替换、失败回滚、辅助组件同步更新与 `pkexec` 提权安装。
 - `apply_windows.go`：Windows 客户端与辅助进程分阶段重命名替换、失败回滚及 `TunnelKitHelper` 服务同步刷新。
-- `apply_other.go`：不支持平台的更新报错实现。
+- `apply_unsupported.go`：不支持平台入口。
 - `apply_elevated_windows.go`：Windows 安装目录受限时的 UAC 提权更新脚本执行。
 - `restart_parent.go`：更新重启参数解析，通过公共进程查询等待旧父进程退出。
 
 ## 开发规范
 
 - **先校验后停机**：必须先完成更新包下载与 SHA-256 严格校验，再调用前置维护钩子停止活动 VPN 会话；严禁加载或打开非官方白名单域名的发布地址。
-- **事务回滚与重启时序**：多组件替换任一步骤失败必须逆序还原 `.old` / `.bak` 备份，回滚仍失败则返回 `ErrRollbackFailed` 并保留备份；`WaitForRestartParent` 必须在主程序最外层优先调用。
+- **事务回滚与重启时序**：多组件替换任一步骤失败必须逆序还原 `.old` / `.bak` 备份，回滚仍失败则返回回滚错误并保留备份；重启交接时须在主程序最外层优先等待旧父进程退出。
 
 ## 验证
 

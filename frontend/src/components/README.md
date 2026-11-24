@@ -14,6 +14,6 @@
 ## 开发规范
 
 - **命名与写法**：组件文件使用 `PascalCase.vue`，统一采用 `<script setup lang="ts">`，双向绑定优先使用 `defineModel()`。
-- **体积与职责**：按交互与业务职责组织组件；复杂草稿编排下沉至 `composables/`，校验规则放在 `validate/`，共享业务状态放在 `stores/`。
-- **依赖约束**：禁止直接导入 `@/api/*`、`@bindings/*` 或 `@wailsio/runtime`。
-- **基础层**：`base/` 只依赖 `ui/`、本层与 `lib/`；无定制需求直接使用 `ui/`。
+- **体积与职责**：单个 `.vue` 文件（`ui/` 除外）不超过 `300` 行；草稿编排、校验与共享状态分别下沉至 `composables/`、`validate/` 与 `stores/`。
+- **依赖约束**：禁止直接导入 `@/api/*`、`@bindings/*` 或 `@wailsio/runtime`；`views/`、`layouts/` 与领域子组件不直接导入 `reka-ui`。
+- **分层边界**：`base/` 只依赖 `ui/`、本层与 `lib/`；`common/` 不反向依赖 `views/`、`layouts/` 或领域子组件；无定制需求直接使用 `ui/`。

@@ -10,8 +10,8 @@
 
 ## 开发规范
 
-- **职责边界**：通过注入的 `vpn`、`profile`、`update` 子包完成业务操作，严禁直接控制虚拟网卡、修改宿主网络或导入 `fortivpn/engine`。
-- **契约同步**：导出方法或 DTO 结构变更后，须执行 `wails3 generate bindings -ts` 更新前端 TypeScript 绑定。
+- **职责边界**：通过注入的 `vpn`、`profile`、`update` 子包完成业务操作，保持单文件 `<= 160` 行薄适配层，严禁直接执行文件 I/O、控制虚拟网卡、修改宿主网络或导入 `fortivpn/engine`。
+- **契约同步**：导出方法或 DTO 结构变更后，须执行 `wails3 generate bindings -clean=true -ts` 更新前端 TypeScript 绑定。
 
 ## 验证
 

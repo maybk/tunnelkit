@@ -1,4 +1,4 @@
-//go:build !darwin && !windows && !linux
+//go:build !darwin && !linux && !windows
 
 package netcfg
 
@@ -8,7 +8,7 @@ import (
 	"tunnelkit/fortivpn"
 )
 
-// Apply returns CodePlatformUnsupported on unsupported platforms.
+// Apply returns CodeUnsupportedPlatform on unsupported platforms.
 func Apply(_ context.Context, _ Desired, _ string) (Applied, error) {
 	return nil, fortivpn.NewError(fortivpn.CodeUnsupportedPlatform, "netcfg: host network configuration is not supported on this platform")
 }

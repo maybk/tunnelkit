@@ -95,7 +95,7 @@ func TestBackendArchitectureBoundaries(t *testing.T) {
 			if readErr != nil {
 				t.Fatalf("read internal/api/%s: %v", file, readErr)
 			}
-			lineCount := strings.Count(string(raw), "\n") + 1
+			lineCount := countTextLines(raw)
 			if lineCount > 160 {
 				t.Errorf("internal/api/%s has %d lines, want <= 160", file, lineCount)
 			}
@@ -136,6 +136,51 @@ func TestBackendArchitectureBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatalf("walk %s: %v", dir, err)
 			}
+		}
+	})
+
+	t.Run("internal/privilege stays decoupled from tunnelkit packages and Wails", func(t *testing.T) {
+		privDir := filepath.Join(repoRoot, "internal", "privilege")
+		err := filepath.WalkDir(privDir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() || !strings.HasSuffix(d.Name(), ".go") {
+				return nil
+			}
+			for _, imp := range parseFileImports(t, path) {
+				if strings.HasPrefix(imp, "tunnelkit/") || strings.Contains(imp, "wailsapp/wails") {
+					rel, _ := filepath.Rel(repoRoot, path)
+					t.Errorf("%s imports forbidden package %q", rel, imp)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk internal/privilege: %v", err)
+		}
+	})
+
+	t.Run("internal/storage stays decoupled from upper layers and Wails", func(t *testing.T) {
+		storageDir := filepath.Join(repoRoot, "internal", "storage")
+		err := filepath.WalkDir(storageDir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() || !strings.HasSuffix(d.Name(), ".go") {
+				return nil
+			}
+			for _, imp := range parseFileImports(t, path) {
+				if strings.Contains(imp, "wailsapp/wails") ||
+					(strings.HasPrefix(imp, "tunnelkit/") && imp != "tunnelkit/internal/redact") {
+					rel, _ := filepath.Rel(repoRoot, path)
+					t.Errorf("%s imports forbidden package %q", rel, imp)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk internal/storage: %v", err)
 		}
 	})
 

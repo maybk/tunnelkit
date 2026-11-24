@@ -1,5 +1,3 @@
-//go:build linux
-
 package netcfg
 
 import (
@@ -170,7 +168,7 @@ func TestLinuxPreExistingHostRouteAndResolvconfFallback(t *testing.T) {
 	}
 }
 
-func TestRecoveryRetainsJournalWhenSystemCommandFails(t *testing.T) {
+func TestLinuxRecoveryRetainsJournalWhenSystemCommandFails(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "journal.json")
 	journal := NewJournal(path)
 	if err := journal.Record(JournalEntry{Kind: KindHostRoute, Gateway: "198.51.100.10", NextHop: "192.0.2.1", Iface: "en0"}); err != nil {

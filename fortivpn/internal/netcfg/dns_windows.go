@@ -22,7 +22,6 @@ var (
 )
 
 const nrptPolicyBaseKey = `SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\DnsPolicyConfig`
-const nrptRulePrefix = "TunnelKit-"
 
 func applyWindowsDNS(ctx context.Context, luid winipcfg.LUID, plan DNSPlan, journal *Journal) error {
 	_ = luid.FlushDNS(windows.AF_INET6)

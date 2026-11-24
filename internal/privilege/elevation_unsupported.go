@@ -2,8 +2,8 @@
 
 package privilege
 
-import "os"
+import "context"
 
-func lockFile(*os.File) error {
+func elevateInstall(context.Context, string) error {
 	return unsupported()
 }

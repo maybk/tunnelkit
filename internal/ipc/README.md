@@ -9,7 +9,7 @@
 - `unavailable.go`：区分本地 IPC 端点不存在与超时、鉴权失败等传输错误。
 - `transport_unix.go`：macOS 与 Linux 共享的 Unix Domain Socket 监听、拨号、权限收敛与连接接收封装。
 - `transport_windows.go`：Windows Named Pipe 监听、拨号、DACL 安全描述符及对端 SID 校验。
-- `transport_other.go`：非支持平台下的 IPC 传输空实现。
+- `transport_unsupported.go`：其他平台 IPC 传输不支持入口。
 - `peercred_darwin.go`：macOS 基于 `LOCAL_PEERCRED` 的对端 UID 校验。
 - `peercred_linux.go`：Linux 基于 `SO_PEERCRED` 的对端 UID 校验。
 

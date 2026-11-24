@@ -3,7 +3,7 @@
 TunnelKit 前端测试基于 `vite-plus/test`（Vitest）与 `@vue/test-utils`，在 `vite.config.ts` 中划分为两个隔离项目：
 
 1. **`unit` 项目**（`tests/{unit,architecture}/**/*.spec.ts`）：
-   - `tests/architecture/architecture.spec.ts`：基于 TypeScript AST 静态校验分层导入方向、通用层零框架依赖、技术适配层边界、`types/` 纯类型约束、API/Store 无循环依赖及不安全渲染与双重断言。
+   - `tests/architecture/architecture.spec.ts`：分层依赖方向、纯模块零框架依赖、`api` / `stores` 无环、`types/` 零运行时代码、单文件行数与职责命名守卫及不安全模式拦截。
    - `tests/unit/*.spec.ts`：覆盖 `utils/`、`domain/`、`validate/` 与 `presentation/` 的单元测试。
 2. **`integration` 项目**（`tests/{api,stores,composables,components,views}/**/*.spec.ts`）：
    - 通过 `tests/setup.ts` 自动 Mock `@wailsio/runtime`，并在每个用例前创建独立 Pinia、将共享 Router 重置到工作区。

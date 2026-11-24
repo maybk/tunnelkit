@@ -1,5 +1,3 @@
-//go:build darwin
-
 package netcfg
 
 import (
@@ -54,9 +52,9 @@ func TestDarwinApplyUpdateAndRollback(t *testing.T) {
 		},
 	}
 
-	applied, err := applyWithRunner(context.Background(), d, jPath, runner)
+	applied, err := applyDarwinWithRunner(context.Background(), d, jPath, runner)
 	if err != nil {
-		t.Fatalf("applyWithRunner failed: %v", err)
+		t.Fatalf("applyDarwinWithRunner failed: %v", err)
 	}
 
 	if _, err := os.Stat(jPath); err != nil {
@@ -140,9 +138,9 @@ func TestDarwinPreExistingHostRouteNotDeletedOnClose(t *testing.T) {
 		},
 	}
 
-	applied, err := applyWithRunner(context.Background(), d, jPath, runner)
+	applied, err := applyDarwinWithRunner(context.Background(), d, jPath, runner)
 	if err != nil {
-		t.Fatalf("applyWithRunner failed: %v", err)
+		t.Fatalf("applyDarwinWithRunner failed: %v", err)
 	}
 	if !sawOverridePrimary {
 		t.Fatal("expected DNSFull on macOS to set OverridePrimary # 1")
@@ -155,7 +153,7 @@ func TestDarwinPreExistingHostRouteNotDeletedOnClose(t *testing.T) {
 	}
 }
 
-func TestRecoveryRetainsJournalWhenSystemCommandFails(t *testing.T) {
+func TestDarwinRecoveryRetainsJournalWhenSystemCommandFails(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "journal.json")
 	journal := NewJournal(path)
 	if err := journal.Record(JournalEntry{Kind: KindHostRoute, Gateway: "198.51.100.10", NextHop: "192.0.2.1", Iface: "en0"}); err != nil {
@@ -164,7 +162,7 @@ func TestRecoveryRetainsJournalWhenSystemCommandFails(t *testing.T) {
 	run := func(context.Context, string, string, ...string) (string, error) {
 		return "", errors.New("system network operation unavailable")
 	}
-	if err := recoverWithRunner(context.Background(), path, run); err == nil {
+	if err := recoverDarwinWithRunner(context.Background(), path, run); err == nil {
 		t.Fatal("expected recovery error")
 	}
 	remaining, err := LoadJournal(path)

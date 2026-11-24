@@ -315,9 +315,17 @@ func (r *sessionRunner) handleStartOrRecover(conn *ipc.Conn, msg ipc.Envelope) {
 		} else {
 			r.state.OnEvent(fortivpn.Event{Phase: fortivpn.PhaseDisconnected, Err: fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "恢复网络配置失败", err)})
 		}
+		flushCtx, flushCancel := context.WithTimeout(r.runCtx, 2*time.Second)
+		r.state.FlushEvents(flushCtx)
+		flushCancel()
 		_ = r.ln.Close()
 		r.engineDone <- err
-		time.Sleep(r.opts.ExitGrace)
+		timer := time.NewTimer(r.opts.ExitGrace)
+		select {
+		case <-timer.C:
+		case <-r.runCtx.Done():
+			timer.Stop()
+		}
 		r.cancelRun()
 	}(startData.Config)
 }

@@ -1,8 +1,11 @@
 package helper
 
 import (
+	"context"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"tunnelkit/fortivpn"
 	"tunnelkit/internal/ipc"
@@ -68,5 +71,54 @@ func TestPopFrontAndBoundedLogBacklogPreserveCapacity(t *testing.T) {
 		if s.logBacklogBytes > 128<<10 {
 			t.Fatalf("logBacklogBytes %d exceeded 128 KiB limit", s.logBacklogBytes)
 		}
+	}
+}
+
+func TestFlushEventsWaitsUntilInFlightFrameCompletes(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	s := newSessionState(0)
+	s.client = ipc.NewConn(server)
+	w := newEventWriter(s.client)
+	s.writer = w
+	go s.writeEvents(w)
+	defer s.CloseClient()
+
+	s.OnEvent(fortivpn.Event{Phase: fortivpn.PhaseDisconnected})
+
+	// With an unread synchronous net.Pipe, FlushEvents must honor context expiry
+	// instead of returning before the queued frame is written.
+	shortCtx, shortCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	s.FlushEvents(shortCtx)
+	shortCancel()
+
+	flushed := make(chan struct{})
+	go func() {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer flushCancel()
+		s.FlushEvents(flushCtx)
+		close(flushed)
+	}()
+
+	select {
+	case <-flushed:
+		t.Fatal("FlushEvents returned before peer read the in-flight frame")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	env, err := ipc.NewConn(client).ReadEnvelope()
+	if err != nil {
+		t.Fatalf("ReadEnvelope: %v", err)
+	}
+	if env.Type != ipc.TypeEvent {
+		t.Fatalf("envelope type = %q, want %q", env.Type, ipc.TypeEvent)
+	}
+
+	select {
+	case <-flushed:
+	case <-time.After(time.Second):
+		t.Fatal("FlushEvents did not unblock after frame write completed")
 	}
 }

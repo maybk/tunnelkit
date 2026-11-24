@@ -20,12 +20,14 @@ type outboundFrame struct {
 
 // eventWriter 的队列由 sessionState.mu 保护；引擎回调与日志写入只入队，IPC 写入在专用协程完成。
 type eventWriter struct {
-	client *ipc.Conn
-	wake   chan struct{}
-	done   chan struct{}
-	once   sync.Once
-	queue  []outboundFrame
-	failed bool
+	client   *ipc.Conn
+	wake     chan struct{}
+	done     chan struct{}
+	once     sync.Once
+	queue    []outboundFrame
+	inFlight bool
+	flushed  chan struct{}
+	failed   bool
 }
 
 func newEventWriter(client *ipc.Conn) *eventWriter {
@@ -45,6 +47,13 @@ func (w *eventWriter) signal() {
 
 func (w *eventWriter) close() {
 	w.once.Do(func() { close(w.done) })
+}
+
+func (w *eventWriter) notifyFlushedLocked() {
+	if w.flushed != nil {
+		close(w.flushed)
+		w.flushed = nil
+	}
 }
 
 func popFront[T any](slice []T) (T, []T) {
@@ -98,7 +107,42 @@ func (s *sessionState) enqueueFrameLocked(f outboundFrame) bool {
 	return true
 }
 
+// FlushEvents waits until frames already queued for the active client are written,
+// the client detaches, or ctx expires.
+func (s *sessionState) FlushEvents(ctx context.Context) {
+	s.mu.Lock()
+	w := s.writer
+	if w == nil || w.failed || (len(w.queue) == 0 && !w.inFlight) {
+		s.mu.Unlock()
+		return
+	}
+	select {
+	case <-w.done:
+		s.mu.Unlock()
+		return
+	default:
+	}
+	if w.flushed == nil {
+		w.flushed = make(chan struct{})
+	}
+	ch := w.flushed
+	w.signal()
+	s.mu.Unlock()
+
+	select {
+	case <-ch:
+	case <-w.done:
+	case <-ctx.Done():
+	}
+}
+
 func (s *sessionState) writeEvents(w *eventWriter) {
+	defer func() {
+		s.mu.Lock()
+		w.inFlight = false
+		w.notifyFlushedLocked()
+		s.mu.Unlock()
+	}()
 	for {
 		select {
 		case <-w.done:
@@ -118,11 +162,14 @@ func (s *sessionState) writeEvents(w *eventWriter) {
 				return
 			}
 			if len(w.queue) == 0 {
+				w.inFlight = false
+				w.notifyFlushedLocked()
 				s.mu.Unlock()
 				break
 			}
 			frame, nextQueue := popFront(w.queue)
 			w.queue = nextQueue
+			w.inFlight = true
 			s.mu.Unlock()
 
 			deadline := 5 * time.Second

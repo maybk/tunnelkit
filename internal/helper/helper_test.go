@@ -257,7 +257,10 @@ func TestHelperRecoversWithoutVPNConfigAndExits(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case msg := <-cli.Events():
+	case msg, ok := <-cli.Events():
+		if !ok {
+			t.Fatal("events channel closed before PhaseDisconnected")
+		}
 		if msg.Event == nil || msg.Event.Phase != fortivpn.PhaseDisconnected || msg.Event.Err != nil {
 			t.Fatalf("recovery unexpectedly started a VPN or failed: %+v", msg)
 		}
@@ -271,5 +274,77 @@ func TestHelperRecoversWithoutVPNConfigAndExits(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("network-only helper did not exit")
+	}
+}
+
+func TestHelperFlushesFinalEventBeforeMinimalExitGrace(t *testing.T) {
+	for i := range 20 {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		token, err := ipc.GenerateToken()
+		if err != nil {
+			_ = ln.Close()
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		done := make(chan error, 1)
+		go func() {
+			done <- ServeListener(ctx, ln, Options{TokenSHA256: ipc.HashToken(token), ExitGrace: time.Nanosecond})
+		}()
+		raw, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			cancel()
+			_ = ln.Close()
+			t.Fatal(err)
+		}
+		cli, _, err := helperclient.ConnectDial(ctx, ipc.NewConn(raw), token)
+		if err != nil {
+			cancel()
+			_ = ln.Close()
+			t.Fatal(err)
+		}
+		if err := cli.RecoverNetwork(ctx, nil); err != nil {
+			_ = cli.Close()
+			cancel()
+			_ = ln.Close()
+			t.Fatal(err)
+		}
+		select {
+		case msg, ok := <-cli.Events():
+			if !ok {
+				_ = cli.Close()
+				cancel()
+				_ = ln.Close()
+				t.Fatalf("iteration %d: events channel closed before PhaseDisconnected", i)
+			}
+			if msg.Event == nil || msg.Event.Phase != fortivpn.PhaseDisconnected || msg.Event.Err != nil {
+				_ = cli.Close()
+				cancel()
+				_ = ln.Close()
+				t.Fatalf("iteration %d: unexpected recovery event: %+v", i, msg)
+			}
+		case <-ctx.Done():
+			_ = cli.Close()
+			cancel()
+			_ = ln.Close()
+			t.Fatalf("iteration %d: timed out waiting for PhaseDisconnected", i)
+		}
+		_ = cli.Close()
+		select {
+		case err := <-done:
+			if err != nil {
+				cancel()
+				_ = ln.Close()
+				t.Fatalf("iteration %d: ServeListener failed: %v", i, err)
+			}
+		case <-ctx.Done():
+			cancel()
+			_ = ln.Close()
+			t.Fatalf("iteration %d: helper did not exit", i)
+		}
+		cancel()
+		_ = ln.Close()
 	}
 }

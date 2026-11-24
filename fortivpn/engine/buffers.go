@@ -9,19 +9,29 @@ import (
 )
 
 const (
-	outboundIPOffset    = netdev.Headroom
-	outboundPPPOffset   = outboundIPOffset - ppp.HeaderLen
-	outboundFrameOffset = outboundPPPOffset - sslvpn.FrameHeaderLen
-	smallPacketSize     = 2048
-	maxIPv4PacketSize   = 65535
-	pooledDataBufCap    = outboundIPOffset + smallPacketSize
-	pooledPacketBufCap  = outboundIPOffset + maxIPv4PacketSize
+	outboundIPOffset         = netdev.Headroom
+	outboundPPPOffset        = outboundIPOffset - ppp.HeaderLen
+	outboundFrameOffset      = outboundPPPOffset - sslvpn.FrameHeaderLen
+	smallPacketSize          = 2048
+	maxIPv4PacketSize        = 65535
+	pooledDataBufCap         = outboundIPOffset + smallPacketSize
+	pooledPacketBufCap       = outboundIPOffset + maxIPv4PacketSize
+	inboundBatchBufCap       = netdev.Headroom + ppp.HeaderLen + maxIPv4PacketSize
+	maxOutboundCoalesceBytes = 16 * 1024
+	maxInboundWriteBatch     = 64
 )
 
 // headroomDevice permits in-place encapsulation without an engine payload copy.
 type headroomDevice interface {
 	ReadPacketAt(buf []byte, offset int) (int, error)
 	WritePacketAt(buf []byte, offset int) error
+}
+
+// batchDevice permits zero-extra-copy batched TUN reads and writes (e.g. Linux GSO/GRO).
+type batchDevice interface {
+	BatchSize() int
+	ReadBatch(bufs [][]byte, sizes []int, offset int) (int, error)
+	WriteBatch(bufs [][]byte, offset int) (int, error)
 }
 
 var packetBufPool = sync.Pool{New: func() any {

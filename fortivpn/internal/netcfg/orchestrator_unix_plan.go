@@ -11,7 +11,7 @@ import (
 
 type unixPlatformOps struct {
 	name               string
-	lookupRoute        func(ctx context.Context, run cmdRunner, gateway netip.Addr, skipIface string) (Snapshot, error)
+	lookupRoute        func(ctx context.Context, run cmdRunner, gateway netip.Addr, skipIface string, skipExistingHostRoute bool) (Snapshot, error)
 	configureInterface func(ctx context.Context, run cmdRunner, prev Desired, next Desired) error
 	addHostRoute       func(ctx context.Context, run cmdRunner, host netip.Addr, nextHop netip.Addr, iface string) (bool, error)
 	deleteHostRoute    func(ctx context.Context, run cmdRunner, host string, nextHop string, iface string) error
@@ -19,6 +19,8 @@ type unixPlatformOps struct {
 	deleteTunnelRoute  func(ctx context.Context, run cmdRunner, prefix netip.Prefix, iface string) error
 	applyDNS           func(ctx context.Context, run cmdRunner, iface string, plan DNSPlan, journal *Journal) (string, error)
 	removeDNS          func(ctx context.Context, run cmdRunner, iface string, key string) error
+	ensureDNS          func(ctx context.Context, run cmdRunner, iface string, key string, plan DNSPlan, journal *Journal) (string, error)
+	closeOps           func() error
 	dnsJournalKind     JournalEntryKind
 	dnsStaticKey       string
 }
@@ -31,19 +33,26 @@ type unixApplied struct {
 	desired      Desired
 	snap         Snapshot
 	tunnelRoutes []netip.Prefix
+	dnsKey       string
 }
 
 func applyUnixWithOps(ctx context.Context, d Desired, journalPath string, run cmdRunner, ops unixPlatformOps) (Applied, error) {
 	journal, err := LoadJournal(journalPath)
 	if err != nil {
+		if ops.closeOps != nil {
+			_ = ops.closeOps()
+		}
 		return nil, fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: load journal failed", err)
 	}
 
 	d = NormalizeDesired(d)
 	var snap Snapshot
 	if NeedsGatewayHostRoute(d.Routes, d.Gateway) {
-		snap, err = ops.lookupRoute(ctx, run, d.Gateway, d.Iface)
+		snap, err = ops.lookupRoute(ctx, run, d.Gateway, d.Iface, false)
 		if err != nil {
+			if ops.closeOps != nil {
+				_ = ops.closeOps()
+			}
 			return nil, fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: lookup gateway route failed", err)
 		}
 	}
@@ -55,6 +64,7 @@ func applyUnixWithOps(ctx context.Context, d Desired, journalPath string, run cm
 		journal: journal,
 		desired: d,
 		snap:    snap,
+		dnsKey:  ops.dnsStaticKey,
 	}
 
 	if err := ap.executeSteps(ctx, steps); err != nil {
@@ -99,10 +109,11 @@ func (a *unixApplied) executeSteps(ctx context.Context, steps []Step) error {
 					return err
 				}
 			}
-			_, err := a.ops.applyDNS(ctx, a.run, s.Iface, s.DNS, a.journal)
+			key, err := a.ops.applyDNS(ctx, a.run, s.Iface, s.DNS, a.journal)
 			if err != nil {
 				return err
 			}
+			a.dnsKey = key
 		}
 	}
 	return nil
@@ -119,10 +130,34 @@ func (a *unixApplied) Update(ctx context.Context, d Desired) error {
 		}
 	}
 
-	oldNeedHost := NeedsGatewayHostRoute(a.desired.Routes, a.desired.Gateway)
 	newNeedHost := NeedsGatewayHostRoute(d.Routes, d.Gateway)
+	var (
+		targetSnap       Snapshot
+		hasTargetHost    bool
+		desiredHostEntry JournalEntry
+	)
+	if newNeedHost {
+		targetSnap = a.snap
+		if a.ops.lookupRoute != nil {
+			// Skip the tunnel interface and our own prior /32 gateway route so uplink
+			// transitions (e.g. Wi-Fi -> hotspot with unchanged gateway IP) refresh nextHop/iface.
+			if lookedUp, err := a.ops.lookupRoute(ctx, a.run, d.Gateway, d.Iface, true); err == nil && (lookedUp.GatewayNextHop.IsValid() || lookedUp.GatewayIface != "") {
+				targetSnap = lookedUp
+			}
+		}
+		hasTargetHost = targetSnap.GatewayNextHop.IsValid() || targetSnap.GatewayIface != ""
+		if hasTargetHost {
+			desiredHostEntry = buildHostRouteEntry(d.Gateway, targetSnap.GatewayNextHop, targetSnap.GatewayIface, 0)
+		}
+	}
+
+	alreadyRecorded := false
 	for _, entry := range a.journal.Entries() {
-		if entry.Kind != KindHostRoute || (newNeedHost && entry.Gateway == d.Gateway.String()) {
+		if entry.Kind != KindHostRoute {
+			continue
+		}
+		if newNeedHost && hasTargetHost && entry == desiredHostEntry {
+			alreadyRecorded = true
 			continue
 		}
 		if err := a.ops.deleteHostRoute(ctx, a.run, entry.Gateway, entry.NextHop, entry.Iface); err != nil {
@@ -132,24 +167,15 @@ func (a *unixApplied) Update(ctx context.Context, d Desired) error {
 			return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: remove previous host route journal failed", err)
 		}
 	}
-	if newNeedHost && (!oldNeedHost || d.Gateway != a.desired.Gateway) {
-		snap := a.snap
-		if (!snap.GatewayNextHop.IsValid() && snap.GatewayIface == "") || d.Gateway != a.desired.Gateway {
-			if a.ops.lookupRoute != nil {
-				if lookedUp, err := a.ops.lookupRoute(ctx, a.run, d.Gateway, d.Iface); err == nil && (lookedUp.GatewayNextHop.IsValid() || lookedUp.GatewayIface != "") {
-					snap = lookedUp
-					a.snap = snap
-				}
-			}
+	if newNeedHost && hasTargetHost && !alreadyRecorded {
+		if err := recordAndApplyHostRoute(a.journal, desiredHostEntry, func() (bool, error) {
+			return a.ops.addHostRoute(ctx, a.run, d.Gateway, targetSnap.GatewayNextHop, targetSnap.GatewayIface)
+		}); err != nil {
+			return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update gateway host route failed", err)
 		}
-		if snap.GatewayNextHop.IsValid() || snap.GatewayIface != "" {
-			entry := buildHostRouteEntry(d.Gateway, snap.GatewayNextHop, snap.GatewayIface, 0)
-			if err := recordAndApplyHostRoute(a.journal, entry, func() (bool, error) {
-				return a.ops.addHostRoute(ctx, a.run, d.Gateway, snap.GatewayNextHop, snap.GatewayIface)
-			}); err != nil {
-				return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update gateway host route failed", err)
-			}
-		}
+	}
+	if newNeedHost && hasTargetHost {
+		a.snap = targetSnap
 	}
 
 	toRemove, updatedRoutes, toAdd := DiffRoutes(a.tunnelRoutes, d.Routes)
@@ -177,6 +203,7 @@ func (a *unixApplied) Update(ctx context.Context, d Desired) error {
 		if err != nil {
 			return fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "netcfg: update dns failed", err)
 		}
+		a.dnsKey = newKey
 		if err := a.cleanupDNS(ctx, a.dnsEntry(d.Iface, newKey)); err != nil {
 			return err
 		}
@@ -184,9 +211,33 @@ func (a *unixApplied) Update(ctx context.Context, d Desired) error {
 		if err := a.cleanupDNS(ctx, JournalEntry{}); err != nil {
 			return err
 		}
+		a.dnsKey = ""
 	}
 
 	a.desired = d
+	return nil
+}
+
+// EnsureDNS verifies volatile host DNS settings after sleep/wake or link changes
+// and restores them if cleared by the operating system.
+func (a *unixApplied) EnsureDNS(ctx context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.ops.ensureDNS == nil || !HasEffectiveDNS(a.desired.DNS) {
+		return nil
+	}
+	key := a.dnsKey
+	if key == "" {
+		key = a.ops.dnsStaticKey
+	}
+	newKey, err := a.ops.ensureDNS(ctx, a.run, a.desired.Iface, key, a.desired.DNS, a.journal)
+	if err != nil {
+		return err
+	}
+	if newKey != "" {
+		a.dnsKey = newKey
+		return a.cleanupDNS(ctx, a.dnsEntry(a.desired.Iface, newKey))
+	}
 	return nil
 }
 
@@ -224,6 +275,9 @@ func (a *unixApplied) dnsEntry(iface, key string) JournalEntry {
 func (a *unixApplied) Close(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.ops.closeOps != nil {
+		defer func() { _ = a.ops.closeOps() }()
+	}
 
 	for _, route := range slices.Backward(a.tunnelRoutes) {
 		_ = a.ops.deleteTunnelRoute(ctx, a.run, route, a.desired.Iface)

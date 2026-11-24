@@ -4,7 +4,7 @@
 
 ## 目录结构
 
-- `useNoticeStore.ts`：全局通知提示队列与自动消失计时。
+- `useNoticeStore.ts`：全局通知提示队列、去重覆盖与自动消失计时。
 - `useAppearanceStore.ts`：三态主题模式（`system / light / dark`）切换、持久化与 DOM `.dark` 类名同步。
 - `useDesktopWindowStore.ts`：三端桌面平台探测与窗口控制动作。
 - `useProfilesStore.ts`：VPN 节点列表、当前选中节点、工作区标签页与配置增删改查。

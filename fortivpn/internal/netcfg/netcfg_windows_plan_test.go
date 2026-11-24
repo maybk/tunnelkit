@@ -24,7 +24,7 @@ type fakeWindowsOps struct {
 	lookupErr       error
 }
 
-func (f *fakeWindowsOps) lookupGatewayRoute(gateway netip.Addr, _ uint64) (Snapshot, error) {
+func (f *fakeWindowsOps) lookupGatewayRoute(gateway netip.Addr, _ uint64, _ bool) (Snapshot, error) {
 	f.calls = append(f.calls, "lookupGatewayRoute:"+gateway.String())
 	if f.lookupErr != nil {
 		return Snapshot{}, f.lookupErr
@@ -44,6 +44,11 @@ func (f *fakeWindowsOps) flushTunnelRoutes(_ uint64) error {
 
 func (f *fakeWindowsOps) configureIPv4Interface(_ uint64, _ int) error {
 	f.calls = append(f.calls, "configureIPv4Interface")
+	return nil
+}
+
+func (f *fakeWindowsOps) disableDNSRegistration(_ uint64) error {
+	f.calls = append(f.calls, "disableDNSRegistration")
 	return nil
 }
 
@@ -206,6 +211,9 @@ func TestWindowsRouteFlushPrecedesIPv4AddressAssignment(t *testing.T) {
 	if !slices.Contains(ops.calls, "disableIPv6") {
 		t.Fatalf("expected disableIPv6 to be called: %v", ops.calls)
 	}
+	if !slices.Contains(ops.calls, "disableDNSRegistration") {
+		t.Fatalf("expected disableDNSRegistration to be called: %v", ops.calls)
+	}
 	if !slices.Contains(ops.calls, "removeDNS") {
 		t.Fatalf("expected removeDNS to be called when no VPN DNS servers are present: %v", ops.calls)
 	}
@@ -354,5 +362,81 @@ func TestWindowsApplyRollsBackOnFailure(t *testing.T) {
 	}
 	if _, err := os.Stat(jPath); !os.IsNotExist(err) {
 		t.Fatalf("expected journal cleaned after rollback, stat err=%v", err)
+	}
+}
+
+func TestWindowsUplinkChangeRefreshesHostRouteWithSameGatewayIP(t *testing.T) {
+	journal := NewJournal(filepath.Join(t.TempDir(), "journal.json"))
+	gw := netip.MustParseAddr("198.51.100.10")
+	if err := journal.Record(buildHostRouteEntry(gw, netip.MustParseAddr("192.168.1.1"), "", 11)); err != nil {
+		t.Fatal(err)
+	}
+	previous := NormalizeDesired(Desired{
+		Iface:   "TunnelKit",
+		Local:   netip.MustParseAddr("10.0.0.2"),
+		Gateway: gw,
+		Routes: []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/1"),
+			netip.MustParsePrefix("128.0.0.0/1"),
+		},
+	})
+	ops := &fakeWindowsOps{
+		lookupSnap: Snapshot{
+			GatewayNextHop: netip.MustParseAddr("172.20.10.1"),
+			GatewayLUID:    22,
+		},
+	}
+	a := &windowsApplied{
+		luid:    18,
+		ops:     ops,
+		journal: journal,
+		desired: previous,
+		snap: Snapshot{
+			GatewayNextHop: netip.MustParseAddr("192.168.1.1"),
+			GatewayLUID:    11,
+		},
+	}
+	if err := a.Update(context.Background(), previous); err != nil {
+		t.Fatalf("Update after Windows uplink switch failed: %v", err)
+	}
+	if !slices.Contains(ops.calls, "deleteHostRoute:198.51.100.10/32") ||
+		!slices.Contains(ops.calls, "lookupGatewayRoute:198.51.100.10") ||
+		!slices.Contains(ops.calls, "addHostRoute:198.51.100.10/32") {
+		t.Fatalf("unexpected calls on Windows uplink switch: %v", ops.calls)
+	}
+	entries := journal.Entries()
+	if len(entries) != 1 || entries[0].LUID != 22 || entries[0].NextHop != "172.20.10.1" {
+		t.Fatalf("unexpected journal after Windows uplink switch: %+v", entries)
+	}
+}
+
+func TestWindowsEnsureDNSReappliesOnlyWhenEffective(t *testing.T) {
+	journal := NewJournal(filepath.Join(t.TempDir(), "journal.json"))
+	ops := &fakeWindowsOps{}
+	d := NormalizeDesired(Desired{
+		Iface: "TunnelKit",
+		Local: netip.MustParseAddr("10.0.0.2"),
+		DNS: DNSPlan{
+			Mode:    fortivpn.DNSSplit,
+			Servers: []netip.Addr{netip.MustParseAddr("10.0.0.53")},
+			Domains: []string{"corp.example.com"},
+		},
+	})
+	a := &windowsApplied{luid: 18, ops: ops, journal: journal, desired: d}
+	ensurer := any(a).(interface{ EnsureDNS(context.Context) error })
+	if err := ensurer.EnsureDNS(context.Background()); err != nil {
+		t.Fatalf("EnsureDNS failed: %v", err)
+	}
+	if !slices.Contains(ops.calls, "applyDNS") {
+		t.Fatalf("expected EnsureDNS to re-apply DNS and flush cache, calls=%v", ops.calls)
+	}
+
+	ops.calls = nil
+	a.desired.DNS.Mode = fortivpn.DNSOff
+	if err := ensurer.EnsureDNS(context.Background()); err != nil {
+		t.Fatalf("EnsureDNS with DNSOff failed: %v", err)
+	}
+	if len(ops.calls) != 0 {
+		t.Fatalf("expected EnsureDNS with DNSOff to be a no-op, calls=%v", ops.calls)
 	}
 }

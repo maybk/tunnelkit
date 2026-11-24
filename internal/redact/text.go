@@ -1,4 +1,4 @@
-// Package redact 遮蔽日志文本和结构化属性中的凭据，不改变网络诊断字段。
+// Package redact 遮蔽日志文本和结构化属性中的凭据与本机路径用户名，不改变网络诊断字段。
 package redact
 
 import (
@@ -12,12 +12,15 @@ var (
 	sensitiveKey = regexp.MustCompile(`(?i)password|passwd|passphrase|credential|secret|token|cookie|otp|pinentry|authorization|api[_-]?key`)
 	assignment   = regexp.MustCompile(`(?i)\b([a-z0-9_.-]*(?:password|passwd|passphrase|credential|secret|token|cookie|otp|pinentry|authorization|api[_-]?key)[a-z0-9_.-]*)["']?\s*[=:]\s*`)
 	nextField    = regexp.MustCompile(`^["']?[a-zA-Z0-9_.-]+["']?[ \t]*[=:]`)
+	uriCreds     = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)([^\s/@"'<>]+:[^\s/@"'<>]*)@`)
+	authScheme   = regexp.MustCompile(`(?i)\b(Bearer|Basic)[ \t]+([^\s"',;\]\}\\\(\)<>]+)`)
 )
 
 // Key 判断结构化属性名是否包含凭据字段。
 func Key(name string) bool { return sensitiveKey.MatchString(name) }
 
-// Text 遮蔽带引号/空白的键值、JSON 属性及完整认证/Cookie 头。
+// Text 遮蔽带引号/空白的键值、JSON 属性、完整认证/Cookie 头、URI 内嵌凭据、
+// 独立 Bearer/Basic 令牌及三端用户主目录路径中的操作系统用户名。
 // 无法确定值边界时遮蔽本行剩余内容，避免只删除凭据的第一个词。
 func Text(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
@@ -26,7 +29,7 @@ func Text(text string) string {
 		loc := assignment.FindStringSubmatchIndex(text)
 		if loc == nil {
 			out.WriteString(text)
-			return out.String()
+			break
 		}
 		out.WriteString(text[:loc[1]])
 		key := strings.ToLower(text[loc[2]:loc[3]])
@@ -48,6 +51,70 @@ func Text(text string) string {
 		}
 		text = text[end:]
 	}
+	res := redactURICredentials(out.String())
+	res = redactAuthSchemeTokens(res)
+	return UserPaths(res)
+}
+
+func redactURICredentials(text string) string {
+	if !strings.Contains(text, "://") || !strings.Contains(text, "@") {
+		return text
+	}
+	return uriCreds.ReplaceAllString(text, "${1}"+marker+"@")
+}
+
+func redactAuthSchemeTokens(text string) string {
+	matches := authScheme.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) == 0 {
+		return text
+	}
+	var out strings.Builder
+	cursor := 0
+	for _, m := range matches {
+		scheme := text[m[2]:m[3]]
+		token := text[m[4]:m[5]]
+		if strings.HasPrefix(text[m[4]:], marker) {
+			continue
+		}
+		if strings.EqualFold(scheme, "basic") && !looksLikeBasicCredential(token) {
+			continue
+		}
+		if out.Cap() == 0 {
+			out.Grow(len(text))
+		}
+		out.WriteString(text[cursor:m[4]])
+		out.WriteString(marker)
+		cursor = m[5]
+	}
+	if cursor == 0 {
+		return text
+	}
+	out.WriteString(text[cursor:])
+	return out.String()
+}
+
+// looksLikeBasicCredential 区分 Base64 编码的 HTTP Basic 凭据与普通英文短语（如 "Basic auth failed"）。
+func looksLikeBasicCredential(token string) bool {
+	if len(token) < 8 {
+		return false
+	}
+	hasUpper, hasLower, hasDigit, hasB64Sym := false, false, false, false
+	for i := 0; i < len(token); i++ {
+		c := token[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		case c >= '0' && c <= '9':
+			hasDigit = true
+		case c == '+' || c == '/' || c == '=' || c == '_' || c == '-':
+			hasB64Sym = true
+		default:
+			return false
+		}
+	}
+	return hasB64Sym || hasDigit || (hasUpper && hasLower)
 }
 
 func valueEnd(value string) int {

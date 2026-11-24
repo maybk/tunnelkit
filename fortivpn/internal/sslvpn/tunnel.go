@@ -14,7 +14,7 @@ import (
 
 const (
 	maxUpgradeHTTPHeader = 16 * 1024
-	tunnelReadBufSize    = 16 * 1024
+	tunnelReadBufSize    = 64 * 1024
 )
 
 // TunnelRequest builds the raw HTTP/1.1 GET request that switches a TLS connection
@@ -80,6 +80,11 @@ func (t *TunnelConn) ReadFrameInto(scratch []byte) ([]byte, error) {
 		}
 	}
 	return ReadFrameInto(t.br, scratch)
+}
+
+// Buffered returns the number of already-decrypted bytes ready in the read buffer.
+func (t *TunnelConn) Buffered() int {
+	return t.br.Buffered()
 }
 
 // WriteFrame encodes pppFrame with the 6-octet Fortinet header and writes it to the tunnel.

@@ -11,11 +11,17 @@ import (
 const (
 	darwinDNSServiceKey  = "State:/Network/Service/TunnelKit/DNS"
 	darwinIPv4ServiceKey = "State:/Network/Service/TunnelKit/IPv4"
+	// darwinDNSSearchOrder places TunnelKit's dynamic resolver ahead of default
+	// Supplemental resolvers (typically 101600+/200000) without colliding with mDNS (300000+).
+	darwinDNSSearchOrder = "100000"
 )
 
 func buildScutilSetScript(key string, plan DNSPlan) string {
 	var b strings.Builder
 	b.WriteString("d.init\n")
+	b.WriteString("d.add SearchOrder # ")
+	b.WriteString(darwinDNSSearchOrder)
+	b.WriteByte('\n')
 
 	addrs := make([]string, 0, len(plan.Servers))
 	for _, s := range plan.Servers {
@@ -87,6 +93,48 @@ func applyDarwinDNS(ctx context.Context, run cmdRunner, key string, plan DNSPlan
 	}
 	flushDarwinDNSCache(ctx, run)
 	return nil
+}
+
+// ensureDarwinDNS verifies that macOS configd has not wiped TunnelKit's volatile
+// Dynamic Store DNS entries across sleep/wake or network transitions, restoring them if missing.
+func ensureDarwinDNS(ctx context.Context, run cmdRunner, key string, plan DNSPlan) error {
+	if !HasEffectiveDNS(plan) {
+		return nil
+	}
+	if key == "" {
+		key = darwinDNSServiceKey
+	}
+	out, err := run(ctx, fmt.Sprintf("show %s\nquit\n", key), "/usr/sbin/scutil")
+	if err == nil && darwinScutilDNSMatches(out, plan) {
+		if key != darwinDNSServiceKey || plan.Mode != fortivpn.DNSFull {
+			return nil
+		}
+		ipv4Out, ipv4Err := run(ctx, fmt.Sprintf("show %s\nquit\n", darwinIPv4ServiceKey), "/usr/sbin/scutil")
+		if ipv4Err == nil && !strings.Contains(strings.ToLower(ipv4Out), "no such key") && strings.Contains(ipv4Out, "OverridePrimary") {
+			return nil
+		}
+	}
+	return applyDarwinDNS(ctx, run, key, plan)
+}
+
+func darwinScutilDNSMatches(out string, plan DNSPlan) bool {
+	lower := strings.ToLower(out)
+	if strings.Contains(lower, "no such key") || !strings.Contains(out, "SearchOrder") || !strings.Contains(out, darwinDNSSearchOrder) {
+		return false
+	}
+	for _, s := range plan.Servers {
+		if s.IsValid() && !s.IsUnspecified() && !strings.Contains(out, s.String()) {
+			return false
+		}
+	}
+	if plan.Mode == fortivpn.DNSSplit {
+		for _, d := range plan.Domains {
+			if trimmed := strings.TrimSpace(d); trimmed != "" && !strings.Contains(out, trimmed) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func removeDarwinDNS(ctx context.Context, run cmdRunner, key string) error {

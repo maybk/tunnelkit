@@ -44,7 +44,7 @@ SOFTWARE.
 
 ---
 
-## 3. Go Extended Standard Libraries (`golang.org/x/sys`, `golang.org/x/sync`)
+## 3. Go Extended Standard Libraries (`golang.org/x/sys`, `golang.org/x/sync`, `golang.org/x/net`)
 
 - **License**: BSD-3-Clause License
 
@@ -53,3 +53,9 @@ SOFTWARE.
 ## 4. Microsoft go-winio (`github.com/Microsoft/go-winio`)
 
 - **License**: MIT License
+
+---
+
+## 5. vishvananda/netlink (`github.com/vishvananda/netlink`)
+
+- **License**: Apache License 2.0

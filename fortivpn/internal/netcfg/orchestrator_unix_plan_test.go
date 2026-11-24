@@ -158,7 +158,7 @@ func TestUnixGatewayChangeUpdatesHostRouteAndSnapshot(t *testing.T) {
 		desired: previous,
 		snap:    Snapshot{GatewayNextHop: netip.MustParseAddr("192.168.1.1"), GatewayIface: "en0"},
 		ops: unixPlatformOps{
-			lookupRoute: func(_ context.Context, _ cmdRunner, gw netip.Addr, _ string) (Snapshot, error) {
+			lookupRoute: func(_ context.Context, _ cmdRunner, gw netip.Addr, _ string, _ bool) (Snapshot, error) {
 				if gw != newGW {
 					t.Fatalf("unexpected lookup gateway: %s", gw)
 				}
@@ -190,5 +190,60 @@ func TestUnixGatewayChangeUpdatesHostRouteAndSnapshot(t *testing.T) {
 	entries := journal.Entries()
 	if len(entries) != 1 || entries[0].Gateway != newGW.String() || entries[0].Iface != "en1" {
 		t.Fatalf("unexpected journal entries after gateway change: %+v", entries)
+	}
+}
+
+func TestUnixUplinkChangeRefreshesHostRouteWithSameGatewayIP(t *testing.T) {
+	journal := NewJournal(filepath.Join(t.TempDir(), "journal.json"))
+	gw := netip.MustParseAddr("198.51.100.10")
+	if err := journal.Record(buildHostRouteEntry(gw, netip.MustParseAddr("192.168.1.1"), "en0", 0)); err != nil {
+		t.Fatal(err)
+	}
+	previous := NormalizeDesired(Desired{
+		Iface:   "utun7",
+		Local:   netip.MustParseAddr("10.0.0.2"),
+		Gateway: gw,
+		Routes: []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/1"),
+			netip.MustParsePrefix("128.0.0.0/1"),
+		},
+	})
+	var deletedNextHop, deletedIface, addedNextHop, addedIface string
+	sawSkipExisting := false
+	a := &unixApplied{
+		journal: journal,
+		desired: previous,
+		snap:    Snapshot{GatewayNextHop: netip.MustParseAddr("192.168.1.1"), GatewayIface: "en0"},
+		ops: unixPlatformOps{
+			lookupRoute: func(_ context.Context, _ cmdRunner, _ netip.Addr, _ string, skipExisting bool) (Snapshot, error) {
+				sawSkipExisting = skipExisting
+				return Snapshot{GatewayNextHop: netip.MustParseAddr("172.20.10.1"), GatewayIface: "en1"}, nil
+			},
+			deleteHostRoute: func(_ context.Context, _ cmdRunner, _, nextHop, iface string) error {
+				deletedNextHop, deletedIface = nextHop, iface
+				return nil
+			},
+			addHostRoute: func(_ context.Context, _ cmdRunner, _, nextHop netip.Addr, iface string) (bool, error) {
+				addedNextHop, addedIface = nextHop.String(), iface
+				return true, nil
+			},
+			addTunnelRoute: func(context.Context, cmdRunner, netip.Prefix, string) (bool, error) {
+				return true, nil
+			},
+		},
+	}
+
+	if err := a.Update(context.Background(), previous); err != nil {
+		t.Fatalf("Update after uplink switch failed: %v", err)
+	}
+	if !sawSkipExisting {
+		t.Fatal("expected Update to pass skipExistingHostRoute=true when re-probing uplink")
+	}
+	if deletedNextHop != "192.168.1.1" || deletedIface != "en0" || addedNextHop != "172.20.10.1" || addedIface != "en1" {
+		t.Fatalf("unexpected uplink refresh: deleted=%s/%s added=%s/%s", deletedNextHop, deletedIface, addedNextHop, addedIface)
+	}
+	entries := journal.Entries()
+	if len(entries) != 1 || entries[0].NextHop != "172.20.10.1" || entries[0].Iface != "en1" {
+		t.Fatalf("unexpected journal after uplink refresh: %+v", entries)
 	}
 }

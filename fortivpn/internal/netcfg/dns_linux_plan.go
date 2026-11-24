@@ -144,6 +144,45 @@ func removeLinuxDNS(ctx context.Context, run cmdRunner, iface string, backend st
 	}
 }
 
+// ensureLinuxDNS verifies that systemd-resolved / resolvconf settings survive
+// sleep/wake or NetworkManager link transitions and restores them if cleared,
+// keeping the recovery journal synchronized if the active DNS backend changes.
+func ensureLinuxDNS(ctx context.Context, run cmdRunner, iface string, backend string, plan DNSPlan, journal *Journal) (string, error) {
+	if !HasEffectiveDNS(plan) || iface == "" {
+		return "", nil
+	}
+	switch backend {
+	case linuxDNSBackendResolvconf:
+		return applyLinuxDNS(ctx, run, iface, plan, journal)
+	default:
+		out, err := run(ctx, "", "resolvectl", "status", iface)
+		if err == nil && linuxResolvectlMatches(out, plan) {
+			return backend, nil
+		}
+		return applyLinuxDNS(ctx, run, iface, plan, journal)
+	}
+}
+
+func linuxResolvectlMatches(out string, plan DNSPlan) bool {
+	for _, s := range plan.Servers {
+		if s.IsValid() && !s.IsUnspecified() && !strings.Contains(out, s.String()) {
+			return false
+		}
+	}
+	switch plan.Mode {
+	case fortivpn.DNSFull:
+		return strings.Contains(out, "~.")
+	case fortivpn.DNSSplit:
+		for _, d := range plan.Domains {
+			trimmed := strings.TrimPrefix(strings.TrimSpace(d), ".")
+			if trimmed != "" && !strings.Contains(out, "~"+trimmed) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func isIgnorableLinuxDNSError(out string, err error) bool {
 	if err == nil {
 		return true

@@ -8,34 +8,109 @@ import (
 	"strings"
 )
 
-var darwinOps = unixPlatformOps{
-	name:               "darwin",
-	lookupRoute:        lookupDarwinRoute,
-	configureInterface: configureDarwinInterface,
-	addHostRoute:       addDarwinHostRoute,
-	deleteHostRoute:    deleteDarwinHostRoute,
-	addTunnelRoute:     addDarwinTunnelRoute,
-	deleteTunnelRoute:  deleteDarwinTunnelRoute,
-	applyDNS: func(ctx context.Context, run cmdRunner, _ string, plan DNSPlan, _ *Journal) (string, error) {
-		if err := applyDarwinDNS(ctx, run, darwinDNSServiceKey, plan); err != nil {
-			return "", err
-		}
-		return darwinDNSServiceKey, nil
-	},
-	removeDNS: func(ctx context.Context, run cmdRunner, _ string, key string) error {
-		return removeDarwinDNS(ctx, run, key)
-	},
-	dnsJournalKind: KindDarwinDNSKey,
-	dnsStaticKey:   darwinDNSServiceKey,
+// darwinRouteOps abstracts macOS route table lookup and mutations so production
+// code uses native PF_ROUTE sockets while cross-platform tests can inject mocks
+// or command-based runners without root privileges.
+type darwinRouteOps interface {
+	lookupRoute(ctx context.Context, gateway netip.Addr, skipIface string, skipExistingHostRoute bool) (Snapshot, error)
+	addHostRoute(ctx context.Context, host netip.Addr, nextHop netip.Addr, iface string) (bool, error)
+	deleteHostRoute(ctx context.Context, host string, nextHop string, iface string) error
+	addTunnelRoute(ctx context.Context, prefix netip.Prefix, iface string) (bool, error)
+	deleteTunnelRoute(ctx context.Context, prefix netip.Prefix, iface string) error
+	close() error
+}
+
+func makeDarwinPlatformOps(routeOps darwinRouteOps) unixPlatformOps {
+	return unixPlatformOps{
+		name: "darwin",
+		lookupRoute: func(ctx context.Context, _ cmdRunner, gateway netip.Addr, skipIface string, skipExistingHostRoute bool) (Snapshot, error) {
+			return routeOps.lookupRoute(ctx, gateway, skipIface, skipExistingHostRoute)
+		},
+		configureInterface: configureDarwinInterface,
+		addHostRoute: func(ctx context.Context, _ cmdRunner, host netip.Addr, nextHop netip.Addr, iface string) (bool, error) {
+			return routeOps.addHostRoute(ctx, host, nextHop, iface)
+		},
+		deleteHostRoute: func(ctx context.Context, _ cmdRunner, host string, nextHop string, iface string) error {
+			return routeOps.deleteHostRoute(ctx, host, nextHop, iface)
+		},
+		addTunnelRoute: func(ctx context.Context, _ cmdRunner, prefix netip.Prefix, iface string) (bool, error) {
+			return routeOps.addTunnelRoute(ctx, prefix, iface)
+		},
+		deleteTunnelRoute: func(ctx context.Context, _ cmdRunner, prefix netip.Prefix, iface string) error {
+			return routeOps.deleteTunnelRoute(ctx, prefix, iface)
+		},
+		applyDNS: func(ctx context.Context, run cmdRunner, _ string, plan DNSPlan, _ *Journal) (string, error) {
+			if err := applyDarwinDNS(ctx, run, darwinDNSServiceKey, plan); err != nil {
+				return "", err
+			}
+			return darwinDNSServiceKey, nil
+		},
+		removeDNS: func(ctx context.Context, run cmdRunner, _ string, key string) error {
+			return removeDarwinDNS(ctx, run, key)
+		},
+		ensureDNS: func(ctx context.Context, run cmdRunner, _ string, key string, plan DNSPlan, _ *Journal) (string, error) {
+			if key == "" {
+				key = darwinDNSServiceKey
+			}
+			if err := ensureDarwinDNS(ctx, run, key, plan); err != nil {
+				return "", err
+			}
+			return key, nil
+		},
+		closeOps:       routeOps.close,
+		dnsJournalKind: KindDarwinDNSKey,
+		dnsStaticKey:   darwinDNSServiceKey,
+	}
+}
+
+func applyDarwinWithOps(ctx context.Context, d Desired, journalPath string, routeOps darwinRouteOps, run cmdRunner) (Applied, error) {
+	if routeOps == nil {
+		routeOps = darwinCmdRouteOps{run: run}
+	}
+	return applyUnixWithOps(ctx, d, journalPath, run, makeDarwinPlatformOps(routeOps))
+}
+
+func recoverDarwinWithOps(ctx context.Context, journalPath string, routeOps darwinRouteOps, run cmdRunner) error {
+	if routeOps == nil {
+		routeOps = darwinCmdRouteOps{run: run}
+	}
+	defer func() { _ = routeOps.close() }()
+	return recoverUnixWithOps(ctx, journalPath, run, makeDarwinPlatformOps(routeOps))
 }
 
 func applyDarwinWithRunner(ctx context.Context, d Desired, journalPath string, run cmdRunner) (Applied, error) {
-	return applyUnixWithOps(ctx, d, journalPath, run, darwinOps)
+	return applyDarwinWithOps(ctx, d, journalPath, darwinCmdRouteOps{run: run}, run)
 }
 
 func recoverDarwinWithRunner(ctx context.Context, journalPath string, run cmdRunner) error {
-	return recoverUnixWithOps(ctx, journalPath, run, darwinOps)
+	return recoverDarwinWithOps(ctx, journalPath, darwinCmdRouteOps{run: run}, run)
 }
+
+type darwinCmdRouteOps struct {
+	run cmdRunner
+}
+
+func (o darwinCmdRouteOps) lookupRoute(ctx context.Context, gateway netip.Addr, skipIface string, skipExistingHostRoute bool) (Snapshot, error) {
+	return lookupDarwinRoute(ctx, o.run, gateway, skipIface, skipExistingHostRoute)
+}
+
+func (o darwinCmdRouteOps) addHostRoute(ctx context.Context, host netip.Addr, nextHop netip.Addr, iface string) (bool, error) {
+	return addDarwinHostRoute(ctx, o.run, host, nextHop, iface)
+}
+
+func (o darwinCmdRouteOps) deleteHostRoute(ctx context.Context, host string, nextHop string, iface string) error {
+	return deleteDarwinHostRoute(ctx, o.run, host, nextHop, iface)
+}
+
+func (o darwinCmdRouteOps) addTunnelRoute(ctx context.Context, prefix netip.Prefix, iface string) (bool, error) {
+	return addDarwinTunnelRoute(ctx, o.run, prefix, iface)
+}
+
+func (o darwinCmdRouteOps) deleteTunnelRoute(ctx context.Context, prefix netip.Prefix, iface string) error {
+	return deleteDarwinTunnelRoute(ctx, o.run, prefix, iface)
+}
+
+func (darwinCmdRouteOps) close() error { return nil }
 
 func configureDarwinInterface(ctx context.Context, run cmdRunner, prev Desired, next Desired) error {
 	if prev.Local.IsValid() && (next.Local != prev.Local || next.Peer != prev.Peer) {
@@ -58,12 +133,16 @@ func configureDarwinInterface(ctx context.Context, run cmdRunner, prev Desired, 
 	return err
 }
 
-func lookupDarwinRoute(ctx context.Context, run cmdRunner, gateway netip.Addr, skipIface string) (Snapshot, error) {
-	out, err := run(ctx, "", "/sbin/route", "-n", "get", gateway.String())
-	if err == nil {
-		snap := parseDarwinRouteGet(out)
-		if (snap.GatewayNextHop.IsValid() || snap.GatewayIface != "") && (skipIface == "" || snap.GatewayIface != skipIface) {
-			return snap, nil
+func lookupDarwinRoute(ctx context.Context, run cmdRunner, gateway netip.Addr, skipIface string, skipExistingHostRoute bool) (Snapshot, error) {
+	var err error
+	if !skipExistingHostRoute {
+		var out string
+		out, err = run(ctx, "", "/sbin/route", "-n", "get", gateway.String())
+		if err == nil {
+			snap := parseDarwinRouteGet(out)
+			if (snap.GatewayNextHop.IsValid() || snap.GatewayIface != "") && (skipIface == "" || snap.GatewayIface != skipIface) {
+				return snap, nil
+			}
 		}
 	}
 	outDef, errDef := run(ctx, "", "/sbin/route", "-n", "get", "default")

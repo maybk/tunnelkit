@@ -32,4 +32,5 @@ export interface NoticeItem {
   tone: Tone
   title: string
   message?: string
+  replaceKey?: string
 }

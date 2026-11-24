@@ -107,6 +107,7 @@ func Run(assets embed.FS) error {
 		Name:        ApplicationName,
 		Description: "Fortinet SSL-VPN 桌面客户端",
 		Icon:        icons.appIcon,
+		LogLevel:    slog.LevelWarn,
 		Services: []application.Service{
 			application.NewService(api.NewProfileAPI(profileStore, vpnService, tray.refresh)),
 			application.NewService(api.NewVPNAPI(vpnService)),

@@ -84,7 +84,7 @@ func TestDarwinApplyUpdateAndRollback(t *testing.T) {
 			sawIfconfig = true
 		case c.name == "/sbin/route" && c.args == "-n add -host 198.51.100.10 192.168.1.1":
 			sawHostRouteAdd = true
-		case c.name == "/usr/sbin/scutil" && strings.Contains(c.stdin, "SupplementalMatchDomains * corp.example.com"):
+		case c.name == "/usr/sbin/scutil" && strings.Contains(c.stdin, "SearchOrder # 100000") && strings.Contains(c.stdin, "SupplementalMatchDomains * corp.example.com"):
 			sawScutilSet = true
 		case c.name == "/usr/sbin/scutil" && strings.Contains(c.stdin, "remove State:/Network/Service/TunnelKit/DNS"):
 			sawScutilRemove = true
@@ -168,5 +168,112 @@ func TestDarwinRecoveryRetainsJournalWhenSystemCommandFails(t *testing.T) {
 	remaining, err := LoadJournal(path)
 	if err != nil || len(remaining.Entries()) != 1 {
 		t.Fatalf("lost pending recovery: %v", err)
+	}
+}
+
+type fakeDarwinRouteOps struct {
+	snap       Snapshot
+	calls      []string
+	closed     bool
+	sawSkipOld bool
+}
+
+func (f *fakeDarwinRouteOps) lookupRoute(_ context.Context, gw netip.Addr, _ string, skipExistingHostRoute bool) (Snapshot, error) {
+	f.calls = append(f.calls, "lookup:"+gw.String())
+	if skipExistingHostRoute {
+		f.sawSkipOld = true
+	}
+	return f.snap, nil
+}
+
+func (f *fakeDarwinRouteOps) addHostRoute(_ context.Context, host, nextHop netip.Addr, iface string) (bool, error) {
+	f.calls = append(f.calls, "addHost:"+host.String()+"@"+nextHop.String()+"/"+iface)
+	return true, nil
+}
+
+func (f *fakeDarwinRouteOps) deleteHostRoute(_ context.Context, host, nextHop, iface string) error {
+	f.calls = append(f.calls, "delHost:"+host+"@"+nextHop+"/"+iface)
+	return nil
+}
+
+func (f *fakeDarwinRouteOps) addTunnelRoute(_ context.Context, pfx netip.Prefix, iface string) (bool, error) {
+	f.calls = append(f.calls, "addTun:"+pfx.String()+"/"+iface)
+	return true, nil
+}
+
+func (f *fakeDarwinRouteOps) deleteTunnelRoute(_ context.Context, pfx netip.Prefix, iface string) error {
+	f.calls = append(f.calls, "delTun:"+pfx.String()+"/"+iface)
+	return nil
+}
+
+func (f *fakeDarwinRouteOps) close() error {
+	f.closed = true
+	return nil
+}
+
+func TestDarwinNativeOpsApplyEnsureDNSAndClose(t *testing.T) {
+	jPath := filepath.Join(t.TempDir(), "journal.json")
+	routeOps := &fakeDarwinRouteOps{
+		snap: Snapshot{GatewayNextHop: netip.MustParseAddr("192.168.1.1"), GatewayIface: "en0"},
+	}
+
+	dnsWiped := false
+	scutilSetCount := 0
+	runner := func(_ context.Context, stdin string, name string, _ ...string) (string, error) {
+		if name == "/sbin/route" {
+			t.Fatalf("native PF_ROUTE path must not shell out to /sbin/route")
+		}
+		if name == "/usr/sbin/scutil" {
+			if strings.HasPrefix(stdin, "show ") {
+				if dnsWiped {
+					return "  No such key\n", nil
+				}
+				return "<dictionary> {\n  SearchOrder : 100000\n  OverridePrimary : 1\n  ServerAddresses : <array> { 0 : 10.0.0.53 }\n}\n", nil
+			}
+			if strings.Contains(stdin, "set State:/Network/Service/TunnelKit/DNS") {
+				scutilSetCount++
+			}
+		}
+		return "", nil
+	}
+
+	d := Desired{
+		Iface:   "utun9",
+		Local:   netip.MustParseAddr("10.200.0.2"),
+		Peer:    netip.MustParseAddr("169.254.2.1"),
+		MTU:     1400,
+		Gateway: netip.MustParseAddr("198.51.100.10"),
+		Routes:  []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1")},
+		DNS: DNSPlan{
+			Mode:    fortivpn.DNSFull,
+			Servers: []netip.Addr{netip.MustParseAddr("10.0.0.53")},
+		},
+	}
+
+	applied, err := applyDarwinWithOps(context.Background(), d, jPath, routeOps, runner)
+	if err != nil {
+		t.Fatalf("applyDarwinWithOps failed: %v", err)
+	}
+	ensurer := applied.(interface{ EnsureDNS(context.Context) error })
+	if err := ensurer.EnsureDNS(context.Background()); err != nil {
+		t.Fatalf("EnsureDNS when intact failed: %v", err)
+	}
+	if scutilSetCount != 1 {
+		t.Fatalf("EnsureDNS should not rewrite intact DNS, setCount=%d", scutilSetCount)
+	}
+
+	dnsWiped = true
+	if err := ensurer.EnsureDNS(context.Background()); err != nil {
+		t.Fatalf("EnsureDNS restore failed: %v", err)
+	}
+	if scutilSetCount != 2 {
+		t.Fatalf("EnsureDNS should restore wiped DNS, setCount=%d", scutilSetCount)
+	}
+
+	if err := applied.Close(context.Background()); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if !routeOps.closed {
+		t.Fatal("expected Close to release native Darwin route socket")
 	}
 }

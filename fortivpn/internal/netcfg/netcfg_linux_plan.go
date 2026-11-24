@@ -8,28 +8,100 @@ import (
 	"strings"
 )
 
-var linuxOps = unixPlatformOps{
-	name:        "linux",
-	lookupRoute: lookupLinuxRoute,
-	configureInterface: func(ctx context.Context, run cmdRunner, _ Desired, next Desired) error {
-		return configureLinuxInterface(ctx, run, next.Iface, next.Local, next.Peer, next.MTU)
-	},
-	addHostRoute:      addLinuxHostRoute,
-	deleteHostRoute:   deleteLinuxHostRoute,
-	addTunnelRoute:    addLinuxTunnelRoute,
-	deleteTunnelRoute: deleteLinuxTunnelRoute,
-	applyDNS:          applyLinuxDNS,
-	removeDNS:         removeLinuxDNS,
-	dnsJournalKind:    KindLinuxDNS,
+// linuxNetlinkOps abstracts Linux interface and IPv4 route operations so production
+// code talks directly to the kernel via Netlink while cross-platform tests can
+// inject mocks or command runners on any host OS.
+type linuxNetlinkOps interface {
+	configureInterface(ctx context.Context, iface string, local, peer netip.Addr, mtu int) error
+	lookupRoute(ctx context.Context, gateway netip.Addr, skipIface string, skipExistingHostRoute bool) (Snapshot, error)
+	addHostRoute(ctx context.Context, host netip.Addr, nextHop netip.Addr, iface string) (bool, error)
+	deleteHostRoute(ctx context.Context, host string, nextHop string, iface string) error
+	addTunnelRoute(ctx context.Context, prefix netip.Prefix, iface string) (bool, error)
+	deleteTunnelRoute(ctx context.Context, prefix netip.Prefix, iface string) error
+	close() error
+}
+
+func makeLinuxPlatformOps(nlOps linuxNetlinkOps) unixPlatformOps {
+	return unixPlatformOps{
+		name: "linux",
+		lookupRoute: func(ctx context.Context, _ cmdRunner, gateway netip.Addr, skipIface string, skipExistingHostRoute bool) (Snapshot, error) {
+			return nlOps.lookupRoute(ctx, gateway, skipIface, skipExistingHostRoute)
+		},
+		configureInterface: func(ctx context.Context, _ cmdRunner, _ Desired, next Desired) error {
+			return nlOps.configureInterface(ctx, next.Iface, next.Local, next.Peer, next.MTU)
+		},
+		addHostRoute: func(ctx context.Context, _ cmdRunner, host netip.Addr, nextHop netip.Addr, iface string) (bool, error) {
+			return nlOps.addHostRoute(ctx, host, nextHop, iface)
+		},
+		deleteHostRoute: func(ctx context.Context, _ cmdRunner, host string, nextHop string, iface string) error {
+			return nlOps.deleteHostRoute(ctx, host, nextHop, iface)
+		},
+		addTunnelRoute: func(ctx context.Context, _ cmdRunner, prefix netip.Prefix, iface string) (bool, error) {
+			return nlOps.addTunnelRoute(ctx, prefix, iface)
+		},
+		deleteTunnelRoute: func(ctx context.Context, _ cmdRunner, prefix netip.Prefix, iface string) error {
+			return nlOps.deleteTunnelRoute(ctx, prefix, iface)
+		},
+		applyDNS:       applyLinuxDNS,
+		removeDNS:      removeLinuxDNS,
+		ensureDNS:      ensureLinuxDNS,
+		closeOps:       nlOps.close,
+		dnsJournalKind: KindLinuxDNS,
+	}
+}
+
+func applyLinuxWithOps(ctx context.Context, d Desired, journalPath string, nlOps linuxNetlinkOps, run cmdRunner) (Applied, error) {
+	if nlOps == nil {
+		nlOps = linuxCmdOps{run: run}
+	}
+	return applyUnixWithOps(ctx, d, journalPath, run, makeLinuxPlatformOps(nlOps))
+}
+
+func recoverLinuxWithOps(ctx context.Context, journalPath string, nlOps linuxNetlinkOps, run cmdRunner) error {
+	if nlOps == nil {
+		nlOps = linuxCmdOps{run: run}
+	}
+	defer func() { _ = nlOps.close() }()
+	return recoverUnixWithOps(ctx, journalPath, run, makeLinuxPlatformOps(nlOps))
 }
 
 func applyLinuxWithRunner(ctx context.Context, d Desired, journalPath string, run cmdRunner) (Applied, error) {
-	return applyUnixWithOps(ctx, d, journalPath, run, linuxOps)
+	return applyLinuxWithOps(ctx, d, journalPath, linuxCmdOps{run: run}, run)
 }
 
 func recoverLinuxWithRunner(ctx context.Context, journalPath string, run cmdRunner) error {
-	return recoverUnixWithOps(ctx, journalPath, run, linuxOps)
+	return recoverLinuxWithOps(ctx, journalPath, linuxCmdOps{run: run}, run)
 }
+
+type linuxCmdOps struct {
+	run cmdRunner
+}
+
+func (o linuxCmdOps) configureInterface(ctx context.Context, iface string, local, peer netip.Addr, mtu int) error {
+	return configureLinuxInterface(ctx, o.run, iface, local, peer, mtu)
+}
+
+func (o linuxCmdOps) lookupRoute(ctx context.Context, gateway netip.Addr, skipIface string, skipExistingHostRoute bool) (Snapshot, error) {
+	return lookupLinuxRoute(ctx, o.run, gateway, skipIface, skipExistingHostRoute)
+}
+
+func (o linuxCmdOps) addHostRoute(ctx context.Context, host netip.Addr, nextHop netip.Addr, iface string) (bool, error) {
+	return addLinuxHostRoute(ctx, o.run, host, nextHop, iface)
+}
+
+func (o linuxCmdOps) deleteHostRoute(ctx context.Context, host string, nextHop string, iface string) error {
+	return deleteLinuxHostRoute(ctx, o.run, host, nextHop, iface)
+}
+
+func (o linuxCmdOps) addTunnelRoute(ctx context.Context, prefix netip.Prefix, iface string) (bool, error) {
+	return addLinuxTunnelRoute(ctx, o.run, prefix, iface)
+}
+
+func (o linuxCmdOps) deleteTunnelRoute(ctx context.Context, prefix netip.Prefix, iface string) error {
+	return deleteLinuxTunnelRoute(ctx, o.run, prefix, iface)
+}
+
+func (linuxCmdOps) close() error { return nil }
 
 func configureLinuxInterface(ctx context.Context, run cmdRunner, iface string, local, peer netip.Addr, mtu int) error {
 	_, _ = run(ctx, "", "ip", "-4", "addr", "flush", "dev", iface)
@@ -45,11 +117,15 @@ func configureLinuxInterface(ctx context.Context, run cmdRunner, iface string, l
 	return err
 }
 
-func lookupLinuxRoute(ctx context.Context, run cmdRunner, gateway netip.Addr, skipIface string) (Snapshot, error) {
-	out, err := run(ctx, "", "ip", "-4", "route", "get", gateway.String())
-	if err == nil {
-		if snap := parseLinuxRouteGet(out, skipIface); snap.GatewayNextHop.IsValid() || snap.GatewayIface != "" {
-			return snap, nil
+func lookupLinuxRoute(ctx context.Context, run cmdRunner, gateway netip.Addr, skipIface string, skipExistingHostRoute bool) (Snapshot, error) {
+	var err error
+	if !skipExistingHostRoute {
+		var out string
+		out, err = run(ctx, "", "ip", "-4", "route", "get", gateway.String())
+		if err == nil {
+			if snap := parseLinuxRouteGet(out, skipIface); snap.GatewayNextHop.IsValid() || snap.GatewayIface != "" {
+				return snap, nil
+			}
 		}
 	}
 	outDef, errDef := run(ctx, "", "ip", "-4", "route", "show", "default")

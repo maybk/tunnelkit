@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
@@ -37,8 +38,8 @@ func Recover(ctx context.Context, journalPath string) error {
 
 type realWindowsAdapterOps struct{}
 
-func (realWindowsAdapterOps) lookupGatewayRoute(gateway netip.Addr, skipLUID uint64) (Snapshot, error) {
-	return lookupWindowsGatewayRoute(gateway, winipcfg.LUID(skipLUID))
+func (realWindowsAdapterOps) lookupGatewayRoute(gateway netip.Addr, skipLUID uint64, skipExistingHostRoute bool) (Snapshot, error) {
+	return lookupWindowsGatewayRoute(gateway, winipcfg.LUID(skipLUID), skipExistingHostRoute)
 }
 
 func (realWindowsAdapterOps) disableIPv6(luid uint64) {
@@ -57,6 +58,12 @@ func (realWindowsAdapterOps) configureIPv4Interface(luid uint64, mtu int) error 
 	if err != nil {
 		return fmt.Errorf("get IPInterface: %w", err)
 	}
+	ipIf.RouterDiscoveryBehavior = winipcfg.RouterDiscoveryDisabled
+	ipIf.DadTransmits = 0
+	ipIf.ManagedAddressConfigurationSupported = false
+	ipIf.OtherStatefulConfigurationSupported = false
+	ipIf.DisableDefaultRoutes = false
+	ipIf.SitePrefixLength = 0
 	if mtu > 0 {
 		ipIf.NLMTU = uint32(mtu)
 	}
@@ -66,6 +73,24 @@ func (realWindowsAdapterOps) configureIPv4Interface(luid uint64, mtu int) error 
 		return fmt.Errorf("set IPInterface MTU/Metric: %w", err)
 	}
 	return nil
+}
+
+func (realWindowsAdapterOps) disableDNSRegistration(luid uint64) error {
+	guid, err := winipcfg.LUID(luid).GUID()
+	if err != nil {
+		return err
+	}
+	err = winipcfg.SetInterfaceDnsSettings(*guid, &winipcfg.DnsInterfaceSettings{
+		Version: winipcfg.DnsInterfaceSettingsVersion1,
+		Flags: winipcfg.DnsInterfaceSettingsFlagRegistrationEnabled |
+			winipcfg.DnsInterfaceSettingsFlagRegisterAdapterName,
+		RegistrationEnabled: 0,
+		RegisterAdapterName: 0,
+	})
+	if errors.Is(err, windows.ERROR_PROC_NOT_FOUND) || errors.Is(err, windows.ERROR_NOT_SUPPORTED) {
+		return nil
+	}
+	return err
 }
 
 func (realWindowsAdapterOps) setIPv4Address(luid uint64, local netip.Addr) error {
@@ -171,7 +196,8 @@ func cleanupAddressesOnDisconnectedInterfaces(family winipcfg.AddressFamily, add
 }
 
 func lookupWindowsLUID(ifaceName string) (winipcfg.LUID, error) {
-	if ifi, err := net.InterfaceByName(ifaceName); err == nil {
+	target := strings.TrimSpace(ifaceName)
+	if ifi, err := net.InterfaceByName(target); err == nil && ifi.Index > 0 {
 		if luid, err := winipcfg.LUIDFromIndex(uint32(ifi.Index)); err == nil {
 			return luid, nil
 		}
@@ -181,22 +207,23 @@ func lookupWindowsLUID(ifaceName string) (winipcfg.LUID, error) {
 		return 0, err
 	}
 	for i := range rows {
-		if rows[i].Alias() == ifaceName {
+		if strings.EqualFold(strings.TrimSpace(rows[i].Alias()), target) {
 			return rows[i].InterfaceLUID, nil
 		}
 	}
 	return 0, fmt.Errorf("interface %q not found", ifaceName)
 }
 
-func lookupWindowsGatewayRoute(gateway netip.Addr, skipLUID winipcfg.LUID) (Snapshot, error) {
+func lookupWindowsGatewayRoute(gateway netip.Addr, skipLUID winipcfg.LUID, skipExistingHostRoute bool) (Snapshot, error) {
 	rows, err := winipcfg.GetIPForwardTable2(windows.AF_INET)
 	if err != nil {
 		return Snapshot{}, err
 	}
 
+	gw := gateway.Unmap()
 	var (
 		found      bool
-		bestBits   int = -1
+		bestBits   = -1
 		bestMetric uint64
 		bestRow    winipcfg.MibIPforwardRow2
 	)
@@ -205,7 +232,10 @@ func lookupWindowsGatewayRoute(gateway netip.Addr, skipLUID winipcfg.LUID) (Snap
 			continue
 		}
 		pfx := r.DestinationPrefix.Prefix()
-		if !pfx.IsValid() || !pfx.Contains(gateway) {
+		if !pfx.IsValid() || !pfx.Contains(gw) {
+			continue
+		}
+		if skipExistingHostRoute && pfx.Bits() == 32 && pfx.Addr() == gw {
 			continue
 		}
 		ipIf, err := r.InterfaceLUID.IPInterface(windows.AF_INET)

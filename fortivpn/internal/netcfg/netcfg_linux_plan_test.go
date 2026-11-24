@@ -220,3 +220,179 @@ func TestLinuxDNSOffUpdatePreservesFailedCleanupForRetry(t *testing.T) {
 		t.Fatal("successful cleanup left its journal", err)
 	}
 }
+
+type fakeLinuxNetlinkOps struct {
+	snap       Snapshot
+	calls      []string
+	sawSkipOld bool
+}
+
+func (f *fakeLinuxNetlinkOps) configureInterface(_ context.Context, iface string, local, _ netip.Addr, _ int) error {
+	f.calls = append(f.calls, "iface:"+iface+"="+local.String())
+	return nil
+}
+
+func (f *fakeLinuxNetlinkOps) lookupRoute(_ context.Context, gw netip.Addr, _ string, skipExistingHostRoute bool) (Snapshot, error) {
+	f.calls = append(f.calls, "lookup:"+gw.String())
+	if skipExistingHostRoute {
+		f.sawSkipOld = true
+	}
+	return f.snap, nil
+}
+
+func (f *fakeLinuxNetlinkOps) addHostRoute(_ context.Context, host, nextHop netip.Addr, iface string) (bool, error) {
+	f.calls = append(f.calls, "addHost:"+host.String()+"@"+nextHop.String()+"/"+iface)
+	return true, nil
+}
+
+func (f *fakeLinuxNetlinkOps) deleteHostRoute(_ context.Context, host, nextHop, iface string) error {
+	f.calls = append(f.calls, "delHost:"+host+"@"+nextHop+"/"+iface)
+	return nil
+}
+
+func (f *fakeLinuxNetlinkOps) addTunnelRoute(_ context.Context, pfx netip.Prefix, iface string) (bool, error) {
+	f.calls = append(f.calls, "addTun:"+pfx.String()+"/"+iface)
+	return true, nil
+}
+
+func (f *fakeLinuxNetlinkOps) deleteTunnelRoute(_ context.Context, pfx netip.Prefix, iface string) error {
+	f.calls = append(f.calls, "delTun:"+pfx.String()+"/"+iface)
+	return nil
+}
+
+func (f *fakeLinuxNetlinkOps) close() error { return nil }
+
+func TestLinuxNativeNetlinkOpsApplyEnsureDNSAndClose(t *testing.T) {
+	jPath := filepath.Join(t.TempDir(), "journal.json")
+	nlOps := &fakeLinuxNetlinkOps{
+		snap: Snapshot{GatewayNextHop: netip.MustParseAddr("192.168.1.1"), GatewayIface: "eth0"},
+	}
+
+	dnsWiped := false
+	dnsSetCount := 0
+	runner := func(_ context.Context, _ string, name string, args ...string) (string, error) {
+		if name == "ip" {
+			t.Fatalf("native Netlink path must not shell out to ip command")
+		}
+		if name == "resolvectl" && len(args) > 0 {
+			if args[0] == "status" {
+				if dnsWiped {
+					return "Link 7 (forti0)\n  Current Scopes: none\n", nil
+				}
+				return "Link 7 (forti0)\n  DNS Servers: 10.0.0.53\n  DNS Domain: ~.\n", nil
+			}
+			if args[0] == "dns" {
+				dnsSetCount++
+			}
+		}
+		return "", nil
+	}
+
+	d := Desired{
+		Iface:   "forti0",
+		Local:   netip.MustParseAddr("10.200.0.2"),
+		Peer:    netip.MustParseAddr("169.254.2.1"),
+		MTU:     1400,
+		Gateway: netip.MustParseAddr("198.51.100.10"),
+		Routes:  []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1")},
+		DNS: DNSPlan{
+			Mode:    fortivpn.DNSFull,
+			Servers: []netip.Addr{netip.MustParseAddr("10.0.0.53")},
+		},
+	}
+
+	applied, err := applyLinuxWithOps(context.Background(), d, jPath, nlOps, runner)
+	if err != nil {
+		t.Fatalf("applyLinuxWithOps failed: %v", err)
+	}
+	ensurer := applied.(interface{ EnsureDNS(context.Context) error })
+	if err := ensurer.EnsureDNS(context.Background()); err != nil {
+		t.Fatalf("EnsureDNS when intact failed: %v", err)
+	}
+	if dnsSetCount != 1 {
+		t.Fatalf("EnsureDNS should not rewrite intact resolvectl config, dnsSetCount=%d", dnsSetCount)
+	}
+
+	dnsWiped = true
+	if err := ensurer.EnsureDNS(context.Background()); err != nil {
+		t.Fatalf("EnsureDNS restore failed: %v", err)
+	}
+	if dnsSetCount != 2 {
+		t.Fatalf("EnsureDNS should restore wiped resolvectl config, dnsSetCount=%d", dnsSetCount)
+	}
+
+	if err := applied.Close(context.Background()); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+func TestLinuxEnsureDNSBackendFallbackUpdatesJournalAndCleansUp(t *testing.T) {
+	jPath := filepath.Join(t.TempDir(), "journal.json")
+	nlOps := &fakeLinuxNetlinkOps{
+		snap: Snapshot{GatewayNextHop: netip.MustParseAddr("192.168.1.1"), GatewayIface: "eth0"},
+	}
+
+	resolvectlDown := false
+	var sawResolvectlRevert, sawResolvconfAdd, sawResolvconfDel bool
+	runner := func(_ context.Context, _ string, name string, args ...string) (string, error) {
+		argStr := strings.Join(args, " ")
+		if name == "resolvectl" {
+			if len(args) > 0 && args[0] == "revert" {
+				sawResolvectlRevert = true
+				return "", nil
+			}
+			if resolvectlDown {
+				return "Failed to get bus connection", os.ErrNotExist
+			}
+			return "Link 7 (forti0)\n  DNS Servers: 10.0.0.53\n  DNS Domain: ~.\n", nil
+		}
+		if name == "resolvconf" && argStr == "-a forti0.tunnelkit" {
+			sawResolvconfAdd = true
+		}
+		if name == "resolvconf" && argStr == "-d forti0.tunnelkit" {
+			sawResolvconfDel = true
+		}
+		return "", nil
+	}
+
+	d := Desired{
+		Iface: "forti0",
+		Local: netip.MustParseAddr("10.200.0.2"),
+		Peer:  netip.MustParseAddr("169.254.2.1"),
+		MTU:   1400,
+		DNS: DNSPlan{
+			Mode:    fortivpn.DNSFull,
+			Servers: []netip.Addr{netip.MustParseAddr("10.0.0.53")},
+		},
+	}
+
+	applied, err := applyLinuxWithOps(context.Background(), d, jPath, nlOps, runner)
+	if err != nil {
+		t.Fatalf("applyLinuxWithOps failed: %v", err)
+	}
+
+	// Simulate systemd-resolved going away after wake so EnsureDNS falls back to resolvconf.
+	resolvectlDown = true
+	ensurer := applied.(interface{ EnsureDNS(context.Context) error })
+	if err := ensurer.EnsureDNS(context.Background()); err != nil {
+		t.Fatalf("EnsureDNS fallback failed: %v", err)
+	}
+	if !sawResolvconfAdd || !sawResolvectlRevert {
+		t.Fatalf("expected fallback to add resolvconf and clean up resolvectl: add=%v revert=%v", sawResolvconfAdd, sawResolvectlRevert)
+	}
+	loaded, err := LoadJournal(jPath)
+	if err != nil {
+		t.Fatalf("LoadJournal failed: %v", err)
+	}
+	entries := loaded.Entries()
+	if len(entries) != 1 || entries[0].Key != linuxDNSBackendResolvconf {
+		t.Fatalf("expected journal to track active resolvconf backend, got %+v", entries)
+	}
+
+	if err := applied.Close(context.Background()); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if !sawResolvconfDel {
+		t.Fatal("expected Close to remove fallback resolvconf entry")
+	}
+}

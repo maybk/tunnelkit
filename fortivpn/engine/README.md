@@ -9,8 +9,9 @@
 - `session.go`：单次尝试与自动重连状态机编排、指数退避重试、免重登重连判定及反序优雅清理。
 - `link.go`：绑定底层 `sslvpn.TunnelConn` 与 `ppp.Session`，管理控制队列、数据队列及 PPP 协商就绪等待。
 - `netcfg.go`：汇总网关下发与用户自定义的路由和 DNS 规则，驱动虚拟网卡打开及宿主网络初次应用或重连差量更新。
-- `buffers.go`：PPP/隧道帧的前置空间布局与分级缓冲池，读取缓冲覆盖完整 IPv4 长度。
-- `pump.go`：TUN 设备与 TLS 隧道之间的双向并发数据包转发、LCP Echo 死链探测及流量统计采样。
+- `buffers.go`：帧前置空间布局、分级缓冲池与批量设备契约。
+- `dataplane.go`：批量收发包、上行短批合并写、写错分类与休眠唤醒检测。
+- `pump.go`：TUN 与 TLS 双向并发转发、LCP Echo 探活、唤醒 DNS 自愈与流量统计。
 
 ## 开发规范
 

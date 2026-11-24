@@ -3,6 +3,7 @@ package sslvpn
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"io"
 	"strings"
 )
@@ -16,7 +17,7 @@ func RedactConfigXML(data []byte) []byte {
 	depth, roots := 0, 0
 	for {
 		token, err := decoder.Token()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

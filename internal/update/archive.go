@@ -164,7 +164,7 @@ func ExtractTarGzTargets(tarGzPath, destDir string, requiredFiles map[string]os.
 		if err != nil {
 			return fmt.Errorf("读取更新归档条目失败: %w", err)
 		}
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		base := filepath.Base(filepath.Clean(filepath.FromSlash(hdr.Name)))

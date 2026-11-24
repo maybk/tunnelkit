@@ -5,27 +5,29 @@ package privilege
 import (
 	"errors"
 	"fmt"
+	"math"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 func isProcessAlive(pid int) (bool, error) {
-	if uint64(pid) > 1<<32-1 {
+	if pid <= 0 || int64(pid) > math.MaxUint32 {
 		return false, nil
 	}
-	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	pid32 := uint32(pid) // #nosec G115 -- bounded to [1, math.MaxUint32] above.
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid32)
 	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 		return false, nil
 	}
 	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 		// The GUI may observe a LocalSystem helper without permission to open it.
-		return processInSnapshot(uint32(pid))
+		return processInSnapshot(pid32)
 	}
 	if err != nil {
 		return false, err
 	}
-	defer windows.CloseHandle(handle)
+	defer func() { _ = windows.CloseHandle(handle) }()
 	state, err := windows.WaitForSingleObject(handle, 0)
 	if err != nil {
 		return false, err
@@ -45,7 +47,7 @@ func processInSnapshot(pid uint32) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer windows.CloseHandle(snapshot)
+	defer func() { _ = windows.CloseHandle(snapshot) }()
 	entry := windows.ProcessEntry32{}
 	entry.Size = uint32(unsafe.Sizeof(entry))
 	for err = windows.Process32First(snapshot, &entry); err == nil; err = windows.Process32Next(snapshot, &entry) {

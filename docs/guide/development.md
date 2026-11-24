@@ -7,6 +7,7 @@
 | Go | `>= 1.27.4` |
 | Wails CLI | Wails v3，版本与 `go.mod` 及 `frontend/package.json` 中的 `@wailsio/runtime` 保持一致 |
 | Node.js / pnpm | Node.js `>= 26.5`，使用 `pnpm` 与 `frontend/pnpm-lock.yaml` |
+| 静态与漏洞扫描（可选） | `golangci-lint` v2、`govulncheck`（未预装时由 `wails3 task lint` / `check` 自动通过 `go run` 执行） |
 | 操作系统 | macOS `12.0+`（需 Xcode Command Line Tools）、Windows `10/11` 或 Linux（需 `GTK4` / `WebKitGTK 6.0` 与 `iproute2`） |
 
 Wails v3 CLI 安装说明见 [Wails v3 官方文档](https://v3.wails.io/quick-start/installation/)。
@@ -35,21 +36,13 @@ go build -o bin/fortivpn ./fortivpn/cmd/fortivpn
 
 ## 格式、分析与测试
 
-常规完整检查：
+日常检查统一通过 `wails3 task` 执行（本机已装 `go-task` 时亦可直接用 `task`）：
 
 ```bash
-pnpm --dir frontend run format:check
-pnpm --dir frontend run lint:check
-pnpm --dir frontend run test -- --run
-pnpm --dir frontend run build
-go vet ./...
-go test -race ./...
-bash scripts/test_extract_pending_version.sh
-bash scripts/test_extract_release_notes.sh
-bash scripts/test_prepare_release.sh
-bash scripts/test_ci_config.sh
-bash scripts/test_rolling_release_config.sh
-git diff --check
+wails3 task fmt              # 格式化全部 Go 与前端源码
+wails3 task lint             # 前端检查 + go vet + golangci-lint v2 + govulncheck
+wails3 task test             # 前端单测 + Go 竞态单测
+wails3 task check            # 完整质量门禁（格式、扫描、单测、前端构建、发布契约与空白检查）
 ```
 
 测试套件包含 `fortivpn/fortitest` 内存假网关端到端测试、PPP 状态机测试、三端网络配置测试、本地 IPC 与 `tunnelkit-helper` 生命周期测试、Vue 组件测试以及 CI/Release 工作流配置契约测试，均在临时目录与非特权环境中隔离运行。
@@ -107,9 +100,6 @@ wails3 package
 ## 交付检查
 
 1. **架构与文件边界红线**：确认 `fortivpn/**` 未导入 `tunnelkit/internal/**` 或 Wails，桌面 GUI 未导入 `fortivpn/engine`，`internal/redact` 零内部依赖，`internal/privilege` 零内部与 Wails 依赖，`internal/storage` 未导入上层业务包或 Wails，`internal/api` 未直接执行文件 I/O（`<= 160` 行）；手写 Go 文件满足单文件行数上限（源码 `<= 500` 行、测试 `<= 800` 行）与职责命名门禁。
-2. **后端与内核改动**：通过 `go test -race ./...` 与 `go vet ./...`。
-3. **前端改动**：通过 `pnpm --dir frontend run format:check`、`lint:check`、`test -- --run` 与 `build`。
-4. **绑定、窗口或构建改动**：运行 `wails3 build` 确认主程序、`tunnelkit-helper` 与内嵌前端资源完整编译通过。
-5. **CI 与发布配置改动**：运行 `scripts/test_*.sh` 全部契约测试。
-6. **配置、目录、命令或用户可见变化**：同步更新 `README.md`、`docs/guide/*`、对应目录 `README.md` 或 `CHANGELOG.md` 顶部的 `未发布` 段落。
-7. **工作区检查**：运行 `git diff --check`，确认无多余空白、临时文件或调试残留。
+2. **全量质量门禁**：运行 `wails3 task check`（覆盖格式、静态与漏洞扫描、前后端单测、前端构建、发布契约与空白检查）。
+3. **绑定、窗口或构建改动**：运行 `wails3 build` 确认主程序、`tunnelkit-helper` 与内嵌前端资源完整编译通过。
+4. **配置、目录、命令或用户可见变化**：同步更新 `README.md`、`docs/guide/*`、对应目录 `README.md` 或 `CHANGELOG.md` 顶部的 `未发布` 段落。

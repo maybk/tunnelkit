@@ -64,7 +64,7 @@ func RunElevatedWindows(ctx context.Context, file, parameters, directory string)
 	}
 	info.Size = uint32(unsafe.Sizeof(info))
 	proc := windows.NewLazySystemDLL("shell32.dll").NewProc("ShellExecuteExW")
-	result, _, callErr := proc.Call(uintptr(unsafe.Pointer(&info)))
+	result, _, callErr := proc.Call(uintptr(unsafe.Pointer(&info))) // #nosec G103 -- passes SHELLEXECUTEINFOW pointer to ShellExecuteExW.
 	if result == 0 {
 		if errors.Is(callErr, windows.ERROR_CANCELLED) {
 			return 0, ErrCancelled
@@ -74,7 +74,7 @@ func RunElevatedWindows(ctx context.Context, file, parameters, directory string)
 	if info.Process == 0 {
 		return 0, errors.New("未获得提权子进程句柄")
 	}
-	defer windows.CloseHandle(info.Process)
+	defer func() { _ = windows.CloseHandle(info.Process) }()
 	for {
 		status, err := windows.WaitForSingleObject(info.Process, 50)
 		if err != nil {

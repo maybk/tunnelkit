@@ -61,7 +61,7 @@ func ValidateEndpoint(owner, endpoint string) error {
 	return nil
 }
 
-// Named pipes need no per-user filesystem state before authentication.
+// PrepareEndpoint validates owner; named pipes need no per-user filesystem state before authentication.
 func PrepareEndpoint(owner string) error {
 	return validateOwner(owner)
 }

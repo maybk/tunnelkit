@@ -5,6 +5,8 @@ vars:
   BIN_DIR: "bin"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "pnpm"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  GOLANGCI_LINT_VERSION: v2.15.0
+  GOVULNCHECK_VERSION: v1.10.0
   # Target OS for build/package/run. Defaults to the host OS, and is overridden
   # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation. The
   # tasks below dispatch to the matching platform Taskfile via this variable.
@@ -69,6 +71,129 @@ tasks:
     summary: Runs the application in development mode
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  fmt:
+    desc: 格式化全部 Go 与前端源码
+    cmds:
+      - task: gofmt:exec
+        vars:
+          MODE: write
+      - pnpm --dir frontend run format
+
+  lint:
+    desc: 运行前端检查、go vet、golangci-lint v2 与 govulncheck
+    cmds:
+      - task: lint:frontend
+      - task: lint:go
+
+  test:
+    desc: 运行前端单测与 Go 竞态单测
+    cmds:
+      - task: test:frontend
+      - task: test:go
+
+  check:
+    desc: 运行完整本地质量门禁（前端、Go 扫描与单测、契约测试与空白检查）
+    cmds:
+      - task: lint:frontend
+      - task: test:frontend
+      - pnpm --dir frontend run build
+      - task: gofmt:exec
+        vars:
+          MODE: check
+      - task: lint:go
+      - task: test:go
+      - bash scripts/test_extract_pending_version.sh
+      - bash scripts/test_extract_release_notes.sh
+      - bash scripts/test_prepare_release.sh
+      - bash scripts/test_ci_config.sh
+      - bash scripts/test_rolling_release_config.sh
+      - git diff --check
+
+  release:prepare:
+    desc: 同步更新 build/config.yml 与 CHANGELOG.md 准备正式发版
+    cmds:
+      - bash scripts/prepare_release.sh {{.ARGS | default .CLI_ARGS}}
+
+  lint:frontend:
+    internal: true
+    cmds:
+      - pnpm --dir frontend run format:check
+      - pnpm --dir frontend run lint:check
+
+  lint:go:
+    internal: true
+    cmds:
+      - go vet ./...
+      - cmd: |
+          if command -v golangci-lint >/dev/null 2>&1 && golangci-lint version 2>/dev/null | grep -Eq '(^|[[:space:]v])2\.'; then
+            printf '==> golangci-lint run\n'
+            golangci-lint run
+          else
+            printf '==> go run golangci-lint@%s run\n' "{{.GOLANGCI_LINT_VERSION}}"
+            go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}} run
+          fi
+        silent: true
+      - cmd: |
+          if command -v govulncheck >/dev/null 2>&1; then
+            printf '==> govulncheck ./...\n'
+            govulncheck ./...
+          else
+            printf '==> go run govulncheck@%s ./...\n' "{{.GOVULNCHECK_VERSION}}"
+            go run golang.org/x/vuln/cmd/govulncheck@{{.GOVULNCHECK_VERSION}} ./...
+          fi
+        silent: true
+
+  test:frontend:
+    internal: true
+    cmds:
+      - pnpm --dir frontend run test -- --run
+
+  test:go:
+    internal: true
+    cmds:
+      - cmd: |
+          if [ "{{OS}}" != "windows" ]; then
+            go test -race ./...
+          elif [ "{{ARCH}}" = "amd64" ] && command -v gcc >/dev/null 2>&1; then
+            go test -race ./...
+          else
+            printf '==> go test ./... (race detector requires Windows amd64 with gcc)\n'
+            go test ./...
+          fi
+        silent: true
+
+  gofmt:exec:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        cr="$(printf '\r')"
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          list="$(git ls-files --cached --others --exclude-standard '*.go')"
+        else
+          list="$(go list -f '{{$d := .Dir}}{{range .GoFiles}}{{$d}}/{{.}}{{"\n"}}{{end}}{{range .TestGoFiles}}{{$d}}/{{.}}{{"\n"}}{{end}}{{range .XTestGoFiles}}{{$d}}/{{.}}{{"\n"}}{{end}}{{range .IgnoredGoFiles}}{{$d}}/{{.}}{{"\n"}}{{end}}' ./...)"
+        fi
+        files=()
+        while IFS= read -r f || [ -n "$f" ]; do
+          f="${f%"$cr"}"
+          [ -n "$f" ] && [ -f "$f" ] && files+=("$f")
+        done <<EOF
+        $list
+        EOF
+        if [ "${#files[@]}" -eq 0 ]; then
+          printf 'no Go source files found\n' >&2
+          exit 1
+        fi
+        if [ "{{.MODE}}" = "check" ]; then
+          unformatted="$(gofmt -l "${files[@]}")"
+          if [ -n "$unformatted" ]; then
+            printf 'Unformatted Go files:\n%s\n' "$unformatted" >&2
+            exit 1
+          fi
+        else
+          gofmt -s -w "${files[@]}"
+        fi
 
   install:msix:tools:
     summary: Installs tools required for Windows MSIX packaging

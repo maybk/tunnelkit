@@ -22,7 +22,7 @@ const DefaultMRU uint16 = 1400
 
 const (
 	minMRU          uint16 = 576
-	maxLoopbackNaks        = 5
+	maxLoopbackNaks int    = 5
 )
 
 // LCPHandler implements OptionHandler for the Link Control Protocol (0xC021).

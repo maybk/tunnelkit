@@ -106,7 +106,7 @@ type sessionRunner struct {
 	helloTimer   *time.Timer
 	started      atomic.Bool
 	engineCancel atomic.Pointer[context.CancelFunc]
-	engineDone   chan error
+	engineDone   chan struct{}
 	leaseMu      sync.Mutex
 	orphanTimer  *time.Timer
 }
@@ -127,7 +127,7 @@ func serveListener(ctx context.Context, ln net.Listener, opts Options, logger *s
 		opts:       opts,
 		logger:     logger,
 		state:      state,
-		engineDone: make(chan error, 1),
+		engineDone: make(chan struct{}),
 	}
 
 	// A successful hello alone must not leave an idle privileged process behind.
@@ -311,7 +311,7 @@ func (r *sessionRunner) handleStartOrRecover(conn *ipc.Conn, msg ipc.Envelope) {
 		if err == nil && recoveryOnly {
 			r.state.OnEvent(fortivpn.Event{Phase: fortivpn.PhaseDisconnected})
 		} else if err == nil {
-			err = engine.Run(eCtx, cfg, r.state, engOpts...)
+			_ = engine.Run(eCtx, cfg, r.state, engOpts...)
 		} else {
 			r.state.OnEvent(fortivpn.Event{Phase: fortivpn.PhaseDisconnected, Err: fortivpn.WrapError(fortivpn.CodeNetcfgFailed, "恢复网络配置失败", err)})
 		}
@@ -319,7 +319,7 @@ func (r *sessionRunner) handleStartOrRecover(conn *ipc.Conn, msg ipc.Envelope) {
 		r.state.FlushEvents(flushCtx)
 		flushCancel()
 		_ = r.ln.Close()
-		r.engineDone <- err
+		close(r.engineDone)
 		timer := time.NewTimer(r.opts.ExitGrace)
 		select {
 		case <-timer.C:

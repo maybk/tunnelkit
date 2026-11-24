@@ -122,7 +122,7 @@ func serviceExitError(status svc.Status) error {
 		return fmt.Errorf("辅助服务退出（服务错误码 %d）", status.ServiceSpecificExitCode)
 	}
 	if status.Win32ExitCode != 0 && status.Win32ExitCode != uint32(windows.NO_ERROR) {
-		return fmt.Errorf("辅助服务异常退出（Win32 错误码 %d: %v）", status.Win32ExitCode, syscall.Errno(status.Win32ExitCode))
+		return fmt.Errorf("辅助服务异常退出（Win32 错误码 %d: %w）", status.Win32ExitCode, syscall.Errno(status.Win32ExitCode))
 	}
 	return nil
 }

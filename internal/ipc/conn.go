@@ -43,7 +43,7 @@ func (c *Conn) writeEnvelope(ctx context.Context, env Envelope) error {
 	}
 
 	frame := make([]byte, 4+len(payload))
-	binary.BigEndian.PutUint32(frame[0:4], uint32(len(payload)))
+	binary.BigEndian.PutUint32(frame[0:4], uint32(len(payload))) // #nosec G115 -- len(payload) <= MaxFrameSize (1 MiB).
 	copy(frame[4:], payload)
 
 	c.writeMu.Lock()

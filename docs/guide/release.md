@@ -4,7 +4,7 @@ TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自
 
 ## 相关文件
 
-- [`ci.yml`](../../.github/workflows/ci.yml)：`main` 分支推送与 Pull Request 的格式、静态分析、竞态测试与构建契约门禁，同时供发布工作流复用
+- [`ci.yml`](../../.github/workflows/ci.yml)：`main` 分支推送与 Pull Request 的三端质量与安全门禁，同时供发布工作流复用
 - [`release-assets.yml`](../../.github/workflows/release-assets.yml)：正式版与 Rolling 共用的跨平台打包流水线（macOS / Windows / Linux）
 - [`rolling.yml`](../../.github/workflows/rolling.yml)：每日定时（北京时间 `02:17`）检查 `main` 分支未发布增量提交并更新 `rolling` 预发布，同时支持手动按需触发
 - [`release.yml`](../../.github/workflows/release.yml)：`v*` 版本标签触发的正式 GitHub Release 发布与过期 Rolling 清理
@@ -83,7 +83,7 @@ wails3 task linux:create:rpm
 
 普通 CI 同时作为 Rolling 和正式发布的自动质量门禁：
 
-- `ci.yml` 在 `main` push 和 Pull Request 上运行，也可由 Release 与 Rolling 复用；仅具备 `contents: read` 只读权限。
+- `ci.yml` 在 `main` push 和 Pull Request 上运行 Linux 全量门禁（前端、三端交叉 `go vet`、`golangci-lint` v2、`govulncheck`、竞态测试与契约检查）、macOS / Windows 原生 Go 竞态测试及跨 Job 产物回环校验；被 Release / Rolling 复用时自动跳过与打包阶段重复的跨端测试，全程仅使用 `contents: read` 权限。
 - `release-assets.yml` 按平台与架构拆分为 7 个并行 Job，统一校验 `tunnelkit-helper --version` 与目标版本一致：
   - macOS（`macos-latest`）：并行构建 `arm64` / `amd64` / `universal` DMG，并在 `arm64` 上运行静态分析、竞态测试与已安装特权辅助程序冒烟测试。
   - Windows（`windows-latest` / `windows-11-arm`）：构建 `amd64` / `arm64` 便携包与 NSIS 安装器，运行测试套件（`amd64` 启用 `-race`）与安装器及服务冒烟测试。
@@ -111,24 +111,13 @@ wails3 task linux:create:rpm
 
 ## 发布新版本
 
-1. 更新 `build/config.yml` 中的 `info.version`，将 `CHANGELOG.md` 中目标版本的 `未发布` 改为正式日期（`YYYY-MM-DD`）并在其上方新增下一版本的 `## [x.y.z] - 未发布` 段落（也可直接执行辅助脚本一键完成）：
+1. 更新 `build/config.yml` 中的 `info.version`，将 `CHANGELOG.md` 中目标版本的 `未发布` 改为正式日期（`YYYY-MM-DD`）并在其上方新增下一版本的 `## [x.y.z] - 未发布` 段落（也可直接执行任务一键完成）：
    ```bash
-   bash scripts/prepare_release.sh
+   wails3 task release:prepare
    ```
 2. 运行全量本地检查：
    ```bash
-   pnpm --dir frontend run format:check
-   pnpm --dir frontend run lint:check
-   pnpm --dir frontend run test -- --run
-   pnpm --dir frontend run build
-   go vet ./...
-   go test -race ./...
-   bash scripts/test_extract_pending_version.sh
-   bash scripts/test_extract_release_notes.sh
-   bash scripts/test_prepare_release.sh
-   bash scripts/test_ci_config.sh
-   bash scripts/test_rolling_release_config.sh
-   git diff --check
+   wails3 task check
    ```
 3. 提交版本变更、创建附注标签并原子推送 `main` 与标签：
    ```bash

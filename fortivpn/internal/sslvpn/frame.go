@@ -32,9 +32,9 @@ var (
 func PutFrameHeader(dst []byte, payloadLen int) {
 	_ = dst[5]
 	total := FrameHeaderLen + payloadLen
-	binary.BigEndian.PutUint16(dst[0:2], uint16(total))
+	binary.BigEndian.PutUint16(dst[0:2], uint16(total)) // #nosec G115 -- callers bound payloadLen <= MaxFramePayload.
 	binary.BigEndian.PutUint16(dst[2:4], FrameMagic)
-	binary.BigEndian.PutUint16(dst[4:6], uint16(payloadLen))
+	binary.BigEndian.PutUint16(dst[4:6], uint16(payloadLen)) // #nosec G115 -- callers bound payloadLen <= MaxFramePayload.
 }
 
 // EncodeFrameInto writes the 6-octet Fortinet header and copies pppFrame into dst.

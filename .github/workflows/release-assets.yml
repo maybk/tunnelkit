@@ -31,6 +31,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -117,6 +118,7 @@ jobs:
           path: dist/tunnelkit-*-macos-arm64.dmg
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
+          overwrite: true
 
   macos-amd64:
     name: Build macOS DMG (amd64)
@@ -129,6 +131,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -185,6 +188,7 @@ jobs:
           path: dist/tunnelkit-*-macos-amd64.dmg
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
+          overwrite: true
 
   macos-universal:
     name: Build macOS DMG (universal)
@@ -197,6 +201,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -261,6 +266,7 @@ jobs:
           path: dist/tunnelkit-*-macos-universal.dmg
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
+          overwrite: true
 
   windows-amd64:
     name: Build and test Windows portable ZIP (amd64)
@@ -273,6 +279,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -384,6 +391,7 @@ jobs:
             dist/tunnelkit-*-windows-amd64-setup.exe
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
+          overwrite: true
 
   windows-arm64:
     name: Build and test Windows portable ZIP (arm64)
@@ -396,6 +404,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
@@ -507,6 +516,7 @@ jobs:
             dist/tunnelkit-*-windows-arm64-setup.exe
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
+          overwrite: true
 
   linux-amd64:
     name: Build and smoke-test Linux packages (amd64)
@@ -519,6 +529,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
+          persist-credentials: false
 
       - name: Install Linux GTK4, WebKitGTK 6.0, and xvfb dependencies
         run: |
@@ -706,6 +717,7 @@ jobs:
             dist/tunnelkit-*-linux-amd64.rpm
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
+          overwrite: true
 
   linux-arm64:
     name: Build and smoke-test Linux packages (arm64)
@@ -718,6 +730,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
+          persist-credentials: false
 
       - name: Install Linux GTK4, WebKitGTK 6.0, and xvfb dependencies
         run: |
@@ -905,3 +918,4 @@ jobs:
             dist/tunnelkit-*-linux-arm64.rpm
           if-no-files-found: error
           retention-days: ${{ inputs.retention_days }}
+          overwrite: true

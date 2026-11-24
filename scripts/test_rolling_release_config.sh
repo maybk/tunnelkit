@@ -171,7 +171,9 @@ done
 
 cleanup_job="$(awk '/^  cleanup-rolling:/,0' "$release_workflow")"
 for required in \
-  'needs: publish' \
+  '- validate' \
+  '- publish' \
+  'ref: ${{ needs.validate.outputs.source_sha }}' \
   'contents: write' \
   'git merge-base --is-ancestor "$rolling_commit" "$release_commit"' \
   'gh release delete "$tag_name" --yes' \
@@ -210,6 +212,7 @@ for required in \
   "needs.prepare.result == 'success'" \
   "needs.prepare.outputs.should_publish == 'true'" \
   "needs.build.result == 'success'" \
+  "steps.revalidate.outputs.should_replace == 'true' && steps.download_assets.outcome == 'failure'" \
   '.assets | all(.state == "uploaded")'; do
   if ! grep -Fq -- "$required" <<<"$rolling_publish_job"; then
     echo "Rolling publish must override skipped dependency propagation safely and verify uploaded asset state: $required"

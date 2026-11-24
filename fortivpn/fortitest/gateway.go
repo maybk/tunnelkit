@@ -274,9 +274,12 @@ func (g *Gateway) issueSession(w http.ResponseWriter, username string) {
 	g.mu.Unlock()
 
 	http.SetCookie(w, &http.Cookie{
-		Name:  sslvpn.CookieName,
-		Value: cookie,
-		Path:  "/",
+		Name:     sslvpn.CookieName,
+		Value:    cookie,
+		Path:     "/",
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
 	})
 	_, _ = io.WriteString(w, "ret=1,redir="+sslvpn.PathConfigXML)
 }

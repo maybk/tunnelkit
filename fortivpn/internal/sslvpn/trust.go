@@ -55,21 +55,20 @@ func BuildTLSConfig(host string, trustedCerts []string, clientCert *fortivpn.Cli
 		MinVersion:         minVersion,
 		CipherSuites:       cipherSuites,
 		Certificates:       certs,
-		InsecureSkipVerify: true, // Custom VerifyPeerCertificate performs full verification.
-		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-			return verifyServerCert(host, rawCerts, pins, rootCAs)
+		InsecureSkipVerify: true, // #nosec G402 -- VerifyConnection performs full CA+hostname or SHA-256 pin verification.
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			return verifyServerCerts(host, cs.PeerCertificates, pins, rootCAs)
 		},
 	}
 	return tlsCfg, nil
 }
 
-func verifyServerCert(host string, rawCerts [][]byte, pins map[string]struct{}, rootCAs *x509.CertPool) error {
-	if len(rawCerts) == 0 {
+func verifyServerCerts(host string, certs []*x509.Certificate, pins map[string]struct{}, rootCAs *x509.CertPool) error {
+	if len(certs) == 0 {
 		return fortivpn.NewError(fortivpn.CodeCertUntrusted, "gateway presented no TLS certificate")
 	}
 
-	sum := sha256.Sum256(rawCerts[0])
-	leafDigest := hex.EncodeToString(sum[:])
+	leafDigest := CertFingerprint(certs[0].Raw)
 
 	// 1. Check explicit SHA-256 fingerprint pin first (matches openfortivpn trusted-cert).
 	if _, pinned := pins[leafDigest]; pinned {
@@ -77,20 +76,6 @@ func verifyServerCert(host string, rawCerts [][]byte, pins map[string]struct{}, 
 	}
 
 	// 2. Otherwise verify against system (or injected test) Root CAs + hostname/IP.
-	certs := make([]*x509.Certificate, 0, len(rawCerts))
-	for _, raw := range rawCerts {
-		c, err := x509.ParseCertificate(raw)
-		if err != nil {
-			return &fortivpn.Error{
-				Code:        fortivpn.CodeCertUntrusted,
-				Detail:      fmt.Sprintf("failed to parse gateway certificate: %v", err),
-				Fingerprint: leafDigest,
-				Cause:       err,
-			}
-		}
-		certs = append(certs, c)
-	}
-
 	intermediates := x509.NewCertPool()
 	for _, ic := range certs[1:] {
 		intermediates.AddCert(ic)

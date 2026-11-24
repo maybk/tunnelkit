@@ -25,8 +25,7 @@ func openNoFollow(path string) (*os.File, error) {
 		0,
 	)
 	if err != nil {
-		var errno windows.Errno
-		if errors.As(err, &errno) {
+		if errno, ok := errors.AsType[windows.Errno](err); ok {
 			err = syscall.Errno(errno)
 		}
 		return nil, &os.PathError{Op: "open", Path: path, Err: err}

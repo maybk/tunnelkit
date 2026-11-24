@@ -3,6 +3,7 @@ package sslvpn_test
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"net"
 	"net/http"
@@ -349,6 +350,36 @@ func TestLoginAcceptsFortiOS6HTMLRedirectWithCookie(t *testing.T) {
 	}
 	if cookie != "fortios6-session-cookie" {
 		t.Fatalf("cookie = %q, want fortios6-session-cookie", cookie)
+	}
+}
+
+func TestBuildTLSConfigUsesVerifyConnection(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cert := srv.Certificate()
+	pin := sslvpn.CertFingerprint(cert.Raw)
+	cfg, err := sslvpn.BuildTLSConfig("127.0.0.1", []string{pin}, nil, false, nil)
+	if err != nil {
+		t.Fatalf("BuildTLSConfig: %v", err)
+	}
+	if cfg.VerifyConnection == nil || cfg.VerifyPeerCertificate != nil {
+		t.Fatal("expected VerifyConnection to replace VerifyPeerCertificate")
+	}
+	if err := cfg.VerifyConnection(tls.ConnectionState{}); !fortivpn.IsCode(err, fortivpn.CodeCertUntrusted) {
+		t.Fatalf("empty peer certs error = %v, want CodeCertUntrusted", err)
+	}
+	if err := cfg.VerifyConnection(tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}); err != nil {
+		t.Fatalf("pinned cert rejected by VerifyConnection: %v", err)
+	}
+	untrustedCfg, err := sslvpn.BuildTLSConfig("127.0.0.1", nil, nil, false, x509.NewCertPool())
+	if err != nil {
+		t.Fatalf("BuildTLSConfig(untrusted): %v", err)
+	}
+	if fe, ok := fortivpn.AsError(untrustedCfg.VerifyConnection(tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}})); !ok || fe.Code != fortivpn.CodeCertUntrusted || fe.Fingerprint != pin {
+		t.Fatalf("untrusted cert error = %+v, want CodeCertUntrusted with fingerprint %s", fe, pin)
 	}
 }
 

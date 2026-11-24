@@ -126,7 +126,7 @@ func ParsePacket(raw []byte) (Packet, bool) {
 func (p Packet) Marshal() []byte {
 	encoded := make([]byte, 0, controlHeaderLen+len(p.Body))
 	encoded = append(encoded, p.Code, p.ID)
-	encoded = binary.BigEndian.AppendUint16(encoded, uint16(controlHeaderLen+len(p.Body)))
+	encoded = binary.BigEndian.AppendUint16(encoded, uint16(controlHeaderLen+len(p.Body))) // #nosec G115 -- PPP control packets are bounded by link MRU.
 	return append(encoded, p.Body...)
 }
 
@@ -218,7 +218,7 @@ func MarshalOptions(opts []Option) []byte {
 	for _, opt := range opts {
 		optLen := 2 + len(opt.Value)
 		buf[offset] = opt.Type
-		buf[offset+1] = byte(optLen)
+		buf[offset+1] = byte(optLen) // #nosec G115 -- PPP TLV options are fixed-size RFC 1661/1332 fields (< 255 bytes).
 		copy(buf[offset+2:offset+optLen], opt.Value)
 		offset += optLen
 	}

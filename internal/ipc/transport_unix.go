@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -36,10 +37,11 @@ func Dial(ctx context.Context, endpoint string) (*Conn, error) {
 // Listen creates a Unix domain socket at endpoint owned by ownerUID (mode 0600)
 // and verifies connecting peers via platform-specific socket peer credentials.
 func Listen(endpoint string, ownerUID string) (net.Listener, error) {
-	uid, err := strconv.Atoi(strings.TrimSpace(ownerUID))
-	if err != nil || uid < 0 {
+	uid64, err := strconv.ParseUint(strings.TrimSpace(ownerUID), 10, 32)
+	if err != nil || uid64 == math.MaxUint32 || uid64 > uint64(math.MaxInt) {
 		return nil, fmt.Errorf("ipc: invalid owner UID %q", ownerUID)
 	}
+	uid := int(uid64)
 
 	if err := validateSocketDir(filepath.Dir(endpoint)); err != nil {
 		return nil, err
@@ -68,7 +70,7 @@ func Listen(endpoint string, ownerUID string) (net.Listener, error) {
 	return &unixListener{
 		Listener: ln,
 		endpoint: endpoint,
-		ownerUID: uint32(uid),
+		ownerUID: uint32(uid64),
 	}, nil
 }
 

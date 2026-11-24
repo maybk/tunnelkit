@@ -3,6 +3,7 @@ package sslvpn
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -85,7 +86,7 @@ func ParseConfigXML(data []byte) (TunnelConfig, error) {
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return TunnelConfig{}, fmt.Errorf("sslvpn: parsing config XML: %w", err)

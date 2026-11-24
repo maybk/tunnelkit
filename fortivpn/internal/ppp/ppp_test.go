@@ -15,7 +15,6 @@ type testPeer struct {
 	mu       sync.Mutex
 	clientIP netip.Addr
 	serverIP netip.Addr
-	dns      []netip.Addr
 	mru      uint16
 	send     func([]byte)
 

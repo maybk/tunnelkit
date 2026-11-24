@@ -57,7 +57,7 @@ func LocateHelper() (string, bool) {
 		}
 	}
 	if runtime.GOOS == "linux" {
-		if appDir := os.Getenv("APPDIR"); appDir != "" {
+		if appDir := os.Getenv("APPDIR"); appDir != "" && filepath.IsAbs(appDir) {
 			candidates = append(candidates,
 				filepath.Join(appDir, "usr", "bin", exeName),
 				filepath.Join(appDir, exeName),
@@ -79,7 +79,7 @@ func LocateHelper() (string, bool) {
 	}
 
 	for _, p := range candidates {
-		info, err := os.Stat(p)
+		info, err := os.Stat(p) // #nosec G703 -- candidates come from executable, absolute APPDIR, or fixed system dirs.
 		if err != nil || info.IsDir() {
 			continue
 		}
@@ -139,7 +139,7 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 		if stopWatch != nil {
 			stopWatch()
 		}
-		cleanupLaunch(endpoint, token)
+		_ = cleanupLaunch(endpoint, token)
 		return nil, Ticket{}, fmt.Errorf("辅助组件未能就绪，请确认系统支持安装的特权组件: %w", err)
 	}
 
@@ -149,7 +149,7 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 			stopWatch()
 		}
 		_ = conn.Close()
-		cleanupLaunch(endpoint, token)
+		_ = cleanupLaunch(endpoint, token)
 		return nil, Ticket{}, err
 	}
 
@@ -180,7 +180,7 @@ func Launch(ctx context.Context, req LaunchRequest) (*Client, Ticket, error) {
 	if err := startErr; err != nil {
 		_ = client.Close()
 		if cleanupErr := cleanupLaunch(endpoint, token); cleanupErr != nil {
-			return nil, ticket, fmt.Errorf("%w: %v", ErrRecoveryPending, cleanupErr)
+			return nil, ticket, fmt.Errorf("%w: %w", ErrRecoveryPending, cleanupErr)
 		}
 		return nil, Ticket{}, err
 	}

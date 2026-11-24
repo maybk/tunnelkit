@@ -46,7 +46,7 @@ func InstallService(exePath string) error {
 	if err != nil {
 		return fmt.Errorf("connect SCM: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 
 	s, err := m.OpenService(WindowsServiceName)
 	if err == nil {
@@ -124,7 +124,7 @@ func UninstallService() error {
 	if err != nil {
 		return fmt.Errorf("connect SCM: %w", err)
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 
 	s, err := m.OpenService(WindowsServiceName)
 	if err != nil {
@@ -275,7 +275,7 @@ func OpenWindowsService(access uint32) (*mgr.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer windows.CloseServiceHandle(scm)
+	defer func() { _ = windows.CloseServiceHandle(scm) }()
 	name, err := windows.UTF16PtrFromString(WindowsServiceName)
 	if err != nil {
 		return nil, err

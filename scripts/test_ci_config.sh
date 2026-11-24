@@ -123,14 +123,33 @@ for artifact_action in upload-artifact download-artifact; do
   fi
 done
 
-if ! grep -Fq 'artifact-roundtrip:' "$ci_workflow" ||
+if ! grep -Fq 'artifact-upload:' "$ci_workflow" ||
+  ! grep -Fq 'artifact-roundtrip:' "$ci_workflow" ||
+  ! grep -Fq 'needs: artifact-upload' "$ci_workflow" ||
   ! grep -Fq 'actions/upload-artifact@' "$ci_workflow" ||
   ! grep -Fq 'actions/download-artifact@' "$ci_workflow" ||
   ! grep -Fq 'if-no-files-found: error' "$ci_workflow" ||
+  ! grep -Fq 'overwrite: true' "$ci_workflow" ||
+  ! grep -Fq "steps.download.outcome == 'failure'" "$ci_workflow" ||
   ! grep -Fq 'cmp --silent' "$ci_workflow"; then
-  echo "ordinary CI must verify an uploaded artifact can be downloaded unchanged"
+  echo "ordinary CI must verify cross-job artifact upload and download unchanged with overwrite and failure retry"
   exit 1
 fi
+
+for upload_workflow in "$ci_workflow" "$release_assets_workflow"; do
+  upload_count="$(grep -Fc 'uses: actions/upload-artifact@' "$upload_workflow")"
+  overwrite_count="$(grep -Fc 'overwrite: true' "$upload_workflow")"
+  if [ "$upload_count" -eq 0 ] || [ "$upload_count" -ne "$overwrite_count" ]; then
+    echo "every actions/upload-artifact step must set overwrite: true in ${upload_workflow#"$repo_root/"}" >&2
+    exit 1
+  fi
+  checkout_count="$(grep -Fc 'uses: actions/checkout@' "$upload_workflow")"
+  persist_false_count="$(grep -Fc 'persist-credentials: false' "$upload_workflow")"
+  if [ "$checkout_count" -eq 0 ] || [ "$checkout_count" -ne "$persist_false_count" ]; then
+    echo "every read-only checkout must set persist-credentials: false in ${upload_workflow#"$repo_root/"}" >&2
+    exit 1
+  fi
+done
 
 if ! grep -q "contents: read" "$ci_workflow" || grep -q "contents: write" "$ci_workflow"; then
   echo "ordinary CI must use read-only repository permissions"
@@ -143,8 +162,10 @@ if ! grep -Fq 'workflow_call:' "$ci_workflow"; then
 fi
 
 release_ci_job="$(awk '/^  ci:/,/^  build:/' "$release_workflow")"
-if ! grep -Fq 'uses: ./.github/workflows/ci.yml' <<<"$release_ci_job"; then
-  echo "release workflow must reuse ordinary CI before building release assets"
+if ! grep -Fq 'needs: validate' <<<"$release_ci_job" ||
+  ! grep -Fq 'uses: ./.github/workflows/ci.yml' <<<"$release_ci_job" ||
+  ! grep -Fq 'source_sha: ${{ needs.validate.outputs.source_sha }}' <<<"$release_ci_job"; then
+  echo "release workflow must validate tag first and reuse ordinary CI at the validated source_sha"
   exit 1
 fi
 
@@ -317,8 +338,11 @@ if ! grep -Fq 'if [ "$asset_count" -ne 14 ]; then' <<<"$publish_job" ||
   ! grep -Fq 'expected 14' <<<"$publish_job" ||
   ! grep -Fq 'test "$(wc -l < SHA256SUMS.txt' <<<"$publish_job" ||
   ! grep -Fq 'sha256sum -c SHA256SUMS.txt' <<<"$publish_job" ||
-  ! grep -Fq 'all(.state == "uploaded")' <<<"$publish_job"; then
-  echo "published releases must verify checksums and all 14 uploaded draft assets before publishing"
+  ! grep -Fq 'all(.state == "uploaded")' <<<"$publish_job" ||
+  ! grep -Fq 'ref: ${{ needs.validate.outputs.source_sha }}' <<<"$publish_job" ||
+  ! grep -Fq 'persist-credentials: false' <<<"$publish_job" ||
+  ! grep -Fq "steps.download_assets.outcome == 'failure'" <<<"$publish_job"; then
+  echo "published releases must pin validated source_sha, retry transient artifact downloads, and verify checksums and all 14 uploaded draft assets before publishing"
   exit 1
 fi
 
@@ -364,10 +388,44 @@ if ! grep -Fq 'Exec=tunnelkit %u' "$repo_root/build/linux/desktop" ||
   exit 1
 fi
 
-if ! grep -Fq 'GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet' "$ci_workflow"; then
-  echo "ordinary CI must cross-vet Windows pure-Go packages" >&2
+if ! grep -Fq 'for target in darwin/arm64 windows/amd64 windows/arm64; do' "$ci_workflow" ||
+  ! grep -Fq 'GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go vet' "$ci_workflow"; then
+  echo "ordinary CI must cross-vet macOS and Windows pure-Go packages" >&2
   exit 1
 fi
+
+if ! grep -Fq 'test-platform:' "$ci_workflow" ||
+  ! grep -Fq "if: github.workflow == 'CI'" "$ci_workflow" ||
+  ! grep -Fq 'os: [macos-latest, windows-latest]' "$ci_workflow" ||
+  ! grep -Fq 'go test -race ./fortivpn/... ./internal/... ./cmd/...' "$ci_workflow" ||
+  ! grep -Fq 'golangci/golangci-lint-action@' "$ci_workflow" ||
+  ! grep -Fq 'version: v2.15.0' "$ci_workflow" ||
+  ! grep -Fq 'go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...' "$ci_workflow"; then
+  echo "ordinary CI must run golangci-lint v2, govulncheck, and native macOS/Windows Go race tests on direct CI runs while skipping duplicate runs in Release/Rolling callers" >&2
+  exit 1
+fi
+
+if [ ! -f "$repo_root/.golangci.yml" ] ||
+  ! grep -Fq 'version: "2"' "$repo_root/.golangci.yml" ||
+  ! grep -Fq 'GOLANGCI_LINT_VERSION: v2.15.0' "$repo_root/Taskfile.yml" ||
+  ! grep -Fq 'GOVULNCHECK_VERSION: v1.10.0' "$repo_root/Taskfile.yml"; then
+  echo "local .golangci.yml v2 and Taskfile.yml lint fallback versions must stay aligned with ci.yml" >&2
+  exit 1
+fi
+
+for required_task in '  fmt:' '  lint:' '  test:' '  check:' '  release:prepare:'; do
+  if ! grep -Fq "$required_task" "$repo_root/Taskfile.yml"; then
+    echo "Taskfile.yml is missing required local task: $required_task" >&2
+    exit 1
+  fi
+done
+
+for versioned_workflow in "$release_workflow" "$rolling_workflow"; do
+  if ! grep -Fq 'in_info=($1=="info:")' "$versioned_workflow"; then
+    echo "workflow must parse info.version scoped to the info section of build/config.yml: ${versioned_workflow#"$repo_root/"}" >&2
+    exit 1
+  fi
+done
 
 for required_runner in \
   'runs-on: macos-latest' \
@@ -382,7 +440,7 @@ for required_runner in \
   'rpm -qp --requires' \
   'rpm -qlp' \
   'TestSmokeLaunchInstalledUnixHelper'; do
-  if ! grep -Fq "$required_runner" "$release_assets_workflow"; then
+  if ! grep -Fq -- "$required_runner" "$release_assets_workflow"; then
     echo "release-assets.yml is missing required parallel runner or verification step: $required_runner"
     exit 1
   fi
@@ -449,6 +507,10 @@ for test_script in "$repo_root"/scripts/test_*.sh; do
   rel_script="${test_script#"$repo_root/"}"
   if ! grep -Fq "bash $rel_script" "$ci_workflow"; then
     echo "ci.yml is missing contract test: $rel_script" >&2
+    exit 1
+  fi
+  if ! grep -Fq "bash $rel_script" "$repo_root/Taskfile.yml"; then
+    echo "Taskfile.yml check task is missing contract test: $rel_script" >&2
     exit 1
   fi
 done

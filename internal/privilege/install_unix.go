@@ -173,7 +173,7 @@ func protectDirectory(path string) error {
 		return err
 	}
 	// Directory traversal must not depend on the installing user's umask.
-	return os.Chmod(path, 0o755)
+	return os.Chmod(path, 0o755) // #nosec G302 -- root-owned protected directory requires 0755 traversal.
 }
 
 func verifyParents(path string) error {

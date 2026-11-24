@@ -162,6 +162,11 @@ func TestUnixListenAndPeerCred(t *testing.T) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("unix socket peercred test")
 	}
+	for _, badUID := range []string{"4294967296", "4294967295"} {
+		if _, err := Listen(filepath.Join(t.TempDir(), "overflow.sock"), badUID); err == nil {
+			t.Fatalf("expected Listen to reject invalid UID %q", badUID)
+		}
+	}
 	ownerID, err := CurrentOwnerID()
 	if err != nil {
 		t.Fatalf("CurrentOwnerID: %v", err)

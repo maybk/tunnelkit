@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/netip"
 	"strings"
@@ -64,8 +65,8 @@ func (realWindowsAdapterOps) configureIPv4Interface(luid uint64, mtu int) error 
 	ipIf.OtherStatefulConfigurationSupported = false
 	ipIf.DisableDefaultRoutes = false
 	ipIf.SitePrefixLength = 0
-	if mtu > 0 {
-		ipIf.NLMTU = uint32(mtu)
+	if mtu > 0 && int64(mtu) <= math.MaxUint32 {
+		ipIf.NLMTU = uint32(mtu) // #nosec G115 -- bounded to [1, math.MaxUint32].
 	}
 	ipIf.UseAutomaticMetric = false
 	ipIf.Metric = 1
@@ -197,8 +198,8 @@ func cleanupAddressesOnDisconnectedInterfaces(family winipcfg.AddressFamily, add
 
 func lookupWindowsLUID(ifaceName string) (winipcfg.LUID, error) {
 	target := strings.TrimSpace(ifaceName)
-	if ifi, err := net.InterfaceByName(target); err == nil && ifi.Index > 0 {
-		if luid, err := winipcfg.LUIDFromIndex(uint32(ifi.Index)); err == nil {
+	if ifi, err := net.InterfaceByName(target); err == nil && ifi.Index > 0 && int64(ifi.Index) <= math.MaxUint32 {
+		if luid, err := winipcfg.LUIDFromIndex(uint32(ifi.Index)); err == nil { // #nosec G115 -- bounded to [1, math.MaxUint32].
 			return luid, nil
 		}
 	}

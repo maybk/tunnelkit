@@ -23,10 +23,11 @@ func WaitForRestartParent(ctx context.Context, args []string) error {
 		if arg != restartParentFlag {
 			continue
 		}
-		if i+1 >= len(args) {
+		rest := args[i+1:]
+		if len(rest) == 0 {
 			return fmt.Errorf("missing parent PID argument for %s", restartParentFlag)
 		}
-		pid, err := strconv.Atoi(args[i+1])
+		pid, err := strconv.Atoi(rest[0])
 		if err != nil || pid <= 1 || pid == os.Getpid() {
 			return fmt.Errorf("invalid parent PID argument for %s", restartParentFlag)
 		}

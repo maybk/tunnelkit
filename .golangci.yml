@@ -1,0 +1,53 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - errcheck
+    - errorlint
+    - gosec
+    - govet
+    - ineffassign
+    - modernize
+    - staticcheck
+    - unused
+  settings:
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1005
+        - -QF1001
+        - -QF1003
+    gosec:
+      excludes:
+        - G104 # Covered by errcheck with the std-error-handling preset.
+        - G204 # Privileged helper and netcfg legitimately execute validated system binaries.
+        - G301 # Protected system directories require explicit 0755 traversal modes.
+        - G304 # Storage, archive, and privilege modules operate on validated local paths.
+        - G306 # Helper binaries and executable scripts require explicit file modes.
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
+    paths:
+      - ^build/
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

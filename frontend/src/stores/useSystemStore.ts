@@ -3,9 +3,14 @@ import { defineStore } from 'pinia'
 import { systemApi } from '@/api/system'
 import { GITHUB_RELEASES_URL, GITHUB_REPO_URL } from '@/constants/releases'
 import { DISMISSED_UPDATE_VERSION_KEY } from '@/constants/storage'
-import { formatErrorMessage, isElevationCancelledError } from '@/presentation/error'
+import {
+  formatErrorMessage,
+  isElevationCancelledError,
+  isUpdateCancelledError,
+  isUpdateStagedInvalidError,
+} from '@/presentation/error'
 import { useNoticeStore } from '@/stores/useNoticeStore'
-import type { SystemInfo, UpdateInfo, UpdateProgress } from '@/types/system'
+import type { SystemInfo, UpdateInfo, UpdatePhase, UpdateProgress } from '@/types/system'
 
 const UP_TO_DATE_FEEDBACK_MS = 2500
 
@@ -27,7 +32,10 @@ export const useSystemStore = defineStore('system', () => {
   const aboutDialogOpen = ref(false)
   const checkingSystem = ref(false)
   const isCheckingUpdate = ref(false)
-  const isApplyingUpdate = ref(false)
+  const isDownloadingUpdate = ref(false)
+  const isCancelingUpdate = ref(false)
+  const isInstallingUpdate = ref(false)
+  const readyVersion = ref('')
   const isOpeningRelease = ref(false)
   const updateUpToDate = ref(false)
   const hasCheckedUpdateOnce = ref(false)
@@ -71,6 +79,43 @@ export const useSystemStore = defineStore('system', () => {
 
   const hasUpdate = computed(() => Boolean(updateInfo.value?.hasUpdate))
 
+  const isUpdateReady = computed(() =>
+    Boolean(
+      readyVersion.value &&
+      updateInfo.value?.latestVersion &&
+      readyVersion.value === updateInfo.value.latestVersion &&
+      !isDownloadingUpdate.value &&
+      !isInstallingUpdate.value,
+    ),
+  )
+
+  const isApplyingUpdate = computed(() => isDownloadingUpdate.value || isInstallingUpdate.value)
+
+  const updatePhase = computed<UpdatePhase>(() => {
+    if (isInstallingUpdate.value) return 'installing'
+    if (isDownloadingUpdate.value) {
+      return updateProgress.value?.stage === 'verifying' ? 'verifying' : 'downloading'
+    }
+    if (isUpdateReady.value) return 'ready'
+    return 'available'
+  })
+
+  const buildReadyProgress = (bytes?: number): UpdateProgress => {
+    const size = Math.max(
+      bytes ?? 0,
+      updateProgress.value?.totalBytes ?? 0,
+      updateProgress.value?.downloadedBytes ?? 0,
+      updateInfo.value?.assetSize ?? 0,
+    )
+    return {
+      stage: 'ready',
+      downloadedBytes: size,
+      totalBytes: size,
+      percent: 100,
+      message: '可以开始安装了',
+    }
+  }
+
   const loadSystemInfo = async (): Promise<SystemInfo | null> => {
     checkingSystem.value = true
     try {
@@ -86,7 +131,18 @@ export const useSystemStore = defineStore('system', () => {
 
   const startWatching = () => {
     stopProgressSub ??= systemApi.subscribeUpdateProgress((progress) => {
+      if (!isDownloadingUpdate.value && !isInstallingUpdate.value) return
+      if (
+        isDownloadingUpdate.value &&
+        isCancelingUpdate.value &&
+        progress.stage === 'downloading'
+      ) {
+        return
+      }
       updateProgress.value = progress
+      if (progress.stage === 'ready' && updateInfo.value?.latestVersion) {
+        readyVersion.value = updateInfo.value.latestVersion
+      }
     })
   }
 
@@ -123,6 +179,12 @@ export const useSystemStore = defineStore('system', () => {
         const info = await systemApi.checkUpdate()
         const silent = !explicitCheckPending
         updateInfo.value = info
+        if (!info.hasUpdate || (readyVersion.value && readyVersion.value !== info.latestVersion)) {
+          readyVersion.value = ''
+          if (!isApplyingUpdate.value) {
+            updateProgress.value = null
+          }
+        }
         if (info.hasUpdate) {
           clearUpToDateFeedback()
           const isDismissed =
@@ -158,34 +220,102 @@ export const useSystemStore = defineStore('system', () => {
     return task
   }
 
-  const applyUpdate = async () => {
-    if (isApplyingUpdate.value) return
+  const downloadUpdate = async () => {
+    if (isDownloadingUpdate.value || isInstallingUpdate.value) return
+    if (isUpdateReady.value) {
+      updateDialogOpen.value = true
+      return
+    }
     startWatching()
-    isApplyingUpdate.value = true
+    isDownloadingUpdate.value = true
+    isCancelingUpdate.value = false
     updateProgress.value = {
-      stage: 'preparing',
+      stage: 'downloading',
       downloadedBytes: 0,
       totalBytes: updateInfo.value?.assetSize ?? 0,
       percent: 0,
-      message: '正在准备下载更新包…',
+      message: '正在下载更新…',
     }
     try {
-      await systemApi.applyUpdate()
+      await systemApi.downloadUpdate()
+      const version = updateInfo.value?.latestVersion ?? ''
+      readyVersion.value = version
+      updateProgress.value = buildReadyProgress()
+      updateDialogOpen.value = true
     } catch (err) {
-      isApplyingUpdate.value = false
       updateProgress.value = null
-      if (isElevationCancelledError(err)) {
-        const detail = formatErrorMessage(err, '已取消管理员授权')
-        noticeStore.showWarning(
-          '已取消管理员授权',
-          detail === '已取消管理员授权'
-            ? undefined
-            : detail.replace(/^已取消管理员授权[，,:：\s]*/, '') || undefined,
-        )
+      if (!isUpdateCancelledError(err)) {
+        noticeStore.showError(err, '下载更新失败')
+      }
+    } finally {
+      isDownloadingUpdate.value = false
+      isCancelingUpdate.value = false
+    }
+  }
+
+  const cancelUpdate = async () => {
+    if (
+      !isDownloadingUpdate.value ||
+      updatePhase.value !== 'downloading' ||
+      isCancelingUpdate.value
+    ) {
+      return
+    }
+    isCancelingUpdate.value = true
+    try {
+      const cancelled = await systemApi.cancelUpdate()
+      if (!cancelled) {
+        isCancelingUpdate.value = false
+      }
+    } catch {
+      isCancelingUpdate.value = false
+    }
+  }
+
+  const installUpdate = async () => {
+    if (isInstallingUpdate.value || isDownloadingUpdate.value) return
+    startWatching()
+    const readyBytes = Math.max(
+      updateProgress.value?.totalBytes ?? 0,
+      updateProgress.value?.downloadedBytes ?? 0,
+      updateInfo.value?.assetSize ?? 0,
+    )
+    isInstallingUpdate.value = true
+    updateProgress.value = {
+      stage: 'installing',
+      downloadedBytes: readyBytes,
+      totalBytes: readyBytes,
+      percent: 100,
+      message: '正在安装更新…',
+    }
+    try {
+      await systemApi.installUpdate()
+    } catch (err) {
+      isInstallingUpdate.value = false
+      if (isUpdateStagedInvalidError(err)) {
+        readyVersion.value = ''
+        updateProgress.value = null
+        noticeStore.showError(err, '安装更新失败')
       } else {
-        noticeStore.showError(err, '自动更新失败')
+        updateProgress.value = readyVersion.value ? buildReadyProgress(readyBytes) : null
+        if (isElevationCancelledError(err)) {
+          const detail = formatErrorMessage(err, '已取消管理员授权')
+          noticeStore.showWarning(
+            '已取消管理员授权',
+            detail === '已取消管理员授权'
+              ? undefined
+              : detail.replace(/^已取消管理员授权[，,:：\s]*/, '') || undefined,
+          )
+        } else {
+          noticeStore.showError(err, '安装更新失败')
+        }
       }
     }
+  }
+
+  const deferInstall = () => {
+    if (isApplyingUpdate.value) return
+    updateDialogOpen.value = false
   }
 
   const dismissUpdate = (version?: string) => {
@@ -239,7 +369,12 @@ export const useSystemStore = defineStore('system', () => {
     aboutDialogOpen,
     checkingSystem,
     isCheckingUpdate,
+    isDownloadingUpdate,
+    isCancelingUpdate,
+    isInstallingUpdate,
+    isUpdateReady,
     isApplyingUpdate,
+    updatePhase,
     isOpeningRelease,
     updateUpToDate,
     appVersion,
@@ -249,7 +384,10 @@ export const useSystemStore = defineStore('system', () => {
     stopWatching,
     openAboutDialog,
     checkUpdate,
-    applyUpdate,
+    downloadUpdate,
+    cancelUpdate,
+    installUpdate,
+    deferInstall,
     dismissUpdate,
     openUpdateFromAbout,
     openReleasePage,

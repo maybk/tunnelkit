@@ -32,4 +32,17 @@
     box-shadow: var(--shadow-card-hover);
     border-color: var(--input);
   }
+
+  .update-progress-indeterminate {
+    animation: update-progress-slide 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+}
+
+@keyframes update-progress-slide {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
 }

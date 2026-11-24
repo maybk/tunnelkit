@@ -7,7 +7,7 @@
 - `mappers.ts`：Wails 生成 DTO 与前端领域类型双向映射器。
 - `profile.ts`：连接配置增删改查、证书指纹信任与配置文本转换接口。
 - `vpn.ts`：VPN 连接启停、挑战应答、日志读取与 `vpn:state` 事件订阅接口。
-- `system.ts`：系统信息、版本检查、自更新执行与 `update:progress` 事件订阅接口。
+- `system.ts`：系统信息、版本检查、分阶段自更新与 `update:progress` 事件订阅接口。
 - `window.ts`：三端桌面窗口探测、最小化、最大化/还原与隐藏接口。
 
 ## 开发规范

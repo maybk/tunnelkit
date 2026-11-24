@@ -12,6 +12,8 @@ export interface UpdateInfo {
   canSelfUpdate: boolean
 }
 
+export type UpdatePhase = 'available' | 'downloading' | 'verifying' | 'ready' | 'installing'
+
 export interface UpdateProgress {
   stage: string
   downloadedBytes: number

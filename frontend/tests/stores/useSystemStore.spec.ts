@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 import { systemApi } from '@/api/system'
 import { useNoticeStore } from '@/stores/useNoticeStore'
 import { useSystemStore } from '@/stores/useSystemStore'
+import type { UpdateProgress } from '@/types/system'
 
 describe('useSystemStore', () => {
   afterEach(() => {
@@ -147,13 +148,20 @@ describe('useSystemStore', () => {
     expect(store.updateDialogOpen).toBe(true)
   })
 
-  it('downgrades elevation cancellation to warning during applyUpdate and guards dismiss while applying', async () => {
-    let rejectApply!: (reason?: unknown) => void
+  it('handles two-stage download, defer, and preserves ready state when elevation is cancelled on install', async () => {
+    let resolveDownload!: () => void
+    let rejectInstall!: (reason?: unknown) => void
     const subscribeSpy = vi.spyOn(systemApi, 'subscribeUpdateProgress').mockReturnValue(() => {})
-    vi.spyOn(systemApi, 'applyUpdate').mockImplementation(
+    vi.spyOn(systemApi, 'downloadUpdate').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDownload = resolve
+        }),
+    )
+    vi.spyOn(systemApi, 'installUpdate').mockImplementation(
       () =>
         new Promise((_, reject) => {
-          rejectApply = reject
+          rejectInstall = reject
         }),
     )
 
@@ -172,19 +180,42 @@ describe('useSystemStore', () => {
     }
     store.updateDialogOpen = true
 
-    const applyPromise = store.applyUpdate()
+    const downloadPromise = store.downloadUpdate()
     expect(subscribeSpy).toHaveBeenCalledTimes(1)
-    expect(store.isApplyingUpdate).toBe(true)
+    expect(store.isDownloadingUpdate).toBe(true)
+    expect(store.updatePhase).toBe('downloading')
     expect(store.updateProgress?.totalBytes).toBe(8192)
 
     store.dismissUpdate('1.2.0')
     expect(store.updateDialogOpen).toBe(true)
 
-    rejectApply(new Error('已取消管理员授权，更新未安装'))
-    await applyPromise
+    resolveDownload()
+    await downloadPromise
 
-    expect(store.isApplyingUpdate).toBe(false)
-    expect(store.updateProgress).toBeNull()
+    expect(store.isDownloadingUpdate).toBe(false)
+    expect(store.isUpdateReady).toBe(true)
+    expect(store.updatePhase).toBe('ready')
+    expect(store.updateProgress?.stage).toBe('ready')
+
+    // Defer closes the dialog while preserving the staged ready update.
+    store.deferInstall()
+    expect(store.updateDialogOpen).toBe(false)
+    expect(store.isUpdateReady).toBe(true)
+
+    store.openUpdateFromAbout()
+    expect(store.updateDialogOpen).toBe(true)
+    expect(store.updatePhase).toBe('ready')
+
+    const installPromise = store.installUpdate()
+    expect(store.isInstallingUpdate).toBe(true)
+    expect(store.updatePhase).toBe('installing')
+
+    rejectInstall(new Error('已取消管理员授权，更新未安装'))
+    await installPromise
+
+    expect(store.isInstallingUpdate).toBe(false)
+    expect(store.isUpdateReady).toBe(true)
+    expect(store.updatePhase).toBe('ready')
     expect(store.updateDialogOpen).toBe(true)
     expect(noticeStore.items).toHaveLength(1)
     expect(noticeStore.items[0]).toMatchObject({
@@ -192,6 +223,77 @@ describe('useSystemStore', () => {
       title: '已取消管理员授权',
       message: '更新未安装',
     })
+  })
+
+  it('cancels an in-flight download silently, ignores trailing events, and resets ready state when staged verification fails', async () => {
+    let rejectDownload!: (reason?: unknown) => void
+    const progressSub: { emit?: (progress: UpdateProgress) => void } = {}
+    vi.spyOn(systemApi, 'subscribeUpdateProgress').mockImplementation((listener) => {
+      progressSub.emit = listener
+      return () => {
+        progressSub.emit = undefined
+      }
+    })
+    vi.spyOn(systemApi, 'downloadUpdate').mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectDownload = reject
+        }),
+    )
+    const cancelSpy = vi.spyOn(systemApi, 'cancelUpdate').mockResolvedValue(true)
+
+    const store = useSystemStore()
+    const noticeStore = useNoticeStore()
+    store.updateInfo = {
+      currentVersion: '1.1.0',
+      latestVersion: '1.2.0',
+      hasUpdate: true,
+      releaseUrl: 'https://github.com/maybk/tunnelkit/releases/tag/v1.2.0',
+      canSelfUpdate: true,
+      assetName: 'tunnelkit-darwin-arm64.dmg',
+      assetUrl: 'https://github.com/maybk/tunnelkit/releases/download/v1.2.0/tunnelkit.dmg',
+      assetSize: 1024,
+      assetSha256: 'abc',
+    }
+    store.updateDialogOpen = true
+
+    const dlPromise = store.downloadUpdate()
+    await store.cancelUpdate()
+    expect(cancelSpy).toHaveBeenCalledTimes(1)
+    expect(store.isCancelingUpdate).toBe(true)
+
+    rejectDownload(new Error('已取消下载更新'))
+    await dlPromise
+
+    // Stale async event arriving after cancellation must not pollute idle state.
+    progressSub.emit?.({
+      stage: 'downloading',
+      downloadedBytes: 512,
+      totalBytes: 1024,
+      percent: 50,
+      message: '正在下载更新…',
+    })
+
+    expect(store.isDownloadingUpdate).toBe(false)
+    expect(store.isCancelingUpdate).toBe(false)
+    expect(store.updatePhase).toBe('available')
+    expect(store.updateProgress).toBeNull()
+    expect(noticeStore.items).toHaveLength(0)
+
+    // Tampered/missing staged package during install resets back to available.
+    vi.spyOn(systemApi, 'downloadUpdate').mockResolvedValue()
+    vi.spyOn(systemApi, 'installUpdate').mockRejectedValue(
+      new Error('更新安装包 SHA-256 校验失败，已中止安装'),
+    )
+    await store.downloadUpdate()
+    expect(store.isUpdateReady).toBe(true)
+
+    await store.installUpdate()
+    expect(store.isUpdateReady).toBe(false)
+    expect(store.updatePhase).toBe('available')
+    expect(store.updateProgress).toBeNull()
+    expect(noticeStore.items).toHaveLength(1)
+    expect(noticeStore.items[0]?.tone).toBe('danger')
   })
 
   it('prevents duplicate release page launches and closes update dialog on open', async () => {

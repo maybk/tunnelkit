@@ -22,11 +22,13 @@ const props = withDefaults(
     checkingUpdate?: boolean
     checkingSystem?: boolean
     upToDate?: boolean
+    updateReady?: boolean
   }>(),
   {
     checkingUpdate: false,
     checkingSystem: false,
     upToDate: false,
+    updateReady: false,
   },
 )
 
@@ -138,7 +140,11 @@ const checkLabel = computed(() => {
           @click="emit('showUpdate')"
         >
           <Sparkles class="size-3.5" aria-hidden="true" />
-          新版本 v{{ updateInfo.latestVersion }}
+          {{
+            updateReady
+              ? `安装 v${updateInfo.latestVersion}`
+              : `新版本 v${updateInfo.latestVersion}`
+          }}
         </AppButton>
         <AppButton
           v-else

@@ -19,8 +19,16 @@ export const systemApi = {
     return mapUpdateInfoFromDto(dto)
   },
 
-  async applyUpdate(): Promise<void> {
-    await SystemAPI.ApplyUpdate()
+  async downloadUpdate(): Promise<void> {
+    await SystemAPI.DownloadUpdate()
+  },
+
+  async cancelUpdate(): Promise<boolean> {
+    return await SystemAPI.CancelUpdate()
+  },
+
+  async installUpdate(): Promise<void> {
+    await SystemAPI.InstallUpdate()
   },
 
   async openExternalUrl(url: string): Promise<void> {

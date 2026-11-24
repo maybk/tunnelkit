@@ -48,7 +48,7 @@ describe('UpdateDialog and WorkspaceView components', () => {
     ])
 
     await wrapper.find('[data-testid="update-apply-btn"]').trigger('click')
-    expect(wrapper.emitted('applyUpdate')).toHaveLength(1)
+    expect(wrapper.emitted('downloadUpdate')).toHaveLength(1)
 
     await wrapper.find('[data-testid="update-dismiss-btn"]').trigger('click')
     expect(wrapper.emitted('dismissVersion')).toEqual([['0.4.0']])
@@ -111,9 +111,9 @@ describe('UpdateDialog and WorkspaceView components', () => {
     wrapper.unmount()
   })
 
-  it('refuses all dialog close requests while applying an update', () => {
+  it('refuses all dialog close requests while locked in downloading/verifying/installing phases', () => {
     const wrapper = mount(UpdateDialog, {
-      props: { open: true, applying: true, updateInfo: null, progress: null },
+      props: { open: true, phase: 'downloading', updateInfo: null, progress: null },
       global: { stubs: { Dialog: { props: ['open'], template: '<div />' } } },
     })
     wrapper.findComponent(Dialog).vm.$emit('update:open', false)
@@ -121,31 +121,109 @@ describe('UpdateDialog and WorkspaceView components', () => {
     wrapper.unmount()
   })
 
-  it('keeps an in-progress update open without offering an ineffective close button', async () => {
+  it('renders Sparkle-style downloading, verifying, ready, and installing states with proper controls', async () => {
+    const updateInfo = {
+      currentVersion: '1.1.2',
+      latestVersion: '1.1.3',
+      hasUpdate: true,
+      releaseUrl: 'https://github.com/maybk/tunnelkit/releases/tag/v1.1.3',
+      canSelfUpdate: true,
+      assetName: 'tunnelkit-1.1.3-darwin-arm64.dmg',
+      assetUrl:
+        'https://github.com/maybk/tunnelkit/releases/download/v1.1.3/tunnelkit-1.1.3-darwin-arm64.dmg',
+      assetSize: 16 * 1024 * 1024,
+      assetSha256: 'abc123',
+    }
     const wrapper = mount(UpdateDialog, {
-      props: { open: true, applying: true, updateInfo: null, progress: null },
+      props: {
+        open: true,
+        phase: 'downloading',
+        updateInfo,
+        vpnActive: true,
+        progress: {
+          stage: 'downloading',
+          downloadedBytes: 8 * 1024 * 1024,
+          totalBytes: 16 * 1024 * 1024,
+          percent: 50,
+          message: '正在下载更新…',
+        },
+      },
       attachTo: document.body,
     })
     await nextTick()
     const dialog = document.querySelector('[role="dialog"]')!
     expect(dialog).not.toBeNull()
-    expect(dialog.textContent).toContain('正在更新')
-    expect(dialog.textContent).not.toContain('可供下载')
-    expect(dialog.querySelector('[data-testid="update-dismiss-btn"]')).toBeNull()
-    expect(dialog.querySelector('[data-testid="update-download-btn"]')).toBeNull()
-    expect(dialog.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('0')
+    expect(dialog.textContent).toContain('正在下载更新…')
+    expect(dialog.querySelector('[data-testid="update-progress-meta"]')?.textContent).toContain(
+      '8.0 MB / 16.0 MB',
+    )
+    expect(dialog.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('50')
     expect(dialog.querySelector('[aria-label="关闭"]')).toBeNull()
+
+    const cancelBtn = dialog.querySelector<HTMLButtonElement>('[data-testid="update-cancel-btn"]')!
+    expect(cancelBtn).not.toBeNull()
+    expect(cancelBtn.disabled).toBe(false)
+    cancelBtn.click()
+    await nextTick()
+    expect(wrapper.emitted('cancelUpdate')).toHaveLength(1)
+
     dialog.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
     )
     await nextTick()
     expect(wrapper.emitted('update:open')).toBeUndefined()
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
-    await wrapper.setProps({ applying: false })
-    expect(dialog.textContent).toContain('发现新版本')
-    expect(dialog.querySelector('[data-testid="update-dismiss-btn"]')).not.toBeNull()
-    expect(dialog.querySelector('[data-testid="update-download-btn"]')).not.toBeNull()
+
+    // Verifying disables cancel button while keeping dialog locked.
+    await wrapper.setProps({
+      phase: 'verifying',
+      progress: {
+        stage: 'verifying',
+        downloadedBytes: 16 * 1024 * 1024,
+        totalBytes: 16 * 1024 * 1024,
+        percent: 100,
+        message: '正在校验更新…',
+      },
+    })
+    expect(dialog.textContent).toContain('正在校验更新…')
+    expect(
+      dialog.querySelector<HTMLButtonElement>('[data-testid="update-cancel-btn"]')?.disabled,
+    ).toBe(true)
+
+    // Ready state unlocks close button, warns about active VPN, and exposes defer + install actions.
+    await wrapper.setProps({
+      phase: 'ready',
+      progress: {
+        stage: 'ready',
+        downloadedBytes: 16 * 1024 * 1024,
+        totalBytes: 16 * 1024 * 1024,
+        percent: 100,
+        message: '可以开始安装了',
+      },
+    })
+    expect(dialog.textContent).toContain('可以开始安装了')
+    expect(dialog.textContent).toContain('将先断开当前 VPN')
     expect(dialog.querySelector('[aria-label="关闭"]')).not.toBeNull()
+
+    dialog.querySelector<HTMLButtonElement>('[data-testid="update-defer-btn"]')!.click()
+    dialog.querySelector<HTMLButtonElement>('[data-testid="update-install-btn"]')!.click()
+    await nextTick()
+    expect(wrapper.emitted('deferInstall')).toHaveLength(1)
+    expect(wrapper.emitted('installUpdate')).toHaveLength(1)
+
+    // Installing locks dialog again without close or cancel button.
+    await wrapper.setProps({
+      phase: 'installing',
+      progress: {
+        stage: 'installing',
+        downloadedBytes: 16 * 1024 * 1024,
+        totalBytes: 16 * 1024 * 1024,
+        percent: 100,
+        message: '正在安装更新…',
+      },
+    })
+    expect(dialog.textContent).toContain('正在安装更新…')
+    expect(dialog.querySelector('[aria-label="关闭"]')).toBeNull()
+    expect(dialog.querySelector('[data-testid="update-cancel-btn"]')).toBeNull()
     wrapper.unmount()
   })
 

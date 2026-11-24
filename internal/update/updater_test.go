@@ -334,3 +334,289 @@ func TestCheckerApplyFallsBackToDirectWhenProxyChecksumMismatches(t *testing.T) 
 		t.Fatalf("applied payload = %q, want %q", appliedBytes, validPayload)
 	}
 }
+
+func TestCheckerTwoStageDownloadInstallAndElevationCancelRetry(t *testing.T) {
+	payload := []byte("two-stage-release-archive-payload")
+	sumBytes := sha256.Sum256(payload)
+	expectedSHA := hex.EncodeToString(sumBytes[:])
+
+	var downloadHits atomic.Int32
+	var releaseSrv *httptest.Server
+	releaseSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".zip") {
+			downloadHits.Add(1)
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
+			_, _ = w.Write(payload)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{
+			"tag_name": "v0.3.0",
+			"html_url": "https://github.com/maybk/tunnelkit/releases/tag/v0.3.0",
+			"assets": [{
+				"name": "tunnelkit-0.3.0-windows-amd64.zip",
+				"browser_download_url": "%s/maybk/tunnelkit/releases/download/v0.3.0/tunnelkit-0.3.0-windows-amd64.zip",
+				"size": %d,
+				"digest": "sha256:%s"
+			}]
+		}`, releaseSrv.URL, len(payload), expectedSHA)
+	}))
+	defer releaseSrv.Close()
+
+	var (
+		preHookCalls       atomic.Int32
+		applierCalls       atomic.Int32
+		finishedFalseCount atomic.Int32
+		finishedTrueCount  atomic.Int32
+		restarted          atomic.Bool
+		failElevation      atomic.Bool
+		installStages      []string
+		installMessages    []string
+	)
+	failElevation.Store(true)
+
+	checker := NewChecker(
+		"0.2.0",
+		WithHTTPClient(releaseSrv.Client()),
+		WithReleaseURLs(releaseSrv.URL),
+		WithProxyPrefix(""),
+		WithPlatform("windows", "amd64"),
+		WithAssetURLValidator(func(rawURL, _, _ string) bool {
+			return strings.HasPrefix(rawURL, releaseSrv.URL+"/")
+		}),
+		WithProgressListener(func(p Progress) {
+			if !failElevation.Load() {
+				installStages = append(installStages, p.Stage)
+				installMessages = append(installMessages, p.Message)
+			}
+		}),
+		WithPreUpdateHook(func(context.Context) error {
+			preHookCalls.Add(1)
+			return nil
+		}),
+		WithUpdateFinishedHook(func(isRestarting bool) {
+			if isRestarting {
+				finishedTrueCount.Add(1)
+			} else {
+				finishedFalseCount.Add(1)
+			}
+		}),
+		WithApplier(func(_ context.Context, archivePath string, _ ProgressFunc) (func() error, error) {
+			applierCalls.Add(1)
+			if failElevation.Load() {
+				return nil, ErrElevationCancelled
+			}
+			data, err := os.ReadFile(archivePath)
+			if err != nil {
+				return nil, err
+			}
+			if !bytes.Equal(data, payload) {
+				return nil, fmt.Errorf("unexpected staged payload")
+			}
+			return func() error {
+				restarted.Store(true)
+				return nil
+			}, nil
+		}),
+	)
+
+	// Install before Download must fail with ErrUpdateNotReady.
+	if err := checker.InstallAndRestart(context.Background()); !errors.Is(err, ErrUpdateNotReady) {
+		t.Fatalf("InstallAndRestart before Download = %v, want ErrUpdateNotReady", err)
+	}
+
+	var stages []string
+	info, err := checker.Download(context.Background(), func(p Progress) {
+		stages = append(stages, p.Stage)
+	})
+	if err != nil {
+		t.Fatalf("Download failed: %v", err)
+	}
+	if info.LatestVersion != "0.3.0" || !checker.HasStagedUpdate() {
+		t.Fatalf("expected staged update for 0.3.0, got info=%+v staged=%v", info, checker.HasStagedUpdate())
+	}
+	if preHookCalls.Load() != 0 {
+		t.Fatal("Download must not invoke preUpdateHook or disrupt active VPN")
+	}
+	if len(stages) == 0 || stages[len(stages)-1] != StageReady {
+		t.Fatalf("expected Download to end in StageReady, got %v", stages)
+	}
+
+	// Re-calling Download for the same version reuses verified archive with zero extra HTTP request.
+	if _, err := checker.Download(context.Background(), nil); err != nil {
+		t.Fatalf("second Download reuse failed: %v", err)
+	}
+	if downloadHits.Load() != 1 {
+		t.Fatalf("expected staged reuse with 1 HTTP download, got %d", downloadHits.Load())
+	}
+
+	// Elevation cancellation preserves staged package so user can retry immediately without re-downloading.
+	if err := checker.InstallAndRestart(context.Background()); !errors.Is(err, ErrElevationCancelled) {
+		t.Fatalf("first InstallAndRestart = %v, want ErrElevationCancelled", err)
+	}
+	if !checker.HasStagedUpdate() || finishedFalseCount.Load() != 1 {
+		t.Fatalf("elevation cancel must preserve staged archive and release VPN maintenance gate: staged=%v finishedFalse=%d", checker.HasStagedUpdate(), finishedFalseCount.Load())
+	}
+
+	// Retry install succeeds with zero re-download and cleans up staged archive.
+	failElevation.Store(false)
+	if err := checker.InstallAndRestart(context.Background()); err != nil {
+		t.Fatalf("retry InstallAndRestart failed: %v", err)
+	}
+	if downloadHits.Load() != 1 || applierCalls.Load() != 2 || !restarted.Load() || finishedTrueCount.Load() != 1 {
+		t.Fatalf("unexpected retry outcome: downloads=%d applier=%d restarted=%v finishedTrue=%d",
+			downloadHits.Load(), applierCalls.Load(), restarted.Load(), finishedTrueCount.Load())
+	}
+	if checker.HasStagedUpdate() {
+		t.Fatal("staged update must be cleared after successful install")
+	}
+	if len(installStages) != 2 || installStages[0] != StageInstalling || installStages[1] != StageRestarting {
+		t.Fatalf("expected clean install stages [installing restarting], got %v (messages=%v)", installStages, installMessages)
+	}
+}
+
+func TestCheckerDownloadCancelAndCleanupStaged(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseSrv *httptest.Server
+	releaseSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".zip") {
+			w.Header().Set("Content-Length", "1048576")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("partial-chunk"))
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			close(started)
+			select {
+			case <-r.Context().Done():
+			case <-release:
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{
+			"tag_name": "v0.3.1",
+			"html_url": "https://github.com/maybk/tunnelkit/releases/tag/v0.3.1",
+			"assets": [{
+				"name": "tunnelkit-0.3.1-windows-amd64.zip",
+				"browser_download_url": "%s/maybk/tunnelkit/releases/download/v0.3.1/tunnelkit-0.3.1-windows-amd64.zip",
+				"size": 1048576,
+				"digest": "sha256:%s"
+			}]
+		}`, releaseSrv.URL, strings.Repeat("a", 64))
+	}))
+	defer close(release)
+	defer releaseSrv.Close()
+
+	checker := NewChecker(
+		"0.3.0",
+		WithHTTPClient(releaseSrv.Client()),
+		WithReleaseURLs(releaseSrv.URL),
+		WithProxyPrefix(""),
+		WithPlatform("windows", "amd64"),
+		WithAssetURLValidator(func(rawURL, _, _ string) bool {
+			return strings.HasPrefix(rawURL, releaseSrv.URL+"/")
+		}),
+	)
+
+	if checker.CancelDownload() {
+		t.Fatal("CancelDownload must return false when idle")
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := checker.Download(context.Background(), nil)
+		errCh <- err
+	}()
+
+	<-started
+	if !checker.CancelDownload() {
+		t.Fatal("CancelDownload must return true while download is active")
+	}
+	if err := <-errCh; !errors.Is(err, ErrUpdateCancelled) {
+		t.Fatalf("Download after cancel = %v, want ErrUpdateCancelled", err)
+	}
+	if checker.HasStagedUpdate() {
+		t.Fatal("cancelled download must not leave staged archive")
+	}
+}
+
+func TestCheckerInstallDetectsStagedArchiveTamperingAndCleanup(t *testing.T) {
+	payload := []byte("authentic-staged-bytes")
+	sumBytes := sha256.Sum256(payload)
+	expectedSHA := hex.EncodeToString(sumBytes[:])
+
+	var releaseSrv *httptest.Server
+	releaseSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".zip") {
+			_, _ = w.Write(payload)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{
+			"tag_name": "v0.3.2",
+			"html_url": "https://github.com/maybk/tunnelkit/releases/tag/v0.3.2",
+			"assets": [{
+				"name": "tunnelkit-0.3.2-windows-amd64.zip",
+				"browser_download_url": "%s/maybk/tunnelkit/releases/download/v0.3.2/tunnelkit-0.3.2-windows-amd64.zip",
+				"size": %d,
+				"digest": "sha256:%s"
+			}]
+		}`, releaseSrv.URL, len(payload), expectedSHA)
+	}))
+	defer releaseSrv.Close()
+
+	var preHookCalled atomic.Bool
+	checker := NewChecker(
+		"0.3.1",
+		WithHTTPClient(releaseSrv.Client()),
+		WithReleaseURLs(releaseSrv.URL),
+		WithProxyPrefix(""),
+		WithPlatform("windows", "amd64"),
+		WithAssetURLValidator(func(rawURL, _, _ string) bool {
+			return strings.HasPrefix(rawURL, releaseSrv.URL+"/")
+		}),
+		WithPreUpdateHook(func(context.Context) error {
+			preHookCalled.Store(true)
+			return nil
+		}),
+	)
+
+	if _, err := checker.Download(context.Background(), nil); err != nil {
+		t.Fatalf("Download failed: %v", err)
+	}
+	staged, ok := checker.snapshotStaged()
+	if !ok {
+		t.Fatal("expected staged archive")
+	}
+	if err := os.WriteFile(staged.archivePath, []byte("tampered-on-disk"), 0o600); err != nil {
+		t.Fatalf("tamper write failed: %v", err)
+	}
+
+	if err := checker.InstallAndRestart(context.Background()); !errors.Is(err, ErrChecksumMismatch) {
+		t.Fatalf("InstallAndRestart on tampered staged file = %v, want ErrChecksumMismatch", err)
+	}
+	if preHookCalled.Load() {
+		t.Fatal("preUpdateHook must not run when secondary SHA-256 verification fails")
+	}
+	if checker.HasStagedUpdate() {
+		t.Fatal("tampered staged update must be discarded")
+	}
+	if _, err := os.Stat(staged.tmpDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected tampered temp dir removed, stat err=%v", err)
+	}
+
+	// Re-download and verify CleanupStaged deletes temp directory cleanly.
+	if _, err := checker.Download(context.Background(), nil); err != nil {
+		t.Fatalf("second Download failed: %v", err)
+	}
+	staged, _ = checker.snapshotStaged()
+	checker.CleanupStaged()
+	if checker.HasStagedUpdate() {
+		t.Fatal("CleanupStaged must clear staged state")
+	}
+	if _, err := os.Stat(staged.tmpDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("CleanupStaged must remove temp dir, stat err=%v", err)
+	}
+}

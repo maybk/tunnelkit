@@ -122,6 +122,7 @@ func Run(assets embed.FS) error {
 		},
 		ShouldQuit: quitter.shouldQuit,
 		OnShutdown: func() {
+			updater.CleanupStaged()
 			if err := shutdownVPN(vpnService); err != nil {
 				slog.Error("关闭时保留未清理 VPN 会话", "error", err)
 			}

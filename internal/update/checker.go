@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -36,6 +37,8 @@ var (
 	ErrDownloadUpdate      = errors.New("下载更新安装包失败，请稍后重试或前往下载页手动下载")
 	ErrChecksumMismatch    = errors.New("更新安装包 SHA-256 校验失败，已中止安装")
 	ErrElevationCancelled  = errors.New("已取消管理员授权，更新未安装")
+	ErrUpdateCancelled     = errors.New("已取消下载更新")
+	ErrUpdateNotReady      = errors.New("更新包尚未下载就绪，请重新下载")
 )
 
 // Info 表示版本更新检查结果。
@@ -168,9 +171,11 @@ type Checker struct {
 	updateFinishedHook func(restarting bool)
 	selfUpdateCapable  bool
 
-	mu         sync.Mutex
-	updating   bool
-	cachedInfo *Info
+	mu             sync.Mutex
+	updating       bool
+	downloadCancel context.CancelFunc
+	staged         *stagedUpdate
+	cachedInfo     *Info
 }
 
 func safeRedirectPolicy(req *http.Request, via []*http.Request) error {
@@ -241,10 +246,22 @@ func (c *Checker) Check(ctx context.Context) (Info, error) {
 		}
 		info, err := c.fetchReleaseFrom(ctx, endpoint, current)
 		if err == nil {
+			var obsoleteTmpDir string
 			c.mu.Lock()
 			copied := info
 			c.cachedInfo = &copied
+			if !c.updating && c.staged != nil &&
+				(!info.HasUpdate ||
+					c.staged.info.LatestVersion != info.LatestVersion ||
+					c.staged.info.AssetName != info.AssetName ||
+					!strings.EqualFold(c.staged.expectedSHA, info.AssetSHA256)) {
+				obsoleteTmpDir = c.staged.tmpDir
+				c.staged = nil
+			}
 			c.mu.Unlock()
+			if obsoleteTmpDir != "" {
+				_ = os.RemoveAll(obsoleteTmpDir)
+			}
 			return info, nil
 		}
 		lastErr = err

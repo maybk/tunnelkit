@@ -57,7 +57,18 @@ func (a *SystemAPI) CheckUpdate(ctx context.Context) (UpdateInfo, error) {
 	return a.updater.Check(ctx)
 }
 
-// ApplyUpdate 下载、校验 SHA-256、原地替换最新正式版安装包并自动重启应用。
-func (a *SystemAPI) ApplyUpdate(ctx context.Context) error {
-	return a.updater.ApplyAndRestart(ctx)
+// DownloadUpdate 下载并校验最新正式版更新安装包，支持通过 CancelUpdate 取消；完成后保留待安装。
+func (a *SystemAPI) DownloadUpdate(ctx context.Context) error {
+	_, err := a.updater.Download(ctx, nil)
+	return err
+}
+
+// CancelUpdate 取消进行中的更新安装包下载并清理临时文件；未处于下载阶段时返回 false。
+func (a *SystemAPI) CancelUpdate() bool {
+	return a.updater.CancelDownload()
+}
+
+// InstallUpdate 对已下载的更新包二次校验 SHA-256、断开活动 VPN、原地替换组件并自动重启应用。
+func (a *SystemAPI) InstallUpdate(ctx context.Context) error {
+	return a.updater.InstallAndRestart(ctx)
 }

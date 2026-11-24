@@ -234,8 +234,17 @@ func TestSystemAPIInfoAndCheckUpdate(t *testing.T) {
 		t.Fatalf("unexpected UpdateInfo: %+v", upd)
 	}
 
-	if err := sysAPI.ApplyUpdate(context.Background()); err != nil {
-		t.Fatalf("ApplyUpdate failed: %v", err)
+	if err := sysAPI.DownloadUpdate(context.Background()); err != nil {
+		t.Fatalf("DownloadUpdate failed: %v", err)
+	}
+	if preHookCalled.Load() || restarted.Load() {
+		t.Fatalf("DownloadUpdate must not invoke preHook or restart before InstallUpdate")
+	}
+	if sysAPI.CancelUpdate() {
+		t.Fatal("CancelUpdate must return false after DownloadUpdate finishes")
+	}
+	if err := sysAPI.InstallUpdate(context.Background()); err != nil {
+		t.Fatalf("InstallUpdate failed: %v", err)
 	}
 	if !preHookCalled.Load() || !restarted.Load() {
 		t.Fatalf("expected preHookCalled=true and restarted=true, got pre=%v restart=%v", preHookCalled.Load(), restarted.Load())

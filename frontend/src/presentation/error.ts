@@ -30,3 +30,18 @@ export function isElevationCancelledError(err: unknown): boolean {
     message.toLowerCase().includes('authorization cancelled')
   )
 }
+
+export function isUpdateCancelledError(err: unknown): boolean {
+  const message = formatErrorMessage(err, '')
+  const lower = message.toLowerCase()
+  return (
+    message.includes('已取消下载更新') ||
+    lower.includes('context canceled') ||
+    lower.includes('update cancelled')
+  )
+}
+
+export function isUpdateStagedInvalidError(err: unknown): boolean {
+  const message = formatErrorMessage(err, '')
+  return message.includes('更新包尚未下载就绪') || message.includes('SHA-256 校验失败')
+}

@@ -19,10 +19,10 @@ import * as update$0 from "../update/models.js";
 import * as $models from "./models.js";
 
 /**
- * ApplyUpdate 下载、校验 SHA-256、原地替换最新正式版安装包并自动重启应用。
+ * CancelUpdate 取消进行中的更新安装包下载并清理临时文件；未处于下载阶段时返回 false。
  */
-export function ApplyUpdate(): $CancellablePromise<void> {
-    return $Call.ByID(3606968930);
+export function CancelUpdate(): $CancellablePromise<boolean> {
+    return $Call.ByID(1876589170);
 }
 
 /**
@@ -34,10 +34,24 @@ export function CheckUpdate(): $CancellablePromise<$models.UpdateInfo> {
     });
 }
 
+/**
+ * DownloadUpdate 下载并校验最新正式版更新安装包，支持通过 CancelUpdate 取消；完成后保留待安装。
+ */
+export function DownloadUpdate(): $CancellablePromise<void> {
+    return $Call.ByID(368583920);
+}
+
 export function Info(): $CancellablePromise<$models.SystemInfo> {
     return $Call.ByID(2721625613).then(($result: any) => {
         return $$createType1($result);
     });
+}
+
+/**
+ * InstallUpdate 对已下载的更新包二次校验 SHA-256、断开活动 VPN、原地替换组件并自动重启应用。
+ */
+export function InstallUpdate(): $CancellablePromise<void> {
+    return $Call.ByID(1455893065);
 }
 
 // Private type creation functions

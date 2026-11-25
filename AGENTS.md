@@ -17,10 +17,10 @@ TunnelKit 是基于 Wails v3、Go 与 Vue 3 + TypeScript 的跨平台（macOS / 
 - `cmd/tunnelkit-helper` 与 `internal/helper`：单次 VPN 会话生命周期运行的特权辅助程序，监听本机 IPC 通道，校验调用方身份与一次性令牌后驱动 `fortivpn/engine`。
 - `internal/ipc` 与 `internal/helperclient`：本地 IPC 传输（Unix Domain Socket / Windows Named Pipe）、加密会话票据与辅助进程按需启动器。
 - `internal/privilege`：三端特权组件的受保护安装、完整性与权限校验、系统授权、服务注册与运行路径。
-- `internal/credentials`：平台主密钥保护与 AES-256-GCM 凭据加解密，供连接密码与会话票据复用。
+- `internal/credentials`：跨平台 256 位主密钥、Windows 旧版 DPAPI 无感迁移与 AES-256-GCM 凭据加解密，供连接密码与会话票据复用。
 - `internal/vpn`：桌面端连接状态机、交互挑战转发、会话接管、更新维护门禁与网络恢复。
 - `internal/profile`：连接配置增删改查、字段校验与密码加密存储。
-- `internal/storage`：统一管理 `~/.tunnelkit` 目录路径与原子文件写入。
+- `internal/storage`：统一管理 `~/.tunnelkit` 目录路径、三端私有文件权限收紧与原子文件写入。
 - `internal/redact`：日志写入与读取共用的凭据脱敏，仅依赖标准库。
 - `internal/update`：多源版本检查、发布地址白名单校验、语义化版本比较与三端原子自更新。
 - `internal/api`：Wails 服务薄适配层，仅做参数转发与跨包编排；领域逻辑与 I/O 实现下沉至对应 `internal/*` 子包。

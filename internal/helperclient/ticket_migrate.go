@@ -19,7 +19,7 @@ type legacyTicketWire struct {
 // decodeTicket isolates known unversioned formats from the current encrypted format.
 // The caller persists migration atomically before exposing the session token.
 func (s *TicketStore) decodeTicket(data []byte) (Ticket, bool, error) {
-	if len(bytes.TrimSpace(data)) == 0 {
+	if len(bytes.TrimSpace(storage.StripUTF8BOM(data))) == 0 {
 		return Ticket{}, false, errors.New("empty session ticket")
 	}
 	payload, legacy, err := storage.DecodeDocument(data, ticketSchemaVersion)

@@ -35,7 +35,7 @@ func (s *Store) readAll() ([]Profile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("读取配置文件失败: %w", err)
 	}
-	trimmed := bytes.TrimSpace(data)
+	trimmed := bytes.TrimSpace(storage.StripUTF8BOM(data))
 	if len(trimmed) == 0 {
 		return []Profile{}, nil
 	}
@@ -79,5 +79,5 @@ func (s *Store) writeAll(profiles []Profile) error {
 	if err != nil {
 		return err
 	}
-	return storage.WriteFile(s.path, append(data, '\n'), 0o600)
+	return storage.WritePrivateFile(s.path, append(data, '\n'))
 }

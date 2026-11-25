@@ -8,6 +8,13 @@ import (
 	"fmt"
 )
 
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+// StripUTF8BOM 去除跨平台复制或编辑可能引入的 UTF-8 BOM 前缀。
+func StripUTF8BOM(data []byte) []byte {
+	return bytes.TrimPrefix(data, utf8BOM)
+}
+
 // MarshalDocument 写入带格式版本的 JSON；版本由所属模块独立维护。
 func MarshalDocument(version int, value any) ([]byte, error) {
 	if version < 1 {
@@ -28,6 +35,7 @@ func MarshalDocument(version int, value any) ([]byte, error) {
 
 // DecodeDocument 分离版本与载荷。无版本数据交给所属模块识别，未知版本不尝试降级。
 func DecodeDocument(raw []byte, current int) (payload []byte, legacy bool, err error) {
+	raw = StripUTF8BOM(raw)
 	var fields map[string]jsontext.Value
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) > 0 && trimmed[0] == '{' {

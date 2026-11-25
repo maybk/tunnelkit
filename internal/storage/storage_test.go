@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -51,6 +52,50 @@ func TestWriteFileAtomicAndPerm(t *testing.T) {
 	}
 	if info.Mode().Perm() != wantPerm {
 		t.Fatalf("expected perm %04o, got %04o", wantPerm, info.Mode().Perm())
+	}
+}
+
+func TestWriteFileWithHookAndPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "private.json")
+
+	if err := WritePrivateFile(target, []byte("initial\n")); err != nil {
+		t.Fatalf("WritePrivateFile initial failed: %v", err)
+	}
+	if HasBroadPermissions(target) {
+		t.Fatal("expected WritePrivateFile target not to have broad permissions")
+	}
+
+	var seenTmp string
+	hookErr := os.ErrPermission
+	if err := WriteFileWithHook(target, []byte("should-not-commit\n"), 0o600, func(tmpPath string) error {
+		seenTmp = tmpPath
+		if tmpPath == target {
+			t.Fatal("beforeRename hook must run on temp path before rename")
+		}
+		return hookErr
+	}); !errors.Is(err, hookErr) {
+		t.Fatalf("expected hook error %v, got %v", hookErr, err)
+	}
+	if _, statErr := os.Stat(seenTmp); !os.IsNotExist(statErr) {
+		t.Fatalf("expected temp file %q to be cleaned up on hook error, stat err=%v", seenTmp, statErr)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "initial\n" {
+		t.Fatalf("original file changed on hook failure: (%q, %v)", string(got), err)
+	}
+
+	// 验证目标文件被设为只读后，WritePrivateFile 仍可原子覆盖。
+	if err := os.Chmod(target, 0o400); err != nil {
+		t.Fatalf("Chmod readonly failed: %v", err)
+	}
+	if err := WritePrivateFile(target, []byte("replaced\n")); err != nil {
+		t.Fatalf("WritePrivateFile over readonly target failed: %v", err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "replaced\n" {
+		t.Fatalf("ReadFile after readonly replace = (%q, %v)", string(got), err)
+	}
+	if HasBroadPermissions(target) {
+		t.Fatal("expected replaced private file not to have broad permissions")
 	}
 }
 

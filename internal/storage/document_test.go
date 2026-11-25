@@ -44,3 +44,29 @@ func TestDocumentWriterRejectsMissingPayload(t *testing.T) {
 		}
 	}
 }
+
+func TestStripUTF8BOMAndDecodeDocumentWithBOM(t *testing.T) {
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	if got := string(StripUTF8BOM(append(append([]byte(nil), bom...), []byte("hello")...))); got != "hello" {
+		t.Fatalf("StripUTF8BOM = %q, want %q", got, "hello")
+	}
+
+	versioned, err := MarshalDocument(1, map[string]string{"k": "v"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, legacy, err := DecodeDocument(append(append([]byte(nil), bom...), versioned...), 1)
+	if err != nil || legacy {
+		t.Fatalf("DecodeDocument with BOM versioned = (legacy=%v, err=%v)", legacy, err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(payload, &got); err != nil || got["k"] != "v" {
+		t.Fatalf("unexpected decoded payload: %v, err=%v", got, err)
+	}
+
+	legacyRaw := append(append([]byte(nil), bom...), []byte(`["item"]`)...)
+	legacyPayload, legacyFlag, err := DecodeDocument(legacyRaw, 1)
+	if err != nil || !legacyFlag || string(legacyPayload) != `["item"]` {
+		t.Fatalf("DecodeDocument with BOM legacy = (%q, legacy=%v, err=%v)", string(legacyPayload), legacyFlag, err)
+	}
+}

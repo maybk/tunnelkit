@@ -4,12 +4,14 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	"tunnelkit/internal/credentials"
 	"tunnelkit/internal/ipc"
 	"tunnelkit/internal/storage"
 )
@@ -337,4 +339,50 @@ func TestTicketStoreClosesReadHandleBeforeMigrationRename(t *testing.T) {
 			t.Fatalf("Save after rejected Load failed: %v", err)
 		}
 	})
+}
+
+func TestTicketStoreMissingKeyNoDirtyCreateBOMAndPrepareStorage(t *testing.T) {
+	root := t.TempDir()
+	store := NewTicketStore(root)
+	want := Ticket{
+		Endpoint:  "/tmp/tunnelkit-bom.sock",
+		Protocol:  ipc.ProtocolVersion,
+		Token:     "synthetic-bom-token",
+		ProfileID: "p-bom",
+	}
+	if err := store.Save(want); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	raw, err := os.ReadFile(store.path)
+	if err != nil {
+		t.Fatalf("ReadFile ticket: %v", err)
+	}
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	if err := storage.WritePrivateFile(store.path, append(bom, raw...)); err != nil {
+		t.Fatalf("WritePrivateFile BOM: %v", err)
+	}
+	if got, err := store.Load(); err != nil || got != want {
+		t.Fatalf("Load BOM ticket = (%+v, %v), want %+v", got, err, want)
+	}
+
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(store.path, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		store.PrepareStorage()
+		if storage.HasBroadPermissions(store.path) {
+			t.Fatal("expected PrepareStorage to tighten session.json permissions")
+		}
+	}
+
+	if err := os.Remove(storage.SecretKeyPath(root)); err != nil {
+		t.Fatalf("Remove secret.key: %v", err)
+	}
+	if _, err := store.Load(); !errors.Is(err, credentials.ErrMasterKeyMissing) {
+		t.Fatalf("Load with missing secret.key err = %v, want ErrMasterKeyMissing", err)
+	}
+	if _, err := os.Stat(storage.SecretKeyPath(root)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Load with missing key must not recreate secret.key, stat err=%v", err)
+	}
 }

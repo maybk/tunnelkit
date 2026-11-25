@@ -184,6 +184,29 @@ func TestBackendArchitectureBoundaries(t *testing.T) {
 		}
 	})
 
+	t.Run("internal/credentials stays decoupled from upper layers and Wails", func(t *testing.T) {
+		credDir := filepath.Join(repoRoot, "internal", "credentials")
+		err := filepath.WalkDir(credDir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() || !strings.HasSuffix(d.Name(), ".go") {
+				return nil
+			}
+			for _, imp := range parseFileImports(t, path) {
+				if strings.Contains(imp, "wailsapp/wails") ||
+					(strings.HasPrefix(imp, "tunnelkit/") && imp != "tunnelkit/internal/storage") {
+					rel, _ := filepath.Rel(repoRoot, path)
+					t.Errorf("%s imports forbidden package %q", rel, imp)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk internal/credentials: %v", err)
+		}
+	})
+
 	t.Run("shared redaction depends only on the standard library", func(t *testing.T) {
 		entries, err := filepath.Glob(filepath.Join(repoRoot, "internal", "redact", "*.go"))
 		if err != nil {

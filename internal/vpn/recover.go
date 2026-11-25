@@ -18,6 +18,7 @@ func (s *Service) Recover(ctx context.Context) State {
 	}
 	defer release()
 
+	s.tickets.PrepareStorage()
 	ticket, err := s.tickets.Load()
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {

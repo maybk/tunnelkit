@@ -28,6 +28,19 @@ func NewStore(rootDir string) *Store {
 	}
 }
 
+// PrepareStorage 在应用启动时无感迁移旧版主密钥并收紧已存在配置与凭据文件的访问权限；
+// 对尚未初始化的空目录不做任何写入。
+func (s *Store) PrepareStorage() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.secrets.prepareStorage()
+	tightenPrivateFileIfBroad(s.path, "配置文件")
+}
+
 // List 返回所有已保存的连接配置。
 func (s *Store) List() ([]Profile, error) {
 	s.mu.Lock()
@@ -72,7 +85,7 @@ func (s *Store) GetWithPassword(id string) (Profile, string, error) {
 	}
 	password, err := s.secrets.load(p.ID)
 	if err != nil {
-		return Profile{}, "", fmt.Errorf("读取“%s”的密码失败: %w", p.Name, err)
+		return Profile{}, "", wrapSecretError(fmt.Sprintf("读取“%s”的密码失败", p.Name), err, false)
 	}
 	p.HasPassword = true
 	return p, password, nil
@@ -111,6 +124,9 @@ func (s *Store) Save(in Input) (Profile, error) {
 
 	if normalized.Password != "" {
 		if err := s.secrets.save(normalized.ID, normalized.Password); err != nil {
+			if _, ok := errors.AsType[*secretAccessError](err); ok {
+				return Profile{}, err
+			}
 			return Profile{}, fmt.Errorf("保存密码失败: %w", err)
 		}
 		hasSavedPwd = true

@@ -164,7 +164,10 @@ func Run(assets embed.FS) error {
 
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		update.CleanupOldArtifacts()
-		go vpnService.Recover(context.Background())
+		go func() {
+			profileStore.PrepareStorage()
+			vpnService.Recover(context.Background())
+		}()
 	})
 	wailsApp.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
 		showMainWindow(mainWindow, icons.appIcon)

@@ -5,6 +5,7 @@ package helperclient
 import (
 	"errors"
 	"io/fs"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -56,7 +57,21 @@ func (s *TicketStore) write(path string, data []byte, perm os.FileMode) error {
 	if s.writeFile != nil {
 		return s.writeFile(path, data, perm)
 	}
-	return storage.WriteFile(path, data, perm)
+	return storage.WritePrivateFile(path, data)
+}
+
+// PrepareStorage 在会话票据文件已存在且权限过宽时静默收紧其访问权限，绝不提前创建文件。
+func (s *TicketStore) PrepareStorage() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if storage.HasBroadPermissions(s.path) {
+		if err := storage.RestrictPrivateFile(s.path); err != nil {
+			slog.Warn("收紧会话票据文件权限失败", "error", err)
+		}
+	}
 }
 
 // HasPending 判断是否存在待接管或待清理的会话票据文件，不触发密钥初始化或密文解封。

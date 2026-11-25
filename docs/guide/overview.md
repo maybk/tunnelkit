@@ -18,9 +18,9 @@ Vue 前端 -> Wails bindings -> internal/api -> internal/vpn -> internal/helperc
 | [`internal/helperclient`](../../internal/helperclient/README.md) | 按需拉起辅助进程、客户端证书预读、加密会话票据与 IPC 客户端 | 凭据仅经鉴权 IPC 传输，不写入命令行或临时文件 |
 | [`internal/privilege`](../../internal/privilege/README.md) | 受保护辅助组件安装、完整性与权限校验、系统授权、平台服务、进程查询与运行路径 | 不依赖 `vpn`、`update`、`fortivpn` 或 GUI |
 | [`internal/ipc`](../../internal/ipc/README.md) | 本地 IPC 长度前缀帧协议与调用方身份（UID/SID）及令牌摘要校验 | 传输层强校验对端身份与单帧大小上限 |
-| [`internal/credentials`](../../internal/credentials/README.md) | 本地凭据加密密封器与平台主密钥保护 | 供 `profile` 与 `helperclient` 复用，不依赖上层业务 |
+| [`internal/credentials`](../../internal/credentials/README.md) | 跨平台主密钥管理、Windows 旧密钥无感迁移与本地凭据加密 | 供 `profile` 与 `helperclient` 复用，不依赖上层业务 |
 | [`internal/profile`](../../internal/profile/README.md) | 配置增删改查、字段校验与密码加密存储 | 不感知运行期隧道会话 |
-| [`internal/storage`](../../internal/storage/README.md) | `~/.tunnelkit` 目录布局、原子文件写入与日志尾部脱敏读取 | 不依赖上层业务模型 |
+| [`internal/storage`](../../internal/storage/README.md) | `~/.tunnelkit` 目录布局、私有原子写入与日志尾部脱敏读取 | 不依赖上层业务模型 |
 | [`internal/redact`](../../internal/redact/README.md) | 日志写入与读取共用的凭据脱敏 | 仅依赖标准库，不承担网络拓扑匿名化 |
 | [`internal/update`](../../internal/update/README.md) | 版本更新检查、多源降级、语义化版本比较与三端原子自更新 | 零业务耦合，严格校验发布页域名与安装包 SHA-256 |
 | [`fortivpn`](../../fortivpn/README.md) | 纯 Go Fortinet SSL-VPN 协议内核与独立 CLI | 严禁引用 `tunnelkit/internal/**` 或 Wails |
@@ -44,14 +44,14 @@ tunnelkit/
 ├── internal/
 │   ├── api/                   # Wails 绑定服务
 │   ├── app/                   # 窗口配置、菜单栏托盘、自更新协调与生命周期装配
-│   ├── credentials/           # 本地凭据加密密封器与平台密钥保护
+│   ├── credentials/           # 跨平台主密钥与本地凭据加密
 │   ├── ipc/                   # 本地 IPC 帧协议与调用方身份校验
 │   ├── helper/                # 特权辅助服务端、异步事件流与脱敏日志器
 │   ├── helperclient/          # 辅助进程按需拉起、客户端封装与加密会话票据
 │   ├── privilege/             # 特权组件安装、校验、授权与受保护运行目录
 │   ├── profile/               # 配置模型、校验器、持久化与密码库
 │   ├── redact/                # 日志写入与读取共用的凭据脱敏
-│   ├── storage/               # 数据目录路径与原子写入
+│   ├── storage/               # 数据目录路径、原子写入与私有权限保护
 │   ├── update/                # 版本更新检查、多源回退、版本比较与原子自更新
 │   └── vpn/                   # 桌面连接状态机、维护门禁与会话恢复
 ├── assets/

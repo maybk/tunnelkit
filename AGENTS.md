@@ -36,6 +36,8 @@ wails3 task fmt              # 格式化全部 Go 与前端源码
 wails3 task lint             # 前端检查 + go vet + golangci-lint v2 + govulncheck
 wails3 task test             # 前端单测 + Go 竞态单测
 wails3 task check            # 完整本地门禁（格式、扫描、单测、前端构建、发布契约与空白检查）
+wails3 task check:frontend   # 仅前端门禁（格式、扫描、类型检查、单测与构建）
+wails3 task check:go         # 仅 Go 门禁（gofmt、go vet、golangci-lint v2、govulncheck 与竞态单测）
 wails3 task release:prepare  # 同步 build/config.yml 与 CHANGELOG.md 准备正式发版
 ```
 

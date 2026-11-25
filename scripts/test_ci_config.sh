@@ -413,12 +413,47 @@ if [ ! -f "$repo_root/.golangci.yml" ] ||
   exit 1
 fi
 
-for required_task in '  fmt:' '  lint:' '  test:' '  check:' '  release:prepare:'; do
-  if ! grep -Fq "$required_task" "$repo_root/Taskfile.yml"; then
+task_block() {
+  local name="$1"
+  awk -v target="  ${name}:" '
+    { sub(/\015$/, "") }
+    /^[^[:space:]#]/ {
+      if (flag) exit
+      in_tasks = ($1 == "tasks:")
+      next
+    }
+    in_tasks && $0 == target { flag = 1; next }
+    flag && /^  [^[:space:]#]/ { exit }
+    flag { print }
+  ' "$repo_root/Taskfile.yml"
+}
+
+for required_task in fmt lint test check check:frontend check:go release:prepare; do
+  if [ -z "$(task_block "$required_task")" ]; then
     echo "Taskfile.yml is missing required local task: $required_task" >&2
     exit 1
   fi
 done
+
+check_task_block="$(task_block check)"
+check_frontend_block="$(task_block check:frontend)"
+check_go_block="$(task_block check:go)"
+frontend_dist_ensure_block="$(task_block frontend:dist:ensure)"
+lint_go_block="$(task_block lint:go)"
+test_go_block="$(task_block test:go)"
+
+if ! grep -Fq 'task: check:frontend' <<<"$check_task_block" ||
+  ! grep -Fq 'task: check:go' <<<"$check_task_block" ||
+  grep -Fq 'internal: true' <<<"$check_frontend_block" ||
+  grep -Fq 'internal: true' <<<"$check_go_block" ||
+  ! grep -Fq 'desc:' <<<"$check_frontend_block" ||
+  ! grep -Fq 'desc:' <<<"$check_go_block" ||
+  ! grep -Fq 'internal: true' <<<"$frontend_dist_ensure_block" ||
+  ! grep -Fq 'task: frontend:dist:ensure' <<<"$lint_go_block" ||
+  ! grep -Fq 'task: frontend:dist:ensure' <<<"$test_go_block"; then
+  echo "Taskfile.yml must expose check:frontend and check:go, compose check from both, and ensure frontend/dist via an internal helper before standalone Go checks" >&2
+  exit 1
+fi
 
 for versioned_workflow in "$release_workflow" "$rolling_workflow"; do
   if ! grep -Fq 'in_info=($1=="info:")' "$versioned_workflow"; then
@@ -517,3 +552,234 @@ done
 
 test ! -e "$repo_root/scripts/render_package_manifests.sh"
 test ! -e "$repo_root/scripts/test_package_manifests.sh"
+
+notify_tap_job="$(awk '/^  notify-tap:/,0' "$release_workflow")"
+for required_notify in \
+  '- validate' \
+  '- publish' \
+  'permissions: {}' \
+  'TAP_REPO: maybk/homebrew-tap' \
+  'TAP_WORKFLOW: sync.yml' \
+  'TAP_APP: tunnelkit' \
+  'actions/create-github-app-token@' \
+  'repositories: homebrew-tap' \
+  'permission-actions: write' \
+  'TAP_DISPATCH_APP_CLIENT_ID' \
+  'TAP_DISPATCH_APP_PRIVATE_KEY' \
+  'TAP_DISPATCH_TOKEN' \
+  '/actions/workflows/${TAP_WORKFLOW}/dispatches' \
+  'return_run_details: true'; do
+  if ! grep -Fq -- "$required_notify" <<<"$notify_tap_job"; then
+    echo "release.yml notify-tap job missing required contract: $required_notify" >&2
+    exit 1
+  fi
+done
+if grep -Eq 'permission-contents:|/repos/\$\{TAP_REPO\}/dispatches|repository_dispatch' <<<"$notify_tap_job"; then
+  echo "release.yml notify-tap must use workflow_dispatch with Actions: write only (never Contents: write or repository_dispatch)" >&2
+  exit 1
+fi
+
+if command -v python3 >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+  tap_tmp="$(mktemp -d)"
+  tap_mock_pid=""
+  cleanup_tap_test() {
+    if [ -n "$tap_mock_pid" ]; then
+      kill "$tap_mock_pid" >/dev/null 2>&1 || true
+      wait "$tap_mock_pid" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$tap_tmp"
+  }
+  trap cleanup_tap_test EXIT
+
+  extract_step_script() {
+    local step_name="$1"
+    local out_file="$2"
+    awk -v step="      - name: ${step_name}" '
+      $0 == step { in_step=1; next }
+      in_step && /^        run: \|$/ { in_run=1; next }
+      in_run {
+        if ($0 ~ /^  [a-zA-Z0-9_-]+:/ || $0 ~ /^      - name:/) { exit }
+        sub(/^          /, "")
+        print
+      }
+    ' "$release_workflow" > "$out_file"
+    test -s "$out_file"
+    bash -n "$out_file"
+  }
+
+  auth_mode_script="$tap_tmp/auth_mode.sh"
+  dispatch_script="$tap_tmp/dispatch.sh"
+  extract_step_script "Detect tap dispatch authentication mode" "$auth_mode_script"
+  extract_step_script "Dispatch tap sync workflow" "$dispatch_script"
+
+  # Auth mode detection matrix: App priority, partial-App warning + PAT fallback, CRLF-only PAT, none
+  run_auth_mode() {
+    local out_file="$tap_tmp/auth_out.txt"
+    local log_file="$tap_tmp/auth_log.txt"
+    : > "$out_file"
+    APP_CLIENT_ID="$1" APP_PRIVATE_KEY="$2" PAT_TOKEN="$3" GITHUB_OUTPUT="$out_file" \
+      bash "$auth_mode_script" > "$log_file"
+    cat "$out_file"
+  }
+  [ "$(run_auth_mode "Iv23test" "pem-key" "pat-tok")" = "mode=app" ]
+  [ "$(run_auth_mode "Iv23test" "" "pat-tok")" = "mode=pat" ]
+  grep -Fq "::warning::Incomplete GitHub App configuration" "$tap_tmp/auth_log.txt"
+  [ "$(run_auth_mode "" "pem-key" "")" = "mode=none" ]
+  grep -Fq "::warning::Incomplete GitHub App configuration" "$tap_tmp/auth_log.txt"
+  [ "$(run_auth_mode "" "" $'\r\n')" = "mode=none" ]
+  [ "$(run_auth_mode "" "" "")" = "mode=none" ]
+
+  tap_state="$tap_tmp/state.json"
+  tap_port_file="$tap_tmp/port.txt"
+  printf '{"mode":"ok_200","calls":0,"last_body":null,"last_auth":""}\n' > "$tap_state"
+
+  python3 - "$tap_state" "$tap_port_file" <<'PY' &
+import http.server, json, pathlib, sys
+
+state_path = pathlib.Path(sys.argv[1])
+port_path = pathlib.Path(sys.argv[2])
+
+class DispatchHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass
+
+    def do_POST(self):
+        st = json.loads(state_path.read_text())
+        n = int(self.headers.get("Content-Length", "0"))
+        body = json.loads(self.rfile.read(n).decode()) if n > 0 else {}
+        st["calls"] += 1
+        st["last_body"] = body
+        st["last_auth"] = self.headers.get("Authorization", "")
+        st["last_path"] = self.path
+        state_path.write_text(json.dumps(st))
+
+        mode = st["mode"]
+        if mode == "ok_200":
+            resp = json.dumps({
+                "workflow_run_id": 42,
+                "html_url": "https://github.com/maybk/homebrew-tap/actions/runs/42",
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+            return
+        if mode == "ok_204":
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if mode == "retry_503_then_200":
+            if st["calls"] == 1:
+                resp = json.dumps({"message": "Service Unavailable"}).encode()
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+                return
+            resp = json.dumps({
+                "workflow_run_id": 99,
+                "html_url": "https://github.com/maybk/homebrew-tap/actions/runs/99",
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+            return
+        resp = json.dumps({"message": "Resource not accessible by personal access token"}).encode()
+        self.send_response(403)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(resp)))
+        self.end_headers()
+        self.wfile.write(resp)
+
+srv = http.server.HTTPServer(("127.0.0.1", 0), DispatchHandler)
+port_path.write_text(str(srv.server_address[1]))
+srv.serve_forever()
+PY
+  tap_mock_pid="$!"
+  for _ in $(seq 1 30); do
+    [ -s "$tap_port_file" ] && break
+    sleep 0.05
+  done
+  if [ ! -s "$tap_port_file" ]; then
+    echo "Mock tap dispatch server failed to start" >&2
+    exit 1
+  fi
+  tap_api="http://127.0.0.1:$(cat "$tap_port_file")"
+  tap_summary="$tap_tmp/summary.md"
+
+  # 1. Unconfigured credentials skip cleanly with manual fallback notice and step summary
+  : > "$tap_summary"
+  TAP_REPO="maybk/homebrew-tap" TAP_WORKFLOW="sync.yml" TAP_REF="main" TAP_APP="tunnelkit" APP_VERSION="1.1.4" \
+    AUTH_MODE="none" APP_TOKEN="" PAT_TOKEN="" GITHUB_API_URL="$tap_api" GITHUB_STEP_SUMMARY="$tap_summary" \
+    bash "$dispatch_script" | grep -Fq "Skipping automatic maybk/homebrew-tap sync"
+  grep -Fq "Status: skipped" "$tap_summary"
+
+  # 2. App token dispatches workflow_dispatch (HTTP 200 with run URL and step summary)
+  : > "$tap_summary"
+  TAP_REPO="maybk/homebrew-tap" TAP_WORKFLOW="sync.yml" TAP_REF="main" TAP_APP="tunnelkit" APP_VERSION="1.1.4" \
+    AUTH_MODE="app" APP_TOKEN="app-tok" PAT_TOKEN="pat-tok" GITHUB_API_URL="$tap_api" \
+    GITHUB_STEP_SUMMARY="$tap_summary" TAP_DISPATCH_RETRY_SLEEP_SEC="0.05" \
+    bash "$dispatch_script" | grep -Fq "https://github.com/maybk/homebrew-tap/actions/runs/42"
+  grep -Fq "https://github.com/maybk/homebrew-tap/actions/runs/42" "$tap_summary"
+  jq -e '
+    .last_path == "/repos/maybk/homebrew-tap/actions/workflows/sync.yml/dispatches" and
+    .last_auth == "Bearer app-tok" and
+    .last_body.ref == "main" and
+    .last_body.inputs.app == "tunnelkit" and
+    .last_body.inputs.expected_version == "1.1.4" and
+    .last_body.return_run_details == true
+  ' "$tap_state" >/dev/null
+
+  # 3. HTTP 204 backward-compatible response and trailing CRLF in PAT token succeed cleanly
+  printf '{"mode":"ok_204","calls":0,"last_body":null,"last_auth":""}\n' > "$tap_state"
+  TAP_REPO="maybk/homebrew-tap" TAP_WORKFLOW="sync.yml" TAP_REF="main" TAP_APP="tunnelkit" APP_VERSION="1.1.4" \
+    AUTH_MODE="pat" APP_TOKEN="" PAT_TOKEN=$'pat-crlf\r\n' GITHUB_API_URL="$tap_api" TAP_DISPATCH_RETRY_SLEEP_SEC="0.05" \
+    bash "$dispatch_script" | grep -Fq "HTTP 204"
+  jq -e '.calls == 1 and .last_auth == "Bearer pat-crlf"' "$tap_state" >/dev/null
+
+  # 4. Quote or control character in dispatch token is rejected before invoking curl
+  if TAP_REPO="maybk/homebrew-tap" TAP_WORKFLOW="sync.yml" TAP_REF="main" TAP_APP="tunnelkit" APP_VERSION="1.1.4" \
+      AUTH_MODE="pat" APP_TOKEN="" PAT_TOKEN='bad"token' GITHUB_API_URL="$tap_api" \
+      bash "$dispatch_script" >/dev/null 2>&1; then
+    echo "Expected notify-tap dispatch script to reject quote characters in token" >&2
+    exit 1
+  fi
+  jq -e '.calls == 1' "$tap_state" >/dev/null
+
+  # 5. Transient 503 retries and succeeds
+  printf '{"mode":"retry_503_then_200","calls":0,"last_body":null,"last_auth":""}\n' > "$tap_state"
+  TAP_REPO="maybk/homebrew-tap" TAP_WORKFLOW="sync.yml" TAP_REF="main" TAP_APP="tunnelkit" APP_VERSION="1.1.4" \
+    AUTH_MODE="pat" APP_TOKEN="" PAT_TOKEN="pat-tok" GITHUB_API_URL="$tap_api" TAP_DISPATCH_RETRY_SLEEP_SEC="0.05" \
+    bash "$dispatch_script" | grep -Fq "https://github.com/maybk/homebrew-tap/actions/runs/99"
+  jq -e '.calls == 2 and .last_auth == "Bearer pat-tok"' "$tap_state" >/dev/null
+
+  # 6. 403 permission error fails fast without silent swallow
+  printf '{"mode":"err_403","calls":0,"last_body":null,"last_auth":""}\n' > "$tap_state"
+  if TAP_REPO="maybk/homebrew-tap" TAP_WORKFLOW="sync.yml" TAP_REF="main" TAP_APP="tunnelkit" APP_VERSION="1.1.4" \
+      AUTH_MODE="pat" APP_TOKEN="" PAT_TOKEN="pat-tok" GITHUB_API_URL="$tap_api" TAP_DISPATCH_RETRY_SLEEP_SEC="0.05" \
+      bash "$dispatch_script" >/dev/null 2>&1; then
+    echo "Expected notify-tap dispatch script to fail visibly on HTTP 403" >&2
+    exit 1
+  fi
+  jq -e '.calls == 1' "$tap_state" >/dev/null
+
+  # 7. Non-HTTP curl transport failure reports HTTP 000 cleanly (never empty status)
+  kill "$tap_mock_pid" >/dev/null 2>&1 || true
+  wait "$tap_mock_pid" >/dev/null 2>&1 || true
+  tap_mock_pid=""
+  set +e
+  conn_err_out="$(
+    TAP_REPO="maybk/homebrew-tap" TAP_WORKFLOW="sync.yml" TAP_REF="main" TAP_APP="tunnelkit" APP_VERSION="1.1.4" \
+      AUTH_MODE="pat" APP_TOKEN="" PAT_TOKEN="pat-tok" GITHUB_API_URL="$tap_api" TAP_DISPATCH_RETRY_SLEEP_SEC="0.01" \
+      bash "$dispatch_script" 2>&1
+  )"
+  conn_err_rc="$?"
+  set -e
+  [ "$conn_err_rc" -ne 0 ]
+  grep -Fq "(HTTP 000)" <<<"$conn_err_out"
+fi

@@ -95,14 +95,8 @@ tasks:
   check:
     desc: 运行完整本地质量门禁（前端、Go 扫描与单测、契约测试与空白检查）
     cmds:
-      - task: lint:frontend
-      - task: test:frontend
-      - pnpm --dir frontend run build
-      - task: gofmt:exec
-        vars:
-          MODE: check
-      - task: lint:go
-      - task: test:go
+      - task: check:frontend
+      - task: check:go
       - bash scripts/test_extract_pending_version.sh
       - bash scripts/test_extract_release_notes.sh
       - bash scripts/test_prepare_release.sh
@@ -110,10 +104,36 @@ tasks:
       - bash scripts/test_rolling_release_config.sh
       - git diff --check
 
+  check:frontend:
+    desc: 运行前端质量门禁（格式、扫描、类型检查、单测与生产构建）
+    cmds:
+      - task: lint:frontend
+      - task: test:frontend
+      - pnpm --dir frontend run build
+
+  check:go:
+    desc: 运行 Go 质量门禁（gofmt、go vet、golangci-lint v2、govulncheck 与竞态单测）
+    cmds:
+      - task: gofmt:exec
+        vars:
+          MODE: check
+      - task: lint:go
+      - task: test:go
+
   release:prepare:
     desc: 同步更新 build/config.yml 与 CHANGELOG.md 准备正式发版
     cmds:
       - bash scripts/prepare_release.sh {{.ARGS | default .CLI_ARGS}}
+
+  frontend:dist:ensure:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        if [ ! -f frontend/dist/index.html ]; then
+          printf '==> pnpm --dir frontend run build\n'
+          pnpm --dir frontend run build
+        fi
 
   lint:frontend:
     internal: true
@@ -124,6 +144,7 @@ tasks:
   lint:go:
     internal: true
     cmds:
+      - task: frontend:dist:ensure
       - go vet ./...
       - cmd: |
           if command -v golangci-lint >/dev/null 2>&1 && golangci-lint version 2>/dev/null | grep -Eq '(^|[[:space:]v])2\.'; then
@@ -152,6 +173,7 @@ tasks:
   test:go:
     internal: true
     cmds:
+      - task: frontend:dist:ensure
       - cmd: |
           if [ "{{OS}}" != "windows" ]; then
             go test -race ./...

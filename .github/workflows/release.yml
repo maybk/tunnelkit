@@ -306,3 +306,175 @@ jobs:
               exit 1
             fi
           done <<<"$remote_tags"
+
+  notify-tap:
+    name: Trigger maybk/homebrew-tap sync
+    needs:
+      - validate
+      - publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      TAP_REPO: maybk/homebrew-tap
+      TAP_WORKFLOW: sync.yml
+      TAP_REF: main
+      TAP_APP: tunnelkit
+      APP_VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Detect tap dispatch authentication mode
+        id: auth_mode
+        shell: bash
+        env:
+          APP_CLIENT_ID: ${{ vars.TAP_DISPATCH_APP_CLIENT_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.TAP_DISPATCH_APP_PRIVATE_KEY }}
+          PAT_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          APP_CLIENT_ID="$(printf '%s' "${APP_CLIENT_ID:-}" | tr -d '\r\n')"
+          PAT_TOKEN="$(printf '%s' "${PAT_TOKEN:-}" | tr -d '\r\n')"
+          if [ -n "$APP_CLIENT_ID" ] && [ -n "${APP_PRIVATE_KEY:-}" ]; then
+            echo "mode=app" >> "$GITHUB_OUTPUT"
+          else
+            if [ -n "$APP_CLIENT_ID" ] || [ -n "${APP_PRIVATE_KEY:-}" ]; then
+              echo "::warning::Incomplete GitHub App configuration: both TAP_DISPATCH_APP_CLIENT_ID (variable) and TAP_DISPATCH_APP_PRIVATE_KEY (secret) are required."
+            fi
+            if [ -n "$PAT_TOKEN" ]; then
+              echo "mode=pat" >> "$GITHUB_OUTPUT"
+            else
+              echo "mode=none" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Mint short-lived GitHub App dispatch token
+        id: app_token
+        if: steps.auth_mode.outputs.mode == 'app'
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.TAP_DISPATCH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.TAP_DISPATCH_APP_PRIVATE_KEY }}
+          owner: maybk
+          repositories: homebrew-tap
+          permission-actions: write
+
+      - name: Dispatch tap sync workflow
+        shell: bash
+        env:
+          AUTH_MODE: ${{ steps.auth_mode.outputs.mode }}
+          APP_TOKEN: ${{ steps.app_token.outputs.token }}
+          PAT_TOKEN: ${{ secrets.TAP_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$AUTH_MODE" = "none" ]; then
+            msg="Skipping automatic ${TAP_REPO} sync: configure GitHub App (TAP_DISPATCH_APP_CLIENT_ID + TAP_DISPATCH_APP_PRIVATE_KEY) or Fine-grained PAT (TAP_DISPATCH_TOKEN with Actions: write only on ${TAP_REPO}). Manual fallback: gh workflow run ${TAP_WORKFLOW} -R ${TAP_REPO} --ref ${TAP_REF} -f app=${TAP_APP} -f expected_version=${APP_VERSION}"
+            echo "::notice::${msg}"
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              printf '### Homebrew Tap Sync\n\n- Status: skipped (no dispatch credentials configured)\n- Manual fallback: `gh workflow run %s -R %s --ref %s -f app=%s -f expected_version=%s`\n' \
+                "$TAP_WORKFLOW" "$TAP_REPO" "$TAP_REF" "$TAP_APP" "$APP_VERSION" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 0
+          fi
+
+          DISPATCH_TOKEN=""
+          if [ "$AUTH_MODE" = "app" ]; then
+            DISPATCH_TOKEN="${APP_TOKEN:-}"
+          elif [ "$AUTH_MODE" = "pat" ]; then
+            DISPATCH_TOKEN="${PAT_TOKEN:-}"
+          else
+            echo "::error::Unsupported tap dispatch auth mode: ${AUTH_MODE}"
+            exit 1
+          fi
+
+          DISPATCH_TOKEN="$(printf '%s' "$DISPATCH_TOKEN" | tr -d '\r\n')"
+          if [ -z "$DISPATCH_TOKEN" ]; then
+            echo "::error::Auth mode '${AUTH_MODE}' selected but dispatch token is empty"
+            exit 1
+          fi
+          if [[ "$DISPATCH_TOKEN" =~ [[:cntrl:]\"\\] ]]; then
+            echo "::error::Dispatch token contains invalid control or quote characters"
+            exit 1
+          fi
+
+          api_base="${GITHUB_API_URL:-https://api.github.com}"
+          api_base="${api_base%/}"
+          dispatch_url="${api_base}/repos/${TAP_REPO}/actions/workflows/${TAP_WORKFLOW}/dispatches"
+
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          curl_cfg="$tmp_dir/curl.cfg"
+          payload_file="$tmp_dir/payload.json"
+          resp_file="$tmp_dir/resp.json"
+
+          umask 077
+          cat > "$curl_cfg" <<EOF
+          header = "Accept: application/vnd.github+json"
+          header = "X-GitHub-Api-Version: 2022-11-28"
+          header = "Content-Type: application/json"
+          header = "Authorization: Bearer ${DISPATCH_TOKEN}"
+          EOF
+          umask 022
+
+          jq -n \
+            --arg ref "$TAP_REF" \
+            --arg app "$TAP_APP" \
+            --arg ver "$APP_VERSION" \
+            '{ref: $ref, inputs: {app: $app, expected_version: $ver}, return_run_details: true}' > "$payload_file"
+
+          retry_sleep="${TAP_DISPATCH_RETRY_SLEEP_SEC:-2}"
+          attempt=1
+          max_attempts=3
+          status="000"
+          while true; do
+            : > "$resp_file"
+            status="000"
+            if status="$(curl -sS --connect-timeout 15 --max-time 30 -K "$curl_cfg" -X POST --data-binary "@$payload_file" -o "$resp_file" -w '%{http_code}' "$dispatch_url")"; then
+              status="${status:-000}"
+              if [ "$status" = "200" ] || [ "$status" = "204" ]; then
+                run_url="$(jq -r '.html_url // empty' "$resp_file" 2>/dev/null || true)"
+                if [ -n "$run_url" ]; then
+                  echo "Dispatched ${TAP_REPO}/${TAP_WORKFLOW} (app=${TAP_APP}, expected_version=${APP_VERSION}, auth=${AUTH_MODE}): ${run_url}"
+                else
+                  echo "Dispatched ${TAP_REPO}/${TAP_WORKFLOW} (app=${TAP_APP}, expected_version=${APP_VERSION}, auth=${AUTH_MODE}, HTTP ${status})"
+                fi
+                if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+                  {
+                    printf '### Homebrew Tap Sync\n\n'
+                    printf -- '- Target: `%s` (`%s` on `%s`)\n' "$TAP_REPO" "$TAP_WORKFLOW" "$TAP_REF"
+                    printf -- '- App / Version: `%s` `v%s`\n' "$TAP_APP" "$APP_VERSION"
+                    printf -- '- Auth mode: `%s`\n' "$AUTH_MODE"
+                    if [ -n "$run_url" ]; then
+                      printf -- '- Workflow Run: %s\n' "$run_url"
+                    fi
+                  } >> "$GITHUB_STEP_SUMMARY"
+                fi
+                exit 0
+              fi
+              if [[ "$status" != "429" && "$status" != "500" && "$status" != "502" && "$status" != "503" && "$status" != "504" ]]; then
+                break
+              fi
+            else
+              status="${status:-000}"
+            fi
+
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              break
+            fi
+            sleep "$retry_sleep"
+            if [[ "$retry_sleep" =~ ^[0-9]+$ ]]; then
+              retry_sleep=$((retry_sleep * 2))
+            fi
+            attempt=$((attempt + 1))
+          done
+
+          status="${status:-000}"
+
+          api_msg="$(jq -r '.message // empty' "$resp_file" 2>/dev/null || true)"
+          case "$status" in
+            401) hint="Credential rejected (401): check whether the GitHub App key or Fine-grained PAT has expired or been revoked." ;;
+            403) hint="Permission denied (403): grant Actions: write (not Contents: write) on ${TAP_REPO}." ;;
+            404) hint="Not found (404): verify the GitHub App or PAT is scoped to ${TAP_REPO} and ${TAP_WORKFLOW} exists on ${TAP_REF}." ;;
+            422) hint="Unprocessable (422): verify ${TAP_WORKFLOW} is enabled on ${TAP_REF} and accepts inputs (app, expected_version)." ;;
+            *) hint="Transient or unexpected failure (HTTP ${status}). Manual fallback: gh workflow run ${TAP_WORKFLOW} -R ${TAP_REPO} --ref ${TAP_REF} -f app=${TAP_APP} -f expected_version=${APP_VERSION}" ;;
+          esac
+          echo "::error::Failed to dispatch ${TAP_REPO}/${TAP_WORKFLOW} (HTTP ${status}${api_msg:+: ${api_msg}}). ${hint}"
+          exit 1

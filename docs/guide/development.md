@@ -7,7 +7,7 @@
 | Go | `>= 1.27.4` |
 | Wails CLI | Wails v3，版本与 `go.mod` 及 `frontend/package.json` 中的 `@wailsio/runtime` 保持一致 |
 | Node.js / pnpm | Node.js `>= 26.5`，使用 `pnpm` 与 `frontend/pnpm-lock.yaml` |
-| 静态与漏洞扫描（可选） | `golangci-lint` v2、`govulncheck`（未预装时由 `wails3 task lint` / `check` 自动通过 `go run` 执行） |
+| 静态与漏洞扫描（可选） | `golangci-lint` v2、`govulncheck`（未预装时由 `wails3 task lint` / `check:go` / `check` 自动通过 `go run` 执行） |
 | 操作系统 | macOS `12.0+`（需 Xcode Command Line Tools）、Windows `10/11` 或 Linux（需 `GTK4` / `WebKitGTK 6.0` 与 `iproute2`） |
 
 Wails v3 CLI 安装说明见 [Wails v3 官方文档](https://v3.wails.io/quick-start/installation/)。
@@ -39,10 +39,12 @@ go build -o bin/fortivpn ./fortivpn/cmd/fortivpn
 日常检查统一通过 `wails3 task` 执行（本机已装 `go-task` 时亦可直接用 `task`）：
 
 ```bash
-wails3 task fmt              # 格式化全部 Go 与前端源码
-wails3 task lint             # 前端检查 + go vet + golangci-lint v2 + govulncheck
-wails3 task test             # 前端单测 + Go 竞态单测
-wails3 task check            # 完整质量门禁（格式、扫描、单测、前端构建、发布契约与空白检查）
+wails3 task fmt             # 格式化全部 Go 与前端源码
+wails3 task lint            # 前端检查 + go vet + golangci-lint v2 + govulncheck
+wails3 task test            # 前端单测 + Go 竞态单测
+wails3 task check           # 完整质量门禁（格式、扫描、单测、前端构建、发布契约与空白检查）
+wails3 task check:frontend  # 仅前端质量门禁（格式、扫描、类型检查、单测与生产构建）
+wails3 task check:go        # 仅 Go 质量门禁（gofmt、go vet、golangci-lint v2、govulncheck 与竞态单测）
 ```
 
 测试套件包含 `fortivpn/fortitest` 内存假网关端到端测试、PPP 状态机测试、三端网络配置测试、本地 IPC 与 `tunnelkit-helper` 生命周期测试、Vue 组件测试以及 CI/Release 工作流配置契约测试，均在临时目录与非特权环境中隔离运行。

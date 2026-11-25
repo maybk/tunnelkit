@@ -7,7 +7,7 @@ TunnelKit 的 Rolling 预发布与正式版本发布已通过 GitHub Actions 自
 - [`ci.yml`](../../.github/workflows/ci.yml)：`main` 分支推送与 Pull Request 的三端质量与安全门禁，同时供发布工作流复用
 - [`release-assets.yml`](../../.github/workflows/release-assets.yml)：正式版与 Rolling 共用的跨平台打包流水线（macOS / Windows / Linux）
 - [`rolling.yml`](../../.github/workflows/rolling.yml)：每日定时（北京时间 `02:17`）检查 `main` 分支未发布增量提交并更新 `rolling` 预发布，同时支持手动按需触发
-- [`release.yml`](../../.github/workflows/release.yml)：`v*` 版本标签触发的正式 GitHub Release 发布与过期 Rolling 清理
+- [`release.yml`](../../.github/workflows/release.yml)：`v*` 版本标签触发的正式 GitHub Release 发布、过期 Rolling 清理与 `maybk/homebrew-tap` 同步触发
 - [`prepare_windows_wintun.ps1`](../../scripts/prepare_windows_wintun.ps1)：下载并按固定 SHA-256 校验官方 Wintun 驱动包（`amd64` / `arm64`）
 - [`smoke_windows_helper.ps1`](../../scripts/smoke_windows_helper.ps1)：静默安装与卸载 Windows 安装包，校验系统服务与本地 IPC 会话
 - [`package_macos_dmg.sh`](../../scripts/package_macos_dmg.sh) 与 [`build/darwin/dmg/settings.py`](../../build/darwin/dmg/settings.py)：使用 `dmgbuild` 直接写入 `.DS_Store`、`Applications` 拖拽快捷方式、Retina `@1x/@2x` 引导背景图与卷标图标
@@ -126,7 +126,14 @@ wails3 task linux:create:rpm
    git tag -a "v$version" -m "TunnelKit v$version"
    git push --atomic origin main "v$version"
    ```
-4. 正式版公开后，[`maybk/homebrew-tap`](https://github.com/maybk/homebrew-tap) 会按计划自动同步 Homebrew Cask、Scoop Bucket 与 WinGet 清单；如需立即同步，可执行：
+4. 正式版公开后，`release.yml` 会通过 `workflow_dispatch` 自动触发 [`maybk/homebrew-tap`](https://github.com/maybk/homebrew-tap) 同步 Homebrew Cask、Scoop Bucket 与 WinGet 清单；如需手动同步，可执行：
    ```bash
-   gh workflow run sync.yml -R maybk/homebrew-tap
+   gh workflow run sync.yml -R maybk/homebrew-tap --ref main -f app=tunnelkit
    ```
+
+## 跨仓同步凭据
+
+`release.yml` 仅向 `maybk/homebrew-tap` 发送 `workflow_dispatch` 触发信号，仅需目标仓库 `Actions: write` 权限（不需 `Contents: write`）；未配置时自动跳过，不影响正式版发布（完整架构与 App 创建见 [`homebrew-tap` 维护指南](https://github.com/maybk/homebrew-tap/blob/main/docs/guide/maintenance.md)）：
+
+- **GitHub App（推荐，优先使用）**：配置仓库变量 `TAP_DISPATCH_APP_CLIENT_ID` 与密钥 `TAP_DISPATCH_APP_PRIVATE_KEY`。
+- **Fine-grained PAT（备选）**：配置仓库密钥 `TAP_DISPATCH_TOKEN`。

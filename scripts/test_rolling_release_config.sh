@@ -169,7 +169,7 @@ for required in \
   fi
 done
 
-cleanup_job="$(awk '/^  cleanup-rolling:/,0' "$release_workflow")"
+cleanup_job="$(awk '/^  cleanup-rolling:/,/^  notify-tap:/' "$release_workflow")"
 for required in \
   '- validate' \
   '- publish' \

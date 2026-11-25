@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestReadRegularFileBounded(t *testing.T) {
@@ -112,6 +113,7 @@ func TestReadRegularFileBoundedConcurrentAtomicReplace(t *testing.T) {
 						}
 						return
 					}
+					time.Sleep(2 * time.Millisecond)
 					continue
 				}
 				if info == nil || (string(raw) != payloadA && string(raw) != payloadB) {
@@ -122,6 +124,10 @@ func TestReadRegularFileBoundedConcurrentAtomicReplace(t *testing.T) {
 					return
 				}
 				reads.Add(1)
+				if runtime.GOOS == "windows" {
+					// Windows 的 MoveFileExW 无法替换存在打开句柄的目标文件，短暂让步避免高频读循环饿死写入。
+					time.Sleep(2 * time.Millisecond)
+				}
 			}
 		})
 	}

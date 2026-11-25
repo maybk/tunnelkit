@@ -5,12 +5,17 @@ package storage
 import (
 	"errors"
 	"os"
+	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// fileAllAccess 等价于 Win32 FILE_ALL_ACCESS（STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x1FF），
+// 显式授予文件对象全部标准与特定权限。
+const fileAllAccess = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1FF
 
 // broadAccessMask 表示向非受信任主体暴露文件内容或允许篡改/接管权限的访问位。
 const broadAccessMask = windows.FILE_READ_DATA |
@@ -31,7 +36,9 @@ type trustedSIDEntry struct {
 // RestrictPrivateFile 在支持持久 ACL 的 Windows 卷（如 NTFS）上，通过不跟随重解析点的句柄
 // 将常规文件收紧为 Protected DACL，阻断父目录继承并仅授权当前用户、SYSTEM 与 Administrators 完全控制。
 func RestrictPrivateFile(path string) error {
-	h, err := openRegularHandleNoFollow(path, windows.FILE_READ_ATTRIBUTES|windows.WRITE_DAC)
+	// SetSecurityInfo 处理 SE_FILE_OBJECT 的 DACL 继承保护时会在内部查询安全描述符，
+	// 句柄必须同时具备 READ_CONTROL 与 WRITE_DAC，否则固定返回 ERROR_ACCESS_DENIED。
+	h, err := openRegularHandleNoFollow(path, windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL|windows.WRITE_DAC)
 	if err != nil {
 		if isUnsupportedACLError(err) {
 			return nil
@@ -48,10 +55,13 @@ func RestrictPrivateFile(path string) error {
 		return err
 	}
 
+	var pinner runtime.Pinner
+	defer pinner.Unpin()
 	entries := make([]windows.EXPLICIT_ACCESS, 0, len(trusted))
 	for _, item := range trusted {
+		pinner.Pin(item.sid)
 		entries = append(entries, windows.EXPLICIT_ACCESS{
-			AccessPermissions: windows.GENERIC_ALL,
+			AccessPermissions: fileAllAccess,
 			AccessMode:        windows.GRANT_ACCESS,
 			Inheritance:       windows.NO_INHERITANCE,
 			Trustee: windows.TRUSTEE{
@@ -167,11 +177,15 @@ func openRegularHandleNoFollow(path string, access uint32) (windows.Handle, erro
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		nil,
 		windows.OPEN_EXISTING,
-		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT,
+		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS,
 		0,
 	)
 	if err != nil {
 		return 0, mapWindowsPathError("open", path, err)
+	}
+	if ft, err := windows.GetFileType(h); err != nil || ft != windows.FILE_TYPE_DISK {
+		_ = windows.CloseHandle(h)
+		return 0, &os.PathError{Op: "open", Path: path, Err: os.ErrInvalid}
 	}
 	var info windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(h, &info); err != nil {

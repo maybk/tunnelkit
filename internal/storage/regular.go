@@ -17,30 +17,10 @@ type RegularFile interface {
 	Stat() (os.FileInfo, error)
 }
 
-// OpenRegularNoFollow 以不跟随符号链接与重解析点的方式只读打开常规文件。
-// 若目标不是常规文件，关闭句柄并返回 os.ErrInvalid。
+// OpenRegularNoFollow 以不跟随符号链接与重解析点的方式原子只读打开常规文件，
+// 拒绝目录、管道、符号链接与重解析点（无 Lstat/open 竞态窗口）。
 func OpenRegularNoFollow(path string) (*os.File, error) {
-	linfo, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if linfo.Mode()&os.ModeSymlink != 0 || !linfo.Mode().IsRegular() {
-		return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrInvalid}
-	}
-	f, err := openNoFollow(path)
-	if err != nil {
-		return nil, err
-	}
-	info, err := f.Stat()
-	if err != nil {
-		_ = f.Close()
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || !os.SameFile(linfo, info) {
-		_ = f.Close()
-		return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrInvalid}
-	}
-	return f, nil
+	return openNoFollow(path)
 }
 
 // ReadOpenRegularFileBounded 校验已打开句柄指向常规文件且体积不超过 maxBytes，
@@ -75,29 +55,22 @@ func ReadRegularFileBounded(path string, maxBytes int64) ([]byte, os.FileInfo, e
 	if maxBytes < 0 {
 		return nil, nil, &os.PathError{Op: "open", Path: path, Err: os.ErrInvalid}
 	}
-	linfo, err := os.Lstat(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	if linfo.Mode()&os.ModeSymlink != 0 || !linfo.Mode().IsRegular() {
-		return nil, nil, &os.PathError{Op: "open", Path: path, Err: os.ErrInvalid}
-	}
-	if linfo.Size() > maxBytes {
-		return nil, nil, &os.PathError{Op: "open", Path: path, Err: fmt.Errorf("%w: %w", os.ErrInvalid, ErrFileTooLarge)}
-	}
 	f, err := OpenRegularNoFollow(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer func() { _ = f.Close() }()
+	closed := false
+	defer func() {
+		if !closed {
+			_ = f.Close()
+		}
+	}()
 
 	data, finfo, err := ReadOpenRegularFileBounded(f, maxBytes)
 	if err != nil {
 		return nil, nil, &os.PathError{Op: "read", Path: path, Err: err}
 	}
-	if !os.SameFile(linfo, finfo) {
-		return nil, nil, &os.PathError{Op: "open", Path: path, Err: os.ErrInvalid}
-	}
+	closed = true
 	if err := f.Close(); err != nil {
 		return nil, nil, err
 	}

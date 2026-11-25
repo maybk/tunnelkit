@@ -135,25 +135,21 @@ func (s *TicketStore) Load() (Ticket, error) {
 // readTicketBytes 校验并有界读取常规会话票据文件，返回前确保关闭读取句柄，
 // 避免 Windows 在执行迁移原子重命名（MoveFileExW）时因句柄占用报错。
 func (s *TicketStore) readTicketBytes() ([]byte, error) {
-	linfo, err := os.Lstat(s.path)
-	if err != nil {
-		return nil, err
-	}
-	if linfo.Mode()&os.ModeSymlink != 0 || !linfo.Mode().IsRegular() || linfo.Size() > maxTicketFileBytes {
-		return nil, errors.New("invalid session ticket file")
-	}
 	f, err := s.open(s.path)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = f.Close() }()
-	data, info, err := storage.ReadOpenRegularFileBounded(f, maxTicketFileBytes)
+	closed := false
+	defer func() {
+		if !closed {
+			_ = f.Close()
+		}
+	}()
+	data, _, err := storage.ReadOpenRegularFileBounded(f, maxTicketFileBytes)
 	if err != nil {
 		return nil, errors.New("invalid session ticket file")
 	}
-	if !os.SameFile(linfo, info) {
-		return nil, errors.New("invalid session ticket file")
-	}
+	closed = true
 	if err := f.Close(); err != nil {
 		return nil, err
 	}

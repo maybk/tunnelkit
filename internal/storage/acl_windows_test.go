@@ -3,8 +3,10 @@
 package storage
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -30,8 +32,8 @@ func TestWindowsProtectedDACLAndBroadPermissionDetection(t *testing.T) {
 	if HasBroadPermissions(target) {
 		t.Fatal("expected newly created private file not to have broad Windows ACLs")
 	}
-	if err := RestrictPrivateFile(dir); err == nil {
-		t.Fatal("expected RestrictPrivateFile to reject directory")
+	if err := RestrictPrivateFile(dir); !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("RestrictPrivateFile(dir) err = %v, want os.ErrInvalid", err)
 	}
 
 	// 向目标文件注入 BUILTIN\Users 读权限，验证宽权限检测能够精确捕获。
@@ -39,6 +41,9 @@ func TestWindowsProtectedDACLAndBroadPermissionDetection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWellKnownSid(Users): %v", err)
 	}
+	var pinner runtime.Pinner
+	defer pinner.Unpin()
+	pinner.Pin(usersSID)
 	sd, err := windows.GetNamedSecurityInfo(target, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		t.Fatalf("GetNamedSecurityInfo: %v", err)
@@ -70,6 +75,20 @@ func TestWindowsProtectedDACLAndBroadPermissionDetection(t *testing.T) {
 	}
 	if !HasBroadPermissions(target) {
 		t.Fatal("expected file with BUILTIN\\Users read ACE to report broad permissions")
+	}
+
+	// 若当前环境支持创建符号链接，验证重解析点被拒绝且不篡改目标文件 ACL。
+	linkPath := filepath.Join(dir, "link-secrets.json")
+	if err := os.Symlink(target, linkPath); err == nil {
+		if HasBroadPermissions(linkPath) {
+			t.Fatal("expected symlink not to report broad Windows ACLs")
+		}
+		if err := RestrictPrivateFile(linkPath); !errors.Is(err, os.ErrInvalid) {
+			t.Fatalf("RestrictPrivateFile(symlink) err = %v, want os.ErrInvalid", err)
+		}
+		if !HasBroadPermissions(target) {
+			t.Fatal("RestrictPrivateFile(symlink) must not mutate symlink target ACL")
+		}
 	}
 
 	// 直接调用 RestrictPrivateFile 必须设置 SE_DACL_PROTECTED 并消除宽权限暴露。

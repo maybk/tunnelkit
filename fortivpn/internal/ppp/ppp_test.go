@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -310,8 +311,8 @@ func TestPeerResendsLCPOnClientRetransmit(t *testing.T) {
 }
 
 func TestFSMTimeoutAndProtocolReject(t *testing.T) {
-	var sent [][]byte
-	var finishedErr error
+	var sentCount atomic.Int32
+	closedCh := make(chan error, 1)
 	cfg := FSMConfig{
 		RestartInterval: 10 * time.Millisecond,
 		MaxConfigure:    3,
@@ -320,27 +321,32 @@ func TestFSMTimeoutAndProtocolReject(t *testing.T) {
 	}
 
 	s := NewSession(Events{
-		Send: func(frame []byte) {
-			sent = append(sent, append([]byte(nil), frame...))
+		Send: func([]byte) {
+			sentCount.Add(1)
 		},
 		Closed: func(err error) {
-			finishedErr = err
+			select {
+			case closedCh <- err:
+			default:
+			}
 		},
 	}, cfg)
 
 	s.Start()
-	time.Sleep(80 * time.Millisecond)
+	defer s.Close()
 
-	s.mu.Lock()
-	err := finishedErr
-	sentCount := len(sent)
-	s.mu.Unlock()
+	var err error
+	select {
+	case err = <-closedCh:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for PPP session close after MaxConfigure attempts")
+	}
 
 	if err == nil {
 		t.Fatal("expected timeout error after MaxConfigure attempts")
 	}
-	if sentCount != 3 {
-		t.Fatalf("sent %d Configure-Requests, want 3", sentCount)
+	if got := sentCount.Load(); got != 3 {
+		t.Fatalf("sent %d Configure-Requests, want 3", got)
 	}
 }
 

@@ -201,6 +201,7 @@ describe('UpdateDialog and WorkspaceView components', () => {
       },
     })
     expect(dialog.textContent).toContain('可以开始安装了')
+    expect(dialog.querySelector('[data-testid="update-latest-version"]')).toBeNull()
     expect(dialog.textContent).toContain('将先断开当前 VPN')
     expect(dialog.querySelector('[aria-label="关闭"]')).not.toBeNull()
 

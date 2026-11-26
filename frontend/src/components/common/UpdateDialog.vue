@@ -191,18 +191,12 @@ const handleDismiss = () => {
         </div>
 
         <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2" :class="view.isLocked ? '' : 'pr-6'">
-            <AppDialogTitle class="truncate text-[16px] leading-snug font-semibold tracking-tight">
-              {{ view.title }}
-            </AppDialogTitle>
-            <span
-              v-if="phase === 'ready' && updateInfo"
-              data-testid="update-latest-version"
-              class="shrink-0 rounded-md bg-muted px-2 py-0.5 text-caption leading-tight font-medium text-muted-foreground tabular-nums"
-            >
-              v{{ updateInfo.latestVersion }}
-            </span>
-          </div>
+          <AppDialogTitle
+            class="truncate text-[16px] leading-snug font-semibold tracking-tight"
+            :class="view.isLocked ? '' : 'pr-6'"
+          >
+            {{ view.title }}
+          </AppDialogTitle>
 
           <AppDialogDescription class="sr-only">
             {{ view.description }}

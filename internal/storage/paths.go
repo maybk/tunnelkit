@@ -23,6 +23,11 @@ func ProfilesPath(rootDir string) string {
 	return filepath.Join(rootDir, "profiles.json")
 }
 
+// SettingsPath 返回应用通用设置文件路径。
+func SettingsPath(rootDir string) string {
+	return filepath.Join(rootDir, "settings.json")
+}
+
 // SecretsPath 返回加密密码存储文件路径。
 func SecretsPath(rootDir string) string {
 	return filepath.Join(rootDir, "secrets.json")

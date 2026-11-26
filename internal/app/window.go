@@ -15,8 +15,21 @@ const (
 	MacTitleBarHeightPoints = 52
 )
 
-func createMainWindow(wailsApp *application.App) application.Window {
-	window := wailsApp.Window.NewWithOptions(MainWindowOptions(wailsApp.Env.IsDarkMode()))
+// ResolveInitialDarkMode 根据保存的主题偏好与系统深浅色决定窗口初始底色。
+func ResolveInitialDarkMode(themePref string, systemDark bool) bool {
+	switch themePref {
+	case "dark":
+		return true
+	case "light":
+		return false
+	default:
+		return systemDark
+	}
+}
+
+func createMainWindow(wailsApp *application.App, themePref string) application.Window {
+	isDark := ResolveInitialDarkMode(themePref, wailsApp.Env.IsDarkMode())
+	window := wailsApp.Window.NewWithOptions(MainWindowOptions(isDark))
 
 	// 关闭按钮只隐藏窗口并释放 macOS Dock 占用，应用继续驻留菜单栏，之后可从菜单栏重新打开。
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {

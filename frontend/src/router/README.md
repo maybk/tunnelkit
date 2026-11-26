@@ -4,8 +4,8 @@
 
 ## 目录结构
 
-- `routes.ts`：路由名称常量与路由表定义（`/workspace` 与 `/profiles/new`）。
-- `index.ts`：基于 `createWebHashHistory()` 的 Vue Router 实例。
+- `routes.ts`：路由名称常量、设置子导航项配置与路由表定义（`/workspace`、`/profiles/new` 与 `/settings/*`）。
+- `index.ts`：基于 `createWebHashHistory()` 的 Vue Router 实例及设置分区会话路由记忆。
 
 ## 开发规范
 

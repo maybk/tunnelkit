@@ -5,7 +5,8 @@
 ## 目录结构
 
 - `useNoticeStore.ts`：全局通知提示队列、去重覆盖与自动消失计时。
-- `useAppearanceStore.ts`：三态主题模式（`system / light / dark`）切换、持久化与 DOM `.dark` 类名同步。
+- `useAppearanceStore.ts`：三态主题模式（`system / light / dark`）首屏缓存同步与 DOM `.dark` 类名切换。
+- `useSettingsStore.ts`：应用级偏好设置读取、串行乐观保存、失败回滚与外观主题联动。
 - `useDesktopWindowStore.ts`：三端桌面平台探测与窗口控制动作。
 - `useProfilesStore.ts`：VPN 节点列表、当前选中节点、工作区标签页与配置增删改查。
 - `useVpnStore.ts`：VPN 实时状态、`vpn:state` 事件订阅、连接切换确认、挑战应答与证书信任重连。

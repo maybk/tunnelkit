@@ -49,13 +49,14 @@ export class ParsedProfileText {
 }
 
 /**
- * SystemInfo 包含应用版本、运行平台与内置 tunnelkit-helper 组件就绪状态。
+ * SystemInfo 包含应用版本、运行平台、数据目录与内置 tunnelkit-helper 组件就绪状态。
  */
 export class SystemInfo {
     "appVersion": string;
     "platform": string;
     "helperReady": boolean;
     "helperPath"?: string;
+    "dataDir"?: string;
 
     /** Creates a new SystemInfo instance. */
     constructor($$source: Partial<SystemInfo> = {}) {

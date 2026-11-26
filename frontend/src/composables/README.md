@@ -4,7 +4,8 @@
 
 ## 目录结构
 
-- `useAppBootstrap.ts`：应用启动期主题、窗口、系统信息、节点列表与 VPN 事件流初始化。
+- `useAppBootstrap.ts`：应用启动期窗口、系统信息、设置、节点列表与 VPN 事件流初始化，以及按设置控制的静默更新检查。
+- `useCopyFeedback.ts`：轻量剪贴板复制与瞬态「已复制」反馈及失败提示。
 - `useProfileFormDraft.ts`：节点表单草稿状态、脏检查、模式切换与 Valibot 提交校验。
 - `useDisconnectFeedback.ts`：断开按钮最短 350ms 的展示反馈，独立于网络状态；失败、切换节点或卸载时清理。
 - `useGlobalShortcuts.ts`：桌面全局快捷键绑定（排除可编辑输入框焦点冲突）。

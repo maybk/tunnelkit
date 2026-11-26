@@ -14,7 +14,6 @@ describe('VPN challenge dialog', () => {
       props: {
         profile: createTestProfile(),
         state: createTestVpnState({ status: 'connecting', profileId: 'profile-1' }),
-        elapsedText: '',
         busy: true,
       },
     })

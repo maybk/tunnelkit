@@ -47,7 +47,8 @@ beforeEach(async () => {
   if (typeof window !== 'undefined' && window.localStorage) {
     window.localStorage.clear()
   }
-  const { router } = await import('@/router')
+  const { resetRouterSessionMemory, router } = await import('@/router')
+  resetRouterSessionMemory()
   config.global.plugins = [testPinia, router]
   await router.replace('/workspace')
 })

@@ -211,6 +211,26 @@ func TestTraySelectionAndConnectState(t *testing.T) {
 	}
 }
 
+func TestResolveInitialDarkMode(t *testing.T) {
+	cases := []struct {
+		themePref  string
+		systemDark bool
+		want       bool
+	}{
+		{themePref: "dark", systemDark: false, want: true},
+		{themePref: "light", systemDark: true, want: false},
+		{themePref: "system", systemDark: true, want: true},
+		{themePref: "system", systemDark: false, want: false},
+		{themePref: "", systemDark: true, want: true},
+		{themePref: "unknown", systemDark: false, want: false},
+	}
+	for _, tc := range cases {
+		if got := ResolveInitialDarkMode(tc.themePref, tc.systemDark); got != tc.want {
+			t.Fatalf("ResolveInitialDarkMode(%q, %v) = %v, want %v", tc.themePref, tc.systemDark, got, tc.want)
+		}
+	}
+}
+
 func TestMainWindowOptionsDefineUsableDesktopBounds(t *testing.T) {
 	options := MainWindowOptions(false)
 

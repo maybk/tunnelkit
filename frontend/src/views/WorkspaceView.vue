@@ -82,7 +82,6 @@ const isHelperMissing = computed(() =>
       <VpnConnectionHero
         :profile="selectedProfile"
         :state="vpnStore.state"
-        :elapsed-text="vpnStore.elapsedText"
         :busy="vpnStore.busyAction"
         :pending-action="vpnStore.pendingAction"
         :canceling="vpnStore.cancelingConnect"

@@ -16,9 +16,9 @@
 - `AppDialog.vue`：通用模态弹窗容器。
 - `ConfirmDialog.vue`：二次确认对话框。
 - `EmptyState.vue`：空状态引导面板。
+- `NavItem.vue`：侧边栏垂直导航项组件（支持品牌激活竖条指示与状态圆点）。
 - `NoticeToast.vue`：右下角浮动提示，沿用原单条显示方式，轻量进出过渡可被新消息打断。
 - `UpdateDialog.vue`：版本更新详情与下载安装进度弹窗。
-- `AboutDialog.vue`：「关于 TunnelKit」应用信息、辅助程序状态与仓库跳转弹窗。
 - `BrandMark.vue`：随浅色/深色主题自动切换的透明品牌标识。
 
 ## 开发规范

@@ -1,99 +1,78 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vite-plus/test'
-import AboutDialog from '@/components/common/AboutDialog.vue'
 import DesktopChrome from '@/layouts/DesktopChrome.vue'
 
-describe('DesktopChrome and AboutDialog', () => {
-  it('adapts DesktopChrome across macOS, Windows, and Linux platforms', async () => {
+describe('DesktopChrome split titlebar contract', () => {
+  it('adapts across macOS, Windows, and Linux with text-only brand and unified main-bar divider', async () => {
     const macWrapper = mount(DesktopChrome, {
       props: {
         platform: 'macos',
-        title: 'TunnelKit',
-        statusLabel: '已连接',
-        statusTone: 'success',
+        brandTitle: 'TunnelKit',
+        title: '总部网关',
         isFullscreen: false,
       },
     })
     expect(macWrapper.find('[data-testid="desktop-chrome-leading-inset"]').exists()).toBe(true)
+    expect(macWrapper.get('[data-testid="desktop-chrome-brand"]').text()).toBe('TunnelKit')
+    expect(macWrapper.find('[data-testid="desktop-chrome-sidebar-rail"] img').exists()).toBe(false)
+    expect(macWrapper.get('[data-testid="page-title"]').text()).toBe('总部网关')
+    expect(macWrapper.get('[data-testid="desktop-chrome-main-bar"]').classes()).toContain(
+      'border-b',
+    )
     expect(macWrapper.find('button[aria-label="最小化"]').exists()).toBe(false)
-    expect(macWrapper.find('[data-testid="chrome-update-dot"]').exists()).toBe(false)
 
-    await macWrapper.setProps({ isFullscreen: true, hasUpdate: true })
+    expect(macWrapper.get('[data-testid="desktop-chrome-sidebar-rail"]').classes()).toContain(
+      'w-64',
+    )
+
+    await macWrapper.setProps({
+      isFullscreen: true,
+      narrowRail: true,
+      parentTitle: '设置',
+      title: '通用',
+    })
     expect(macWrapper.find('[data-testid="desktop-chrome-leading-inset"]').exists()).toBe(false)
-    expect(macWrapper.find('[data-testid="chrome-update-dot"]').exists()).toBe(true)
+    expect(macWrapper.get('[data-testid="desktop-chrome-sidebar-rail"]').classes()).toContain(
+      'w-48',
+    )
+    expect(macWrapper.get('[data-testid="page-title"]').text()).toContain('设置')
+    expect(macWrapper.get('[data-testid="page-title"]').text()).toContain('通用')
+    macWrapper.unmount()
 
     const winWrapper = mount(DesktopChrome, {
       props: {
         platform: 'windows',
-        title: 'TunnelKit',
-        statusLabel: '未连接',
-        statusTone: 'neutral',
+        brandTitle: 'TunnelKit',
+        title: '新建连接',
         isMaximised: false,
       },
     })
     expect(winWrapper.find('[data-testid="desktop-chrome-leading-inset"]').exists()).toBe(false)
+    expect(winWrapper.get('[data-testid="page-title"]').text()).toContain('新建连接')
     expect(winWrapper.find('button[aria-label="最小化"]').exists()).toBe(true)
     expect(winWrapper.find('button[aria-label="最大化"]').exists()).toBe(true)
     expect(winWrapper.find('button[aria-label="关闭窗口"]').exists()).toBe(true)
 
     await winWrapper.find('button[aria-label="最小化"]').trigger('click')
-    await winWrapper.find('[data-testid="chrome-about-btn"]').trigger('click')
+    await winWrapper.find('button[aria-label="最大化"]').trigger('click')
+    await winWrapper.find('button[aria-label="关闭窗口"]').trigger('click')
     expect(winWrapper.emitted('minimise')).toHaveLength(1)
-    expect(winWrapper.emitted('openAbout')).toHaveLength(1)
-  })
+    expect(winWrapper.emitted('toggleMaximise')).toHaveLength(1)
+    expect(winWrapper.emitted('close')).toHaveLength(1)
 
-  it('renders AboutDialog with system info and repository link', async () => {
-    const wrapper = mount(AboutDialog, {
+    await winWrapper.setProps({ isMaximised: true })
+    expect(winWrapper.find('button[aria-label="向下还原"]').exists()).toBe(true)
+    winWrapper.unmount()
+
+    const linuxWrapper = mount(DesktopChrome, {
       props: {
-        open: true,
-        appVersion: '0.3.2',
-        systemInfo: {
-          appVersion: '0.3.2',
-          platform: 'darwin',
-          helperReady: true,
-          helperPath: '/Library/PrivilegedHelperTools/tunnelkit-helper',
-        },
-        updateInfo: null,
-      },
-      global: {
-        stubs: {
-          Dialog: { template: '<div><slot /></div>' },
-          AppDialogContent: { template: '<div><slot /></div>' },
-          DialogHeader: { template: '<div><slot /></div>' },
-          AppDialogTitle: { template: '<div><slot /></div>' },
-          AppDialogDescription: { template: '<div><slot /></div>' },
-          DialogFooter: { template: '<div><slot /></div>' },
-        },
+        platform: 'linux',
+        brandTitle: 'TunnelKit',
+        title: '总部网关',
       },
     })
-    expect(wrapper.text()).toContain('v0.3.2')
-    expect(wrapper.text()).toContain('fortivpn 原生引擎')
-    expect(wrapper.text()).toContain('已就绪')
-    expect(wrapper.text()).toContain('github.com/maybk/tunnelkit')
-
-    await wrapper.setProps({ systemInfo: null, appVersion: '1.0.1' })
-    expect(wrapper.text()).toContain('v1.0.1')
-
-    const checkBtn = wrapper.find('[data-testid="about-check-update"]')
-    expect(checkBtn.attributes('data-state')).toBe('idle')
-    expect(checkBtn.attributes('disabled')).toBeUndefined()
-    expect(checkBtn.text()).toContain('检查更新')
-    expect(wrapper.find('[data-testid="about-update-feedback"]').exists()).toBe(false)
-
-    await checkBtn.trigger('click')
-    expect(wrapper.emitted('checkUpdate')).toHaveLength(1)
-
-    await wrapper.setProps({ checkingUpdate: true })
-    expect(checkBtn.attributes('data-state')).toBe('checking')
-    expect(checkBtn.attributes('disabled')).toBeDefined()
-    expect(checkBtn.text()).toContain('正在检查…')
-
-    await wrapper.setProps({ checkingUpdate: false, upToDate: true })
-    expect(checkBtn.attributes('data-state')).toBe('up-to-date')
-    expect(checkBtn.attributes('disabled')).toBeDefined()
-    expect(checkBtn.text()).toContain('已是最新版本')
-
-    await wrapper.find('[data-testid="about-open-repo"]').trigger('click')
-    expect(wrapper.emitted('openRepo')).toHaveLength(1)
+    expect(linuxWrapper.find('[data-testid="desktop-chrome-leading-inset"]').exists()).toBe(false)
+    expect(linuxWrapper.find('button[aria-label="最小化"]').exists()).toBe(false)
+    linuxWrapper.unmount()
   })
 })

@@ -1,13 +1,14 @@
 # 连接配置与凭据存储 (`internal/profile`)
 
-管理 VPN 连接配置的增删改查、字段校验、`key = value` 文本双向转换以及连接密码的加密隔离存储。
+管理 VPN 连接配置、应用设置的持久化与校验、`key = value` 文本双向转换以及连接密码的加密隔离存储。
 
 ## 目录结构
 
 - `profile.go`：连接配置模型、保存入参、对外视图与内核 `fortivpn.Config` 转换。
 - `validate.go`：配置字段归一化、IPv4 CIDR 补充路由校验、64 位十六进制证书指纹校验与表单、配置文本双向同步。
-- `store.go`：配置增删改查、关联密码维护与启动期权限及旧密钥整理。
+- `store.go`：配置与设置存取入口、关联密码维护及启动期权限和旧密钥整理。
 - `persistence.go`：配置编解码、UTF-8 BOM 容错、旧格式兼容与私有原子写入。
+- `settings.go`：应用设置（主题模式、自动检查更新）的字段合并、归一化与 `settings.json` 原子持久化。
 - `secret.go`：连接密码经 `internal/credentials` 加密存取至 `secrets.json`，防止缺密钥混写。
 
 ## 开发规范

@@ -1,6 +1,8 @@
+import { DEFAULT_THEME_MODE, THEME_MODES } from '@/constants/appearance'
 import { DEFAULT_VPN_PORT } from '@/constants/profile'
 import { createInitialVpnState } from '@/domain/vpn'
 import { PROMPT_KINDS } from '@/constants/vpn'
+import type { ThemeMode } from '@/types/appearance'
 import type { LogViewSnapshot } from '@/types/log'
 import type {
   AuthType,
@@ -11,6 +13,7 @@ import type {
   ProfileInput,
   RouteMode,
 } from '@/types/profile'
+import type { AppSettings, SettingsPatch } from '@/types/settings'
 import type { SystemInfo, UpdateInfo, UpdateProgress } from '@/types/system'
 import type {
   ConnectionPhase,
@@ -258,6 +261,26 @@ export function mapLogViewFromDto(
   }
 }
 
+function normalizeThemeMode(raw?: string): ThemeMode {
+  return THEME_MODES.find((mode) => mode === raw) ?? DEFAULT_THEME_MODE
+}
+
+export function mapSettingsFromDto(
+  dto: Partial<profileModels.AppSettings> | null | undefined,
+): AppSettings {
+  return {
+    theme: normalizeThemeMode(dto?.theme),
+    autoCheckUpdate: dto?.autoCheckUpdate ?? true,
+  }
+}
+
+export function mapSettingsPatchToDto(patch: SettingsPatch): profileModels.SettingsPatch {
+  const source: Partial<profileModels.SettingsPatch> = {}
+  if (patch.theme !== undefined) source.theme = patch.theme
+  if (patch.autoCheckUpdate !== undefined) source.autoCheckUpdate = patch.autoCheckUpdate
+  return new profileModels.SettingsPatch(source)
+}
+
 export function mapSystemInfoFromDto(
   dto: Partial<apiModels.SystemInfo> | null | undefined,
 ): SystemInfo {
@@ -266,6 +289,7 @@ export function mapSystemInfoFromDto(
     platform: dto?.platform ?? '',
     helperReady: Boolean(dto?.helperReady),
     helperPath: dto?.helperPath ?? '',
+    dataDir: dto?.dataDir ?? '',
   }
 }
 

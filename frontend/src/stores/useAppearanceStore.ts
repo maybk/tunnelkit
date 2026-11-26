@@ -53,16 +53,9 @@ export const useAppearanceStore = defineStore('appearance', () => {
     persistCache()
   }
 
-  const cycleTheme = () => {
-    const order: readonly ThemeMode[] = ['system', 'light', 'dark']
-    const nextIdx = (order.indexOf(theme.value) + 1) % order.length
-    setTheme(order[nextIdx] ?? 'system')
-  }
-
   return {
     theme,
     resolvedTheme,
     setTheme,
-    cycleTheme,
   }
 })

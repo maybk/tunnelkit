@@ -4,7 +4,7 @@
 
 ## 目录结构
 
-- `paths.go`：数据根目录、`profiles.json`、`secrets.json`、`secret.key`、会话票据 `run/session.json`、旧版网络恢复记录及连接日志目录的标准路径解析。
+- `paths.go`：数据根目录、`profiles.json`、`settings.json`、`secrets.json`、`secret.key`、会话票据 `run/session.json`、旧版网络恢复记录及连接日志目录的标准路径解析。
 - `atomic.go`：同目录临时文件原子替换、重命名前置钩子、私有文件落盘与 Windows 只读目标替换重试。
 - `acl_windows.go`：Windows 句柄级受保护 DACL 收紧、宽权限检测与常规文件只读位清理（不跟随重解析点）。
 - `acl_other.go`：类 Unix 句柄级 `0600` 权限收紧与宽权限检测（不跟随符号链接）。

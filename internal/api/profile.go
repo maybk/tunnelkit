@@ -90,6 +90,16 @@ func (a *ProfileAPI) FormatText(in profile.Input, hasSavedPassword bool) string 
 	return profile.FormatText(in, hasSavedPassword)
 }
 
+// GetSettings 读取桌面客户端应用级偏好设置。
+func (a *ProfileAPI) GetSettings() (profile.AppSettings, error) {
+	return a.store.GetSettings()
+}
+
+// SaveSettings 合并并持久化部分应用级偏好设置。
+func (a *ProfileAPI) SaveSettings(patch profile.SettingsPatch) (profile.AppSettings, error) {
+	return a.store.PatchSettings(patch)
+}
+
 func (a *ProfileAPI) notify() {
 	if a.onChanged != nil {
 		a.onChanged()

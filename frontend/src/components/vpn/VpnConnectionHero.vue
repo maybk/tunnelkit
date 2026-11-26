@@ -1,24 +1,41 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Globe, Loader2, ShieldAlert, ShieldCheck, User } from '@lucide/vue'
+import { computed, type Component } from 'vue'
+import {
+  ArrowLeftRight,
+  CheckCircle2,
+  Globe,
+  Loader2,
+  Power,
+  ShieldAlert,
+  ShieldCheck,
+  User,
+} from '@lucide/vue'
+import AppButton from '@/components/base/button/AppButton.vue'
+import AppCard from '@/components/base/card/AppCard.vue'
 import CopyButton from '@/components/common/CopyButton.vue'
 import InlineAlert from '@/components/common/InlineAlert.vue'
 import StateText from '@/components/common/StateText.vue'
-import StatusDot from '@/components/common/StatusDot.vue'
-import AppButton from '@/components/base/button/AppButton.vue'
 import { useDisconnectFeedback } from '@/composables/useDisconnectFeedback'
-import { isTransitionStatus } from '@/domain/vpn'
 import { getToneClasses } from '@/constants/tone'
+import { isTransitionStatus } from '@/domain/vpn'
 import { getViewingStatusMeta } from '@/presentation/vpn'
 import type { Profile } from '@/types/profile'
 import type { VpnPendingAction, VpnState } from '@/types/vpn'
 import { formatEndpoint } from '@/utils/network'
 
+type HeroIconKind = 'connected' | 'loading' | 'error' | 'idle'
+
+const HERO_ICONS: Record<HeroIconKind, Component> = {
+  connected: CheckCircle2,
+  loading: Loader2,
+  error: ShieldAlert,
+  idle: Power,
+}
+
 const props = withDefaults(
   defineProps<{
     profile: Profile
     state: VpnState
-    elapsedText: string
     busy?: boolean
     pendingAction?: VpnPendingAction | null
     canceling?: boolean
@@ -40,11 +57,23 @@ const isThisProfileActive = computed(() =>
 
 const statusMeta = computed(() => getViewingStatusMeta(props.state, props.profile.id))
 
-const subtitle = computed(() =>
-  isThisProfileActive.value && props.state.status === 'connected'
-    ? [statusMeta.value.label, props.elapsedText].filter(Boolean).join(' · ')
-    : statusMeta.value.label,
-)
+const heroIconKind = computed<HeroIconKind>(() => {
+  if (isThisProfileActive.value && props.state.status === 'connected') return 'connected'
+  if (
+    isThisProfileActive.value &&
+    (props.state.status === 'connecting' || props.state.status === 'disconnecting')
+  ) {
+    return 'loading'
+  }
+  if (statusMeta.value.tone === 'danger') return 'error'
+  return 'idle'
+})
+
+const heroIconBoxClass = computed(() => {
+  const tone = statusMeta.value.tone === 'neutral' ? 'brand' : statusMeta.value.tone
+  return getToneClasses(tone).iconBox
+})
+
 const pendingAction = computed(() =>
   props.pendingAction?.profileId === props.profile.id ? props.pendingAction : null,
 )
@@ -62,19 +91,28 @@ const disconnectFeedback = useDisconnectFeedback({
     return props.busy
   },
 })
+
 const actionButtonConfig = computed(() => {
   if (
     disconnectFeedback.value ||
     (pendingAction.value?.kind === 'disconnect' && props.state.status === 'connected')
   ) {
-    return { label: '正在断开…', variant: 'outline' as const, disabled: true, loading: true }
+    return {
+      label: '正在断开…',
+      variant: 'outline' as const,
+      disabled: true,
+      loading: true,
+      icon: Loader2,
+    }
   }
   if (isThisProfileActive.value && props.state.status === 'connected') {
+    const loading = pendingAction.value?.kind === 'connect'
     return {
       label: '断开连接',
       variant: 'destructive' as const,
       disabled: props.busy,
-      loading: pendingAction.value?.kind === 'connect',
+      loading,
+      icon: loading ? Loader2 : Power,
     }
   }
   if (isThisProfileActive.value && props.state.status === 'connecting') {
@@ -83,6 +121,7 @@ const actionButtonConfig = computed(() => {
       variant: 'outline' as const,
       disabled: props.canceling,
       loading: true,
+      icon: Loader2,
     }
   }
   if (props.state.status === 'disconnecting') {
@@ -91,74 +130,104 @@ const actionButtonConfig = computed(() => {
       variant: 'outline' as const,
       disabled: true,
       loading: true,
+      icon: Loader2,
     }
   }
   if (props.state.status !== 'disconnected' && !isThisProfileActive.value) {
+    const loading = pendingAction.value?.kind === 'connect'
     return {
       label: '切换连接',
       variant: 'default' as const,
       disabled: props.busy || isTransitionStatus(props.state.status),
-      loading: pendingAction.value?.kind === 'connect',
+      loading,
+      icon: loading ? Loader2 : ArrowLeftRight,
     }
   }
+  const loading = pendingAction.value?.kind === 'connect'
   return {
     label: '连接',
     variant: 'default' as const,
     disabled: props.busy,
-    loading: pendingAction.value?.kind === 'connect',
+    loading,
+    icon: loading ? Loader2 : Power,
   }
 })
 </script>
 
 <template>
-  <section class="surface-card mx-6 rounded-2xl px-5 py-4">
+  <AppCard
+    as="section"
+    padding="none"
+    class="mx-6 px-5 py-4 transition-[box-shadow,background-color,border-color] duration-200 ease-(--ease-out-kit)"
+  >
     <div class="flex min-w-0 items-center justify-between gap-4">
-      <div class="min-w-0">
-        <div class="flex items-center gap-2.5">
-          <h1 class="truncate text-heading font-semibold tracking-tight text-foreground">
-            {{ profile.name }}
-          </h1>
-          <span
-            class="inline-flex shrink-0 transition-colors duration-200 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-caption font-medium tabular-nums"
-            :class="getToneClasses(statusMeta.tone).pill"
+      <div class="flex min-w-0 items-center gap-4">
+        <div
+          data-testid="hero-status-icon"
+          :data-state="heroIconKind"
+          :class="[
+            'relative flex size-12 shrink-0 items-center justify-center rounded-xl border transition-[color,background-color,border-color] duration-200 ease-(--ease-out-kit)',
+            heroIconBoxClass,
+          ]"
+        >
+          <Transition
+            enter-active-class="transition-[opacity,scale,filter] duration-200 ease-[cubic-bezier(0.2,0,0,1)]"
+            enter-from-class="scale-50 opacity-0 blur-[3px]"
+            leave-active-class="pointer-events-none absolute transition-[opacity,scale,filter] duration-150 ease-[cubic-bezier(0.2,0,0,1)]"
+            leave-to-class="scale-50 opacity-0 blur-[3px]"
           >
-            <StatusDot :tone="statusMeta.tone" :pulse="statusMeta.pulse" />
-            <StateText :text="subtitle" :transition-key="statusMeta.label" />
-          </span>
+            <component
+              :is="HERO_ICONS[heroIconKind]"
+              :key="heroIconKind"
+              :class="[
+                'size-6',
+                heroIconKind === 'connected' && 'stroke-[2.2]',
+                heroIconKind === 'loading' && 'motion-safe:animate-spin',
+              ]"
+              aria-hidden="true"
+            />
+          </Transition>
         </div>
 
-        <div
-          class="mt-1 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-caption text-muted-foreground"
-        >
-          <span class="inline-flex items-center gap-1 font-mono tabular-nums">
-            <Globe class="size-3.5 opacity-75" aria-hidden="true" />
-            {{ formatEndpoint(profile.host, profile.port) }}
-          </span>
-          <span class="inline-flex items-center gap-1">
-            <User class="size-3.5 opacity-75" aria-hidden="true" />
-            {{ profile.username || (profile.auth === 'saml' ? 'SAML SSO' : '—') }}
-          </span>
+        <div class="min-w-0 space-y-0.5">
+          <h2 data-testid="hero-status-title" class="truncate text-title font-bold text-foreground">
+            <StateText :text="statusMeta.label" :transition-key="statusMeta.label" />
+          </h2>
+
+          <div
+            class="flex flex-wrap items-center gap-x-3.5 gap-y-0.5 text-caption text-muted-foreground"
+          >
+            <span class="inline-flex items-center gap-1 font-mono tabular-nums">
+              <Globe class="size-3.5 opacity-75" aria-hidden="true" />
+              {{ formatEndpoint(profile.host, profile.port) }}
+            </span>
+            <span class="inline-flex items-center gap-1">
+              <User class="size-3.5 opacity-75" aria-hidden="true" />
+              {{ profile.username || (profile.auth === 'saml' ? 'SAML SSO' : '—') }}
+            </span>
+          </div>
         </div>
       </div>
 
       <div class="app-no-drag shrink-0">
         <AppButton
           :variant="actionButtonConfig.variant"
-          class="min-w-[88px] disabled:opacity-100"
+          class="min-w-26 pr-5 pl-4.5 font-semibold disabled:opacity-100"
           :disabled="actionButtonConfig.disabled"
           :aria-busy="actionButtonConfig.loading"
           data-testid="vpn-connect-toggle"
           @click="emit('toggleConnect')"
         >
-          <Loader2
-            v-if="actionButtonConfig.loading"
-            class="size-3.5 animate-spin"
+          <component
+            :is="actionButtonConfig.icon"
+            :class="['size-4', actionButtonConfig.loading && 'animate-spin']"
             aria-hidden="true"
           />
           <StateText :text="actionButtonConfig.label" />
         </AppButton>
       </div>
     </div>
+
     <div
       v-if="isThisProfileActive && state.status === 'disconnected' && state.error?.message"
       data-testid="vpn-error-banner"
@@ -197,5 +266,5 @@ const actionButtonConfig = computed(() => {
         </div>
       </InlineAlert>
     </div>
-  </section>
+  </AppCard>
 </template>

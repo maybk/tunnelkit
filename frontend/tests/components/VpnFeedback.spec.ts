@@ -1,22 +1,21 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vite-plus/test'
 import VpnConnectionHero from '@/components/vpn/VpnConnectionHero.vue'
-import StatusDot from '@/components/common/StatusDot.vue'
 import { getViewingStatusMeta } from '@/presentation/vpn'
 import { createTestProfile, createTestVpnState } from '../fixtures/profiles'
 
 describe('VPN feedback continuity', () => {
-  it('shows the current connection phase and pulse without leaking it to another profile', async () => {
+  it('shows the current connection phase and loading state without leaking it to another profile', async () => {
     const state = createTestVpnState({
       status: 'connecting',
       phase: 'authenticating',
       profileId: 'profile-1',
     })
     const wrapper = mount(VpnConnectionHero, {
-      props: { profile: createTestProfile(), state, elapsedText: '', busy: true },
+      props: { profile: createTestProfile(), state, busy: true },
     })
     expect(wrapper.text()).toContain('正在验证身份…')
-    expect(wrapper.findComponent(StatusDot).props('pulse')).toBe(true)
+    expect(wrapper.get('[data-testid="hero-status-icon"]').attributes('data-state')).toBe('loading')
     expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
     await wrapper.setProps({ state: { ...state, phase: 'configuring' } })
     expect(wrapper.text()).toContain('正在配置网络…')
@@ -42,7 +41,7 @@ describe('VPN feedback continuity', () => {
   it('shows immediate request feedback and keeps the same button across cancel and disconnect', async () => {
     const state = createTestVpnState()
     const wrapper = mount(VpnConnectionHero, {
-      props: { profile: createTestProfile(), state, elapsedText: '' },
+      props: { profile: createTestProfile(), state },
     })
     const button = wrapper.get('[data-testid="vpn-connect-toggle"]')
     await wrapper.setProps({

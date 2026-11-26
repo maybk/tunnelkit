@@ -13,22 +13,24 @@ import (
 
 var ErrNotFound = errors.New("未找到指定的连接配置")
 
-// Store 管理连接配置的增删改查，密码交由 secretVault 加密保存。
+// Store 管理连接配置的增删改查及应用偏好设置持久化，密码交由 secretVault 加密保存。
 type Store struct {
-	path    string
-	secrets *secretVault
-	mu      sync.Mutex
+	path         string
+	settingsPath string
+	secrets      *secretVault
+	mu           sync.Mutex
 }
 
 // NewStore 创建以 rootDir 为数据目录的配置仓库。
 func NewStore(rootDir string) *Store {
 	return &Store{
-		path:    storage.ProfilesPath(rootDir),
-		secrets: newSecretVault(rootDir),
+		path:         storage.ProfilesPath(rootDir),
+		settingsPath: storage.SettingsPath(rootDir),
+		secrets:      newSecretVault(rootDir),
 	}
 }
 
-// PrepareStorage 在应用启动时无感迁移旧版主密钥并收紧已存在配置与凭据文件的访问权限；
+// PrepareStorage 在应用启动时无感迁移旧版主密钥并收紧已存在配置、设置与凭据文件的访问权限；
 // 对尚未初始化的空目录不做任何写入。
 func (s *Store) PrepareStorage() {
 	if s == nil {
@@ -39,6 +41,7 @@ func (s *Store) PrepareStorage() {
 
 	s.secrets.prepareStorage()
 	tightenPrivateFileIfBroad(s.path, "配置文件")
+	tightenPrivateFileIfBroad(s.settingsPath, "应用设置文件")
 }
 
 // List 返回所有已保存的连接配置。

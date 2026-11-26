@@ -1,6 +1,13 @@
 import type { ParsedProfileText, Profile, ProfileInput } from '@/types/profile'
+import type { AppSettings, SettingsPatch } from '@/types/settings'
 import * as ProfileAPI from '@bindings/tunnelkit/internal/api/profileapi.js'
-import { mapParsedProfileTextFromDto, mapProfileFromDto, mapProfileInputToDto } from './mappers'
+import {
+  mapParsedProfileTextFromDto,
+  mapProfileFromDto,
+  mapProfileInputToDto,
+  mapSettingsFromDto,
+  mapSettingsPatchToDto,
+} from './mappers'
 
 export const profileApi = {
   async list(): Promise<Profile[]> {
@@ -29,5 +36,15 @@ export const profileApi = {
   async parseText(base: ProfileInput, text: string): Promise<ParsedProfileText> {
     const parsed = await ProfileAPI.ParseText(mapProfileInputToDto(base), text)
     return mapParsedProfileTextFromDto(parsed)
+  },
+
+  async getSettings(): Promise<AppSettings> {
+    const dto = await ProfileAPI.GetSettings()
+    return mapSettingsFromDto(dto)
+  },
+
+  async saveSettings(patch: SettingsPatch): Promise<AppSettings> {
+    const saved = await ProfileAPI.SaveSettings(mapSettingsPatchToDto(patch))
+    return mapSettingsFromDto(saved)
   },
 }

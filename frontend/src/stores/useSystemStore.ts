@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { systemApi } from '@/api/system'
 import { GITHUB_RELEASES_URL, GITHUB_REPO_URL } from '@/constants/releases'
@@ -29,7 +29,6 @@ export const useSystemStore = defineStore('system', () => {
   const updateInfo = ref<UpdateInfo | null>(null)
   const updateProgress = ref<UpdateProgress | null>(null)
   const updateDialogOpen = ref(false)
-  const aboutDialogOpen = ref(false)
   const checkingSystem = ref(false)
   const isCheckingUpdate = ref(false)
   const isDownloadingUpdate = ref(false)
@@ -43,6 +42,7 @@ export const useSystemStore = defineStore('system', () => {
 
   let checkInFlight: Promise<UpdateInfo | null> | null = null
   let explicitCheckPending = false
+  let inlineFeedbackPending = false
   let stopProgressSub: (() => void) | null = null
   let upToDateTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -60,16 +60,6 @@ export const useSystemStore = defineStore('system', () => {
       updateUpToDate.value = false
     }, UP_TO_DATE_FEEDBACK_MS)
   }
-
-  watch(
-    aboutDialogOpen,
-    (open) => {
-      if (!open) {
-        clearUpToDateFeedback()
-      }
-    },
-    { flush: 'sync' },
-  )
 
   onScopeDispose(clearUpToDateFeedback)
 
@@ -152,19 +142,18 @@ export const useSystemStore = defineStore('system', () => {
     clearUpToDateFeedback()
   }
 
-  const openAboutDialog = () => {
-    clearUpToDateFeedback()
-    aboutDialogOpen.value = true
-  }
-
-  const checkUpdate = async (options: { silent?: boolean } = {}): Promise<UpdateInfo | null> => {
+  const checkUpdate = async (
+    options: { silent?: boolean; inline?: boolean } = {},
+  ): Promise<UpdateInfo | null> => {
     const requestedSilent = Boolean(options.silent)
+    const requestedInline = Boolean(options.inline)
     if (requestedSilent && (hasCheckedUpdateOnce.value || checkInFlight !== null)) {
       return checkInFlight ?? updateInfo.value
     }
 
     if (!requestedSilent) {
       explicitCheckPending = true
+      if (requestedInline) inlineFeedbackPending = true
       clearUpToDateFeedback()
     }
     if (checkInFlight) {
@@ -178,6 +167,7 @@ export const useSystemStore = defineStore('system', () => {
       try {
         const info = await systemApi.checkUpdate()
         const silent = !explicitCheckPending
+        const inline = inlineFeedbackPending
         updateInfo.value = info
         if (!info.hasUpdate || (readyVersion.value && readyVersion.value !== info.latestVersion)) {
           readyVersion.value = ''
@@ -190,10 +180,9 @@ export const useSystemStore = defineStore('system', () => {
           const isDismissed =
             Boolean(dismissedVersion.value) && dismissedVersion.value === info.latestVersion
           if (!silent || !isDismissed) {
-            aboutDialogOpen.value = false
             updateDialogOpen.value = true
           }
-        } else if (aboutDialogOpen.value) {
+        } else if (!silent && inline) {
           markUpToDateFeedback()
         } else if (!silent) {
           noticeStore.showSuccess(
@@ -212,6 +201,7 @@ export const useSystemStore = defineStore('system', () => {
       } finally {
         checkInFlight = null
         explicitCheckPending = false
+        inlineFeedbackPending = false
         isCheckingUpdate.value = false
       }
     })()
@@ -332,8 +322,7 @@ export const useSystemStore = defineStore('system', () => {
     updateDialogOpen.value = false
   }
 
-  const openUpdateFromAbout = () => {
-    aboutDialogOpen.value = false
+  const showUpdateDialog = () => {
     updateDialogOpen.value = true
   }
 
@@ -366,7 +355,6 @@ export const useSystemStore = defineStore('system', () => {
     updateInfo,
     updateProgress,
     updateDialogOpen,
-    aboutDialogOpen,
     checkingSystem,
     isCheckingUpdate,
     isDownloadingUpdate,
@@ -382,14 +370,14 @@ export const useSystemStore = defineStore('system', () => {
     loadSystemInfo,
     startWatching,
     stopWatching,
-    openAboutDialog,
+    clearUpToDateFeedback,
     checkUpdate,
     downloadUpdate,
     cancelUpdate,
     installUpdate,
     deferInstall,
     dismissUpdate,
-    openUpdateFromAbout,
+    showUpdateDialog,
     openReleasePage,
     openRepository,
   }

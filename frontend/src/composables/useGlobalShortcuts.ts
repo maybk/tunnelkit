@@ -1,6 +1,6 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ROUTE_NAMES } from '@/router'
+import { backFromSettings, ROUTE_NAMES } from '@/router'
 import { useProfilesStore } from '@/stores/useProfilesStore'
 import { hasOpenOverlay, isEditableElement } from '@/utils/dom'
 
@@ -10,12 +10,25 @@ export function useGlobalShortcuts() {
   const profilesStore = useProfilesStore()
 
   const handleKeydown = (event: KeyboardEvent) => {
-    if (hasOpenOverlay(document)) return
+    if (event.defaultPrevented || hasOpenOverlay(document)) return
 
-    if (event.key === 'Escape' && route.name === ROUTE_NAMES.profileCreate) {
-      event.preventDefault()
-      void router.push({ name: ROUTE_NAMES.workspace })
-      return
+    if (
+      event.key === 'Escape' &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey
+    ) {
+      if (route.meta.settings && !isEditableElement(event.target)) {
+        event.preventDefault()
+        void backFromSettings()
+        return
+      }
+      if (route.name === ROUTE_NAMES.profileCreate) {
+        event.preventDefault()
+        void router.push({ name: ROUTE_NAMES.workspace })
+        return
+      }
     }
 
     if (isEditableElement(event.target)) return
@@ -24,6 +37,14 @@ export function useGlobalShortcuts() {
     if (!isMod || event.altKey || event.shiftKey) return
 
     const key = event.key.toLowerCase()
+    if (key === ',') {
+      event.preventDefault()
+      if (!route.meta.settings) {
+        void router.push({ name: ROUTE_NAMES.settings })
+      }
+      return
+    }
+
     if (key === 'n') {
       event.preventDefault()
       void router.push({ name: ROUTE_NAMES.profileCreate })

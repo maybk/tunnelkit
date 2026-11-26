@@ -91,7 +91,7 @@ func Run(assets embed.FS) error {
 	updater := newUpdater(version, vpnService, func() *application.App {
 		return wailsApp
 	})
-	systemAPI := api.NewSystemAPIWithUpdater(version, updater)
+	systemAPI := api.NewSystemAPIWithUpdater(version, rootDir, updater)
 
 	quitter := &quitGuard{
 		stop: vpnService.Shutdown,
@@ -139,7 +139,13 @@ func Run(assets embed.FS) error {
 		Linux: linuxAppOptions(),
 	})
 
-	mainWindow = createMainWindow(wailsApp)
+	themePref := profile.DefaultSettings().Theme
+	if settings, settingsErr := profileStore.GetSettings(); settingsErr == nil {
+		themePref = settings.Theme
+	} else {
+		slog.Warn("读取应用设置失败，已使用默认主题启动窗口", "error", settingsErr)
+	}
+	mainWindow = createMainWindow(wailsApp, themePref)
 	tray.init(wailsApp, mainWindow, vpnService, profileStore, icons)
 
 	initialState := vpnService.State()

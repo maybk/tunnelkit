@@ -5,6 +5,8 @@
 ## 目录结构
 
 - `button/`：按钮组件及其专用变体规则。
+- `card/`：光学阴影卡片容器及其变体规则。
+- `AppSwitch.vue`：开关控件外观与交互适配。
 - `AppInput.vue`：输入框样式适配。
 - `AppTextarea.vue`：多行输入框样式适配。
 - `AppLabel.vue`：字段标签排版适配。

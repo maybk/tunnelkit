@@ -4,27 +4,38 @@ import { describe, expect, it } from 'vite-plus/test'
 import AppSidebar from '@/layouts/AppSidebar.vue'
 import { createTestProfile, createTestVpnState } from '../fixtures/profiles'
 
-describe('original desktop presentation contract', () => {
-  it('keeps the sidebar footer limited to the original create action', async () => {
+describe('desktop sidebar presentation contract', () => {
+  it('places create action in the list header and settings entry with update dot in the footer', async () => {
     const wrapper = mount(AppSidebar, {
       props: {
         profiles: [createTestProfile()],
         selectedId: 'profile-1',
         vpnState: createTestVpnState(),
+        platform: 'macos',
+        hasUpdate: false,
       },
     })
     expect(wrapper.text()).not.toContain('TunnelKit')
-    expect(wrapper.get('[data-testid="sidebar-new-profile-btn"]').text()).toBe('新建连接')
-    await wrapper.get('[data-testid="sidebar-new-profile-btn"]').trigger('click')
+    const newBtn = wrapper.get('[data-testid="sidebar-new-profile-btn"]')
+    expect(newBtn.attributes('aria-label')).toBe('新建连接')
+    await newBtn.trigger('click')
     expect(wrapper.emitted('createProfile')).toHaveLength(1)
 
+    const settingsBtn = wrapper.get('[data-testid="sidebar-settings-btn"]')
+    expect(settingsBtn.text()).toContain('设置')
+    expect(wrapper.find('[data-testid="sidebar-settings-update-dot"]').exists()).toBe(false)
+    await settingsBtn.trigger('click')
+    expect(wrapper.emitted('openSettings')).toHaveLength(1)
+
     await wrapper.setProps({
+      hasUpdate: true,
       vpnState: createTestVpnState({
         status: 'disconnected',
         profileId: 'profile-1',
         error: { message: '认证失败', hint: '', trustedCert: '' },
       }),
     })
+    expect(wrapper.find('[data-testid="sidebar-settings-update-dot"]').exists()).toBe(true)
     expect(wrapper.find('span.bg-tone-danger-solid').exists()).toBe(true)
     wrapper.unmount()
   })

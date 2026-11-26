@@ -5,9 +5,9 @@
 ## 目录结构
 
 - `windowRegions.ts`：Wails v3 窗口拖拽区域（`--wails-draggable`）与 Windows 非客户区命中样式（`--wails-non-client-region`）。
-- `DesktopChrome.vue`：macOS / Windows / Linux 自适应桌面顶栏（连接状态、主题切换、关于入口与窗口控制键）。
-- `AppSidebar.vue`：左侧 VPN 节点列表、状态圆点、快捷连接操作与新建按钮。
-- `WorkbenchLayout.vue`：组合桌面顶栏、侧边栏、主路由视口与全局弹窗的根布局壳层。
+- `DesktopChrome.vue`：三端自适应分栏顶栏，展示应用标题、当前页标题/面包屑及 Windows 窗口控制键。
+- `AppSidebar.vue`：左侧 VPN 节点列表、标题行新建入口、快捷连接操作与底部设置入口。
+- `WorkbenchLayout.vue`：根布局壳层，编排顶栏、主侧栏与设置分区整栏切换、主视口及全局弹窗。
 
 ## 开发规范
 

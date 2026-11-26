@@ -32,9 +32,18 @@ export function FormatText($in: profile$0.Input, hasSavedPassword: boolean): $Ca
     return $Call.ByID(3899355637, $in, hasSavedPassword);
 }
 
+/**
+ * GetSettings 读取桌面客户端应用级偏好设置。
+ */
+export function GetSettings(): $CancellablePromise<profile$0.AppSettings> {
+    return $Call.ByID(2816825462).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
 export function List(): $CancellablePromise<profile$0.Profile[]> {
     return $Call.ByID(616204277).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType2($result);
     });
 }
 
@@ -43,23 +52,33 @@ export function List(): $CancellablePromise<profile$0.Profile[]> {
  */
 export function ParseText(base: profile$0.Input, text: string): $CancellablePromise<$models.ParsedProfileText> {
     return $Call.ByID(2237409271, base, text).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType3($result);
     });
 }
 
 export function Save($in: profile$0.Input): $CancellablePromise<profile$0.Profile> {
     return $Call.ByID(2086666300, $in).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+/**
+ * SaveSettings 合并并持久化部分应用级偏好设置。
+ */
+export function SaveSettings(patch: profile$0.SettingsPatch): $CancellablePromise<profile$0.AppSettings> {
+    return $Call.ByID(3800486113, patch).then(($result: any) => {
         return $$createType0($result);
     });
 }
 
 export function TrustCert(id: string, sha256: string): $CancellablePromise<profile$0.Profile> {
     return $Call.ByID(526083847, id, sha256).then(($result: any) => {
-        return $$createType0($result);
+        return $$createType1($result);
     });
 }
 
 // Private type creation functions
-const $$createType0 = profile$0.Profile.createFrom;
-const $$createType1 = $Create.Array($$createType0);
-const $$createType2 = $models.ParsedProfileText.createFrom;
+const $$createType0 = profile$0.AppSettings.createFrom;
+const $$createType1 = profile$0.Profile.createFrom;
+const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = $models.ParsedProfileText.createFrom;

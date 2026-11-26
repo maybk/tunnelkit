@@ -6,6 +6,8 @@
 
 - `WorkspaceView.vue`：主工作台视图（节点连接状态主卡、特权辅助程序告警、状态/配置/日志三标签页切换与配置保存）。
 - `ProfileCreateView.vue`：新建 VPN 节点页面视图。
+- `SettingsView.vue`：设置分区容器，组合左侧设置导航栏与右侧子视图。
+- `settings/`：设置分区二级子视图（通用、外观、关于）。
 
 ## 开发规范
 

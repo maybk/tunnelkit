@@ -7,6 +7,7 @@ TunnelKit 将连接配置、加密凭据与运行日志保存在 `~/.tunnelkit/`
 ```text
 ~/.tunnelkit/
 ├── profiles.json              # 连接配置列表（不含密码）
+├── settings.json              # 应用设置（主题模式、自动检查更新）
 ├── secrets.json               # 加密保存的连接密码
 ├── secret.key                 # 三端通用的加密主密钥
 ├── run/

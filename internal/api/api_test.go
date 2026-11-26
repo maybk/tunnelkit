@@ -170,6 +170,26 @@ func TestProfileAPICrudTextAndActiveProtection(t *testing.T) {
 	if st := vpnAPI.State(); st.ProfileID != "" || st.Error != nil {
 		t.Fatalf("expected deleted profile cleared from disconnected state, got %+v", st)
 	}
+
+	settings, err := profileAPI.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings failed: %v", err)
+	}
+	if settings.Theme != "system" || !settings.AutoCheckUpdate {
+		t.Fatalf("unexpected default settings: %+v", settings)
+	}
+	dark := "dark"
+	autoUpdate := false
+	updatedSettings, err := profileAPI.SaveSettings(profile.SettingsPatch{
+		Theme:           &dark,
+		AutoCheckUpdate: &autoUpdate,
+	})
+	if err != nil {
+		t.Fatalf("SaveSettings failed: %v", err)
+	}
+	if updatedSettings.Theme != "dark" || updatedSettings.AutoCheckUpdate {
+		t.Fatalf("unexpected updated settings: %+v", updatedSettings)
+	}
 }
 
 func TestSystemAPIInfoAndCheckUpdate(t *testing.T) {
@@ -198,25 +218,29 @@ func TestSystemAPIInfoAndCheckUpdate(t *testing.T) {
 	defer srv.Close()
 
 	var preHookCalled, restarted atomic.Bool
-	sysAPI := NewSystemAPI(
+	sysAPI := NewSystemAPIWithUpdater(
 		"0.1.0",
-		update.WithHTTPClient(srv.Client()),
-		update.WithReleaseURLs(srv.URL),
-		update.WithProxyPrefix(""),
-		update.WithPlatform("windows", "amd64"),
-		update.WithAssetURLValidator(func(rawURL, _, _ string) bool {
-			return strings.HasPrefix(rawURL, srv.URL+"/")
-		}),
-		update.WithPreUpdateHook(func(context.Context) error {
-			preHookCalled.Store(true)
-			return nil
-		}),
-		update.WithApplier(func(_ context.Context, _ string, _ update.ProgressFunc) (func() error, error) {
-			return func() error {
-				restarted.Store(true)
+		"/tmp/tunnelkit-test",
+		update.NewChecker(
+			"0.1.0",
+			update.WithHTTPClient(srv.Client()),
+			update.WithReleaseURLs(srv.URL),
+			update.WithProxyPrefix(""),
+			update.WithPlatform("windows", "amd64"),
+			update.WithAssetURLValidator(func(rawURL, _, _ string) bool {
+				return strings.HasPrefix(rawURL, srv.URL+"/")
+			}),
+			update.WithPreUpdateHook(func(context.Context) error {
+				preHookCalled.Store(true)
 				return nil
-			}, nil
-		}),
+			}),
+			update.WithApplier(func(_ context.Context, _ string, _ update.ProgressFunc) (func() error, error) {
+				return func() error {
+					restarted.Store(true)
+					return nil
+				}, nil
+			}),
+		),
 	)
 	info := sysAPI.Info(context.Background())
 	if info.AppVersion != "0.1.0" {
@@ -224,6 +248,9 @@ func TestSystemAPIInfoAndCheckUpdate(t *testing.T) {
 	}
 	if info.Platform == "" {
 		t.Fatal("Platform must not be empty")
+	}
+	if info.DataDir != "/tmp/tunnelkit-test" {
+		t.Fatalf("DataDir = %q, want /tmp/tunnelkit-test", info.DataDir)
 	}
 
 	upd, err := sysAPI.CheckUpdate(context.Background())

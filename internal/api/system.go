@@ -8,12 +8,13 @@ import (
 	"tunnelkit/internal/update"
 )
 
-// SystemInfo 包含应用版本、运行平台与内置 tunnelkit-helper 组件就绪状态。
+// SystemInfo 包含应用版本、运行平台、数据目录与内置 tunnelkit-helper 组件就绪状态。
 type SystemInfo struct {
 	AppVersion  string `json:"appVersion"`
 	Platform    string `json:"platform"`
 	HelperReady bool   `json:"helperReady"`
 	HelperPath  string `json:"helperPath,omitempty"`
+	DataDir     string `json:"dataDir,omitempty"`
 }
 
 // UpdateInfo 表示版本更新检查结果。
@@ -25,19 +26,21 @@ type UpdateProgress = update.Progress
 // SystemAPI 暴露只读系统、组件就绪与版本更新检查及自更新接口。
 type SystemAPI struct {
 	version string
+	dataDir string
 	updater *update.Checker
 }
 
 func NewSystemAPI(version string, opts ...update.Option) *SystemAPI {
-	return NewSystemAPIWithUpdater(version, update.NewChecker(version, opts...))
+	return NewSystemAPIWithUpdater(version, "", update.NewChecker(version, opts...))
 }
 
-func NewSystemAPIWithUpdater(version string, updater *update.Checker) *SystemAPI {
+func NewSystemAPIWithUpdater(version, dataDir string, updater *update.Checker) *SystemAPI {
 	if updater == nil {
 		updater = update.NewChecker(version)
 	}
 	return &SystemAPI{
 		version: version,
+		dataDir: dataDir,
 		updater: updater,
 	}
 }
@@ -49,6 +52,7 @@ func (a *SystemAPI) Info(_ context.Context) SystemInfo {
 		Platform:    runtime.GOOS,
 		HelperReady: ready,
 		HelperPath:  helperPath,
+		DataDir:     a.dataDir,
 	}
 }
 

@@ -6,6 +6,34 @@
 import { Create as $Create } from "@wailsio/runtime";
 
 /**
+ * AppSettings 表示桌面客户端应用级偏好设置。
+ */
+export class AppSettings {
+    "theme": string;
+    "autoCheckUpdate": boolean;
+
+    /** Creates a new AppSettings instance. */
+    constructor($$source: Partial<AppSettings> = {}) {
+        if (!("theme" in $$source)) {
+            this["theme"] = "";
+        }
+        if (!("autoCheckUpdate" in $$source)) {
+            this["autoCheckUpdate"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AppSettings instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AppSettings {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AppSettings($$parsedSource as Partial<AppSettings>);
+    }
+}
+
+/**
  * Input 是创建或更新服务配置的输入参数。Password 为空时表示保留已保存的密码。
  */
 export class Input {
@@ -165,6 +193,28 @@ export class Profile {
             $$parsedSource["dnsDomains"] = $$createField11_0($$parsedSource["dnsDomains"]);
         }
         return new Profile($$parsedSource as Partial<Profile>);
+    }
+}
+
+/**
+ * SettingsPatch 只包含调用方明确修改的应用设置字段。
+ */
+export class SettingsPatch {
+    "theme"?: string | null;
+    "autoCheckUpdate"?: boolean | null;
+
+    /** Creates a new SettingsPatch instance. */
+    constructor($$source: Partial<SettingsPatch> = {}) {
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SettingsPatch instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SettingsPatch {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SettingsPatch($$parsedSource as Partial<SettingsPatch>);
     }
 }
 

@@ -6,11 +6,13 @@ import {
   Loader2,
   Play,
   Plus,
+  Settings,
   Trash2,
   Unplug,
   X,
 } from '@lucide/vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import NavItem from '@/components/common/NavItem.vue'
 import StatusDot from '@/components/common/StatusDot.vue'
 import AppButton from '@/components/base/button/AppButton.vue'
 import AppDropdownMenuContent from '@/components/base/AppDropdownMenuContent.vue'
@@ -21,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { getViewingStatusMeta } from '@/presentation/vpn'
+import type { DesktopPlatform } from '@/types/desktop'
 import type { Profile } from '@/types/profile'
 import type { VpnPendingAction, VpnState } from '@/types/vpn'
 import { formatEndpoint } from '@/utils/network'
@@ -30,18 +33,28 @@ const props = withDefaults(
     profiles: readonly Profile[]
     selectedId: string
     vpnState: VpnState
+    platform?: DesktopPlatform
     isCreating?: boolean
+    hasUpdate?: boolean
     busy?: boolean
     pendingAction?: VpnPendingAction | null
     canceling?: boolean
     deletingProfileId?: string
   }>(),
-  { isCreating: false, busy: false, canceling: false, deletingProfileId: '' },
+  {
+    platform: 'web',
+    isCreating: false,
+    hasUpdate: false,
+    busy: false,
+    canceling: false,
+    deletingProfileId: '',
+  },
 )
 
 const emit = defineEmits<{
   selectProfile: [id: string]
   createProfile: []
+  openSettings: []
   connect: [id: string]
   cancel: []
   disconnect: []
@@ -53,6 +66,7 @@ const openMenuId = ref<string | null>(null)
 const activeProfileId = computed(() =>
   props.vpnState.status === 'disconnected' ? '' : props.vpnState.profileId,
 )
+const shortcutModifier = computed(() => (props.platform === 'macos' ? '⌘' : 'Ctrl+'))
 
 const itemStatus = (id: string) => getViewingStatusMeta(props.vpnState, id)
 
@@ -72,16 +86,35 @@ const confirmDelete = (id: string) => {
 
 <template>
   <aside
+    data-testid="app-sidebar"
     class="flex w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground select-none"
   >
-    <div class="flex items-center justify-between px-3.5 pt-3.5 pb-2">
-      <span class="text-caption font-medium text-muted-foreground">连接列表</span>
-      <span
-        v-if="profiles.length > 0"
-        class="rounded-full bg-foreground/[0.06] px-2 py-0.5 font-mono text-[11px] font-medium text-muted-foreground tabular-nums"
+    <div class="flex items-center justify-between px-3.5 pt-2 pb-2">
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="text-caption font-medium text-muted-foreground">连接列表</span>
+        <span
+          v-if="profiles.length > 0"
+          class="rounded-full bg-foreground/[0.06] px-2 py-0.5 font-mono text-[11px] font-medium text-muted-foreground tabular-nums"
+        >
+          {{ profiles.length }}
+        </span>
+      </div>
+
+      <AppButton
+        :variant="isCreating ? 'secondary' : 'ghost'"
+        size="icon-xs"
+        aria-label="新建连接"
+        :title="`新建连接 (${shortcutModifier}N)`"
+        data-testid="sidebar-new-profile-btn"
+        :class="
+          isCreating
+            ? 'text-foreground'
+            : 'text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground'
+        "
+        @click="emit('createProfile')"
       >
-        {{ profiles.length }}
-      </span>
+        <Plus class="size-4" aria-hidden="true" />
+      </AppButton>
     </div>
 
     <div class="flex-1 space-y-2 overflow-y-auto px-3 py-1">
@@ -110,7 +143,7 @@ const confirmDelete = (id: string) => {
           <button
             type="button"
             class="flex w-full items-center justify-between gap-2.5 rounded-[11px] px-3.5 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            :aria-current="selectedId === profile.id ? 'true' : undefined"
+            :aria-current="selectedId === profile.id && !isCreating ? 'true' : undefined"
             :data-testid="`sidebar-profile-${profile.id}`"
             @click="emit('selectProfile', profile.id)"
             @contextmenu.prevent="openMenuId = profile.id"
@@ -235,17 +268,16 @@ const confirmDelete = (id: string) => {
       </DropdownMenu>
     </div>
 
-    <div class="border-t border-sidebar-border p-3">
-      <AppButton
-        :variant="isCreating ? 'secondary' : 'outline'"
-        size="default"
-        class="w-full justify-center font-medium"
-        data-testid="sidebar-new-profile-btn"
-        @click="emit('createProfile')"
-      >
-        <Plus class="size-4" />
-        新建连接
-      </AppButton>
+    <div class="border-t border-sidebar-border/60 px-2.5 py-2.5">
+      <NavItem
+        :icon="Settings"
+        label="设置"
+        :tooltip="`设置 (${shortcutModifier},)`"
+        :dot="hasUpdate"
+        dot-test-id="sidebar-settings-update-dot"
+        test-id="sidebar-settings-btn"
+        @click="emit('openSettings')"
+      />
     </div>
   </aside>
 </template>

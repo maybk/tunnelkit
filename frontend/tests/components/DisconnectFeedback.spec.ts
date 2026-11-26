@@ -79,7 +79,6 @@ describe('fast disconnect feedback', () => {
           state: store.state,
           busy: store.busyAction,
           pendingAction: store.pendingAction,
-          elapsedText: '',
         }),
     })
     const wrapper = mount(Host)

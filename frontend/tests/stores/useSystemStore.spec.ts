@@ -9,12 +9,13 @@ describe('useSystemStore', () => {
     vi.useRealTimers()
   })
 
-  it('checks for updates, loads system info, and coordinates about/update dialogs', async () => {
+  it('checks for updates, loads system info, and opens the update dialog when an update is found', async () => {
     vi.spyOn(systemApi, 'getInfo').mockResolvedValue({
       appVersion: '0.3.2',
       platform: 'darwin',
       helperReady: true,
       helperPath: '/Library/PrivilegedHelperTools/tunnelkit-helper',
+      dataDir: '/Users/alice/.tunnelkit',
     })
     vi.spyOn(systemApi, 'checkUpdate').mockResolvedValue({
       currentVersion: '0.3.2',
@@ -31,16 +32,15 @@ describe('useSystemStore', () => {
     const store = useSystemStore()
     const sysInfo = await store.loadSystemInfo()
     expect(sysInfo?.helperReady).toBe(true)
+    expect(sysInfo?.dataDir).toBe('/Users/alice/.tunnelkit')
 
-    store.openAboutDialog()
-    const info = await store.checkUpdate({ silent: false })
+    const info = await store.checkUpdate({ silent: false, inline: true })
     expect(info?.hasUpdate).toBe(true)
     expect(store.hasUpdate).toBe(true)
-    expect(store.aboutDialogOpen).toBe(false)
     expect(store.updateDialogOpen).toBe(true)
   })
 
-  it('uses in-place button confirmation without duplicate toast while AboutDialog is open, and falls back to toast when closed', async () => {
+  it('uses in-place button confirmation for inline checks without duplicate toast, and falls back to toast otherwise', async () => {
     vi.useFakeTimers()
     vi.spyOn(systemApi, 'checkUpdate').mockResolvedValue({
       currentVersion: '1.0.0',
@@ -57,8 +57,7 @@ describe('useSystemStore', () => {
     const store = useSystemStore()
     const noticeStore = useNoticeStore()
 
-    store.openAboutDialog()
-    await store.checkUpdate({ silent: false })
+    await store.checkUpdate({ silent: false, inline: true })
 
     expect(store.updateUpToDate).toBe(true)
     expect(noticeStore.items).toHaveLength(0)
@@ -66,13 +65,13 @@ describe('useSystemStore', () => {
     vi.advanceTimersByTime(2500)
     expect(store.updateUpToDate).toBe(false)
 
-    // Closing AboutDialog before timer expiry also clears transient button feedback immediately.
-    await store.checkUpdate({ silent: false })
+    // Explicit clearUpToDateFeedback (e.g. leaving AboutView) clears transient feedback immediately.
+    await store.checkUpdate({ silent: false, inline: true })
     expect(store.updateUpToDate).toBe(true)
-    store.aboutDialogOpen = false
+    store.clearUpToDateFeedback()
     expect(store.updateUpToDate).toBe(false)
 
-    // When AboutDialog is closed before checkUpdate resolves, global toast serves as fallback.
+    // Non-inline manual check falls back to global toast notification.
     await store.checkUpdate({ silent: false })
     expect(store.updateUpToDate).toBe(false)
     expect(noticeStore.items).toHaveLength(1)
@@ -81,37 +80,6 @@ describe('useSystemStore', () => {
       title: '当前已是最新版本',
       message: 'v1.0.0',
     })
-  })
-
-  it('prevents stacked AboutDialog and UpdateDialog when a silent startup check resolves mid-flight', async () => {
-    let resolveCheck!: (info: Awaited<ReturnType<typeof systemApi.checkUpdate>>) => void
-    vi.spyOn(systemApi, 'checkUpdate').mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveCheck = resolve
-        }),
-    )
-
-    const store = useSystemStore()
-    const pending = store.checkUpdate({ silent: true })
-    store.openAboutDialog()
-    expect(store.aboutDialogOpen).toBe(true)
-
-    resolveCheck({
-      currentVersion: '1.0.0',
-      latestVersion: '1.1.0',
-      hasUpdate: true,
-      releaseUrl: 'https://github.com/maybk/tunnelkit/releases/tag/v1.1.0',
-      canSelfUpdate: true,
-      assetName: 'tunnelkit-darwin-arm64.tar.gz',
-      assetUrl: 'https://github.com/maybk/tunnelkit/releases/download/v1.1.0/tunnelkit.tar.gz',
-      assetSize: 2048,
-      assetSha256: 'abc123',
-    })
-    await pending
-
-    expect(store.aboutDialogOpen).toBe(false)
-    expect(store.updateDialogOpen).toBe(true)
   })
 
   it('reuses an in-flight silent check when manually checking updates and reopens dismissed updates', async () => {
@@ -127,7 +95,7 @@ describe('useSystemStore', () => {
     store.dismissUpdate('1.2.0')
 
     const silentPromise = store.checkUpdate({ silent: true })
-    const explicitPromise = store.checkUpdate({ silent: false })
+    const explicitPromise = store.checkUpdate({ silent: false, inline: true })
     expect(checkSpy).toHaveBeenCalledTimes(1)
 
     resolveCheck({
@@ -202,7 +170,7 @@ describe('useSystemStore', () => {
     expect(store.updateDialogOpen).toBe(false)
     expect(store.isUpdateReady).toBe(true)
 
-    store.openUpdateFromAbout()
+    store.showUpdateDialog()
     expect(store.updateDialogOpen).toBe(true)
     expect(store.updatePhase).toBe('ready')
 

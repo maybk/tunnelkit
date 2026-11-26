@@ -23,10 +23,16 @@ const handleCancel = () => {
   <div class="h-full overflow-y-auto px-6 pt-4 pb-6">
     <div class="mx-auto w-full max-w-2xl space-y-4">
       <div class="px-0.5">
-        <h1 class="text-heading font-semibold tracking-tight text-foreground">
-          {{ profilesStore.profiles.length ? '新建 VPN 连接' : '添加第一个 VPN 连接' }}
-        </h1>
-        <p class="mt-1 text-caption text-muted-foreground">
+        <h2
+          v-if="!profilesStore.profiles.length"
+          class="text-heading font-semibold tracking-tight text-foreground"
+        >
+          添加第一个 VPN 连接
+        </h2>
+        <p
+          class="text-caption text-muted-foreground"
+          :class="!profilesStore.profiles.length ? 'mt-1' : ''"
+        >
           填写网关地址与账号信息，或切换到「配置文本」直接粘贴现有配置。
         </p>
       </div>

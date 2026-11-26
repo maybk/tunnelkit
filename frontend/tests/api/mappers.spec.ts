@@ -3,6 +3,8 @@ import {
   mapLogViewFromDto,
   mapProfileFromDto,
   mapProfileInputToDto,
+  mapSettingsFromDto,
+  mapSettingsPatchToDto,
   mapSystemInfoFromDto,
   mapUpdateInfoFromDto,
   mapUpdateProgressFromDto,
@@ -139,8 +141,22 @@ describe('api mappers', () => {
       platform: 'darwin/arm64',
       helperReady: true,
       helperPath: '/Library/PrivilegedHelperTools/tunnelkit-helper',
+      dataDir: '/Users/alice/.tunnelkit',
     })
     expect(sys.appVersion).toBe('0.3.2')
+    expect(sys.dataDir).toBe('/Users/alice/.tunnelkit')
+
+    expect(mapSettingsFromDto({ theme: 'dark', autoCheckUpdate: false })).toEqual({
+      theme: 'dark',
+      autoCheckUpdate: false,
+    })
+    expect(mapSettingsFromDto({ theme: 'invalid' })).toEqual({
+      theme: 'system',
+      autoCheckUpdate: true,
+    })
+    const patchDto = mapSettingsPatchToDto({ autoCheckUpdate: false })
+    expect(patchDto.autoCheckUpdate).toBe(false)
+    expect(patchDto.theme).toBeUndefined()
 
     const update = mapUpdateInfoFromDto({
       currentVersion: '0.3.2',

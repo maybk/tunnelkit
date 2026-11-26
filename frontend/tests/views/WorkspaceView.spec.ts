@@ -238,6 +238,7 @@ describe('UpdateDialog and WorkspaceView components', () => {
       platform: 'darwin',
       helperReady: false,
       helperPath: '',
+      dataDir: '',
     }
 
     const wrapperEmpty = mount(WorkspaceView)
@@ -251,7 +252,7 @@ describe('UpdateDialog and WorkspaceView components', () => {
     await nextTick()
 
     const wrapperWithProfile = mount(WorkspaceView)
-    expect(wrapperWithProfile.text()).toContain('总部网关')
+    expect(wrapperWithProfile.get('[data-testid="hero-status-title"]').text()).toBe('未连接')
     expect(wrapperWithProfile.text()).toContain('vpn.example.com:443')
 
     const nameInput = wrapperWithProfile.find('[data-testid="profile-name-input"]')

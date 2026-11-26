@@ -27,6 +27,7 @@ export interface SystemInfo {
   platform: string
   helperReady: boolean
   helperPath: string
+  dataDir: string
 }
 
 export interface NoticeItem {
